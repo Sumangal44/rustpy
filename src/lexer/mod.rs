@@ -204,6 +204,7 @@ impl<'a> Lexer<'a> {
             "import" => TokenKind::Import,
             "from" => TokenKind::From,
             "as" => TokenKind::As,
+            "assert" => TokenKind::Assert,
             "and" => TokenKind::And,
             "or" => TokenKind::Or,
             "not" => TokenKind::Not,
@@ -404,8 +405,21 @@ impl<'a> Lexer<'a> {
                 (TokenKind::RBrace, 1)
             }
             (',', _) => (TokenKind::Comma, 1),
+            (':', Some('=')) => (TokenKind::ColonEqual, 2),
             (':', _) => (TokenKind::Colon, 1),
+            ('.', Some('.')) => {
+                if let Some('.') = {
+                    let mut iter = self.chars.clone();
+                    iter.next();
+                    iter.next()
+                } {
+                    (TokenKind::Ellipsis, 3)
+                } else {
+                    (TokenKind::Dot, 1)
+                }
+            }
             ('.', _) => (TokenKind::Dot, 1),
+            (';', _) => (TokenKind::Semicolon, 1),
             _ => {
                 return Err(LexerError::new(
                     LexerErrorKind::UnexpectedCharacter(c),

@@ -16,6 +16,7 @@ pub enum TokenKind {
     Import,
     From,
     As,
+    Assert,
     And,
     Or,
     Not,
@@ -92,7 +93,9 @@ pub enum TokenKind {
     // Delimiters
     Comma,
     Colon,
+    ColonEqual,
     Dot,
+    Ellipsis,
     Semicolon,
     Arrow,
 
