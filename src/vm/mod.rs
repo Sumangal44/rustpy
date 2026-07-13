@@ -286,9 +286,13 @@ impl VirtualMachine {
                     frame.ip = *target;
                 }
             }
-            Opcode::BuildClass => {
-                // Pops code_obj, pops name (wait, compile_stmt for ClassDef pushes name, then code_obj)
-                // So top is code_obj, under is name.
+            Opcode::BuildClass(num_bases) => {
+                let mut bases = Vec::new();
+                for _ in 0..*num_bases {
+                    bases.push(frame.pop()?);
+                }
+                bases.reverse();
+
                 let code_obj = frame.pop()?;
                 let name_obj = frame.pop()?;
 
@@ -313,12 +317,11 @@ impl VirtualMachine {
                 self.run(&mut class_frame)?;
 
                 // Extract methods from class_env
-                // Wait, get_all_locals() returns all variables, including ones from the enclosing environment?
-                // No, get_all_locals() is only `self.variables`! So it only gets the class locals!
                 let attributes = class_env.borrow().get_all_locals();
 
-                let class = Rc::new(crate::objects::class::PyClass::new(name, attributes));
-                frame.push(class);
+                let class = crate::objects::class::PyClass::new(name, attributes, bases)?;
+                let class_obj = Rc::new(class);
+                frame.push(class_obj);
             }
             Opcode::LoadAttr(attr_name) => {
                 let obj = frame.pop()?;

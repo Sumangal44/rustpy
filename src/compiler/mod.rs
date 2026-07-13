@@ -143,15 +143,7 @@ impl Compiler {
                 let loop_end = self.code.instructions.len();
                 self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
             }
-            Stmt::ClassDef { name, body } => {
-                // To build a class, we evaluate its body, which defines its methods.
-                // We'll push the name, then evaluate the body to build a dict, then BuildClass.
-                // Since our VM doesn't have a concept of class body execution namespace directly yet,
-                // we will fake it by compiling the body inside a new compiler, getting a CodeObject,
-                // creating a function, calling it to get a dict?
-                // No, that's complex. Let's do it inline:
-                // We will just compile the methods and store them into a map.
-                // Actually, the simplest way is to create a map, then for each method, compile it,
+            Stmt::ClassDef { name, bases, body } => {
                 let mut class_compiler = Compiler::new(name.clone());
                 for s in body {
                     class_compiler.compile_stmt(s)?;
@@ -176,7 +168,12 @@ impl Compiler {
                 self.code.constants.push(std::rc::Rc::new(code_obj));
                 self.emit(Opcode::LoadConst(code_idx));
 
-                self.emit(Opcode::BuildClass);
+                // Compile the base classes
+                for base in bases {
+                    self.compile_expr(base)?;
+                }
+
+                self.emit(Opcode::BuildClass(bases.len()));
 
                 let name_idx = self.get_or_add_name(&name);
                 self.emit(Opcode::StoreName(name_idx));

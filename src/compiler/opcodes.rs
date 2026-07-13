@@ -51,7 +51,7 @@ pub enum Opcode {
     ForIter(usize), // pops iterator, gets next. If some, pushes iterator then item. If none, pops iterator, jumps forward by offset.
 
     // Classes and Attributes
-    BuildClass,        // pops dict, pops name, pushes class
+    BuildClass(usize), // number of base classes
     LoadAttr(String),  // pops object, pushes attribute
     StoreAttr(String), // pops object, pops value, sets attribute
 

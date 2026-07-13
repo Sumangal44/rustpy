@@ -222,4 +222,22 @@ mod tests {
         let result = env.borrow().get("result").unwrap();
         assert_eq!(result.repr(), "7");
     }
+
+    #[test]
+    fn test_inheritance() {
+        let source = "class Base:\n    def greet(self):\n        return \"Hello from Base\"\n\nclass Derived(Base):\n    def greet2(self):\n        return \"Hello from Derived\"\n\nd = Derived()\nres1 = d.greet()\nres2 = d.greet2()\n";
+        let env = execute_source(source);
+        let res1 = env.borrow().get("res1").unwrap();
+        assert_eq!(res1.repr(), "'Hello from Base'");
+        let res2 = env.borrow().get("res2").unwrap();
+        assert_eq!(res2.repr(), "'Hello from Derived'");
+    }
+
+    #[test]
+    fn test_super_call() {
+        let source = "class Base:\n    def greet(self):\n        return \"Base\"\n\nclass Derived(Base):\n    def greet(self):\n        return super(Derived, self).greet() + \" and Derived\"\n\nd = Derived()\nresult = d.greet()\n";
+        let env = execute_source(source);
+        let result = env.borrow().get("result").unwrap();
+        assert_eq!(result.repr(), "'Base and Derived'");
+    }
 }

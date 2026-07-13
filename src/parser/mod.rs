@@ -201,12 +201,18 @@ impl<'a> Parser<'a> {
         };
         self.advance()?;
 
-        // Optional inheritance (skip for Phase 11)
+        let mut bases = Vec::new();
         if self.check(&TokenKind::LParen) {
             self.advance()?;
-            // Ignoring base classes for now, just consume them
-            while !self.check(&TokenKind::RParen) && !self.check(&TokenKind::EOF) {
-                self.advance()?;
+            if !self.check(&TokenKind::RParen) {
+                loop {
+                    bases.push(self.parse_expression(0)?);
+                    if self.check(&TokenKind::Comma) {
+                        self.advance()?;
+                    } else {
+                        break;
+                    }
+                }
             }
             self.consume(TokenKind::RParen)?;
         }
@@ -216,7 +222,7 @@ impl<'a> Parser<'a> {
 
         let body = self.parse_block()?;
 
-        Ok(Stmt::ClassDef { name, body })
+        Ok(Stmt::ClassDef { name, bases, body })
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {

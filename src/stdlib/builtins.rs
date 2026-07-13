@@ -426,8 +426,24 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     env_mut.set(
         "super".to_string(),
         Rc::new(PyNativeFunction::new("super".to_string(), |args| {
-            // Stub for super(), returning None since inheritance isn't fully wired yet
-            Ok(Rc::new(crate::objects::none::PyNone::new()))
+            if args.len() != 2 {
+                return Err("TypeError: super() takes exactly 2 arguments (type, obj)".to_string());
+            }
+
+            let type_obj = args[0].as_any().downcast_ref::<crate::objects::class::PyClass>()
+                .ok_or_else(|| "TypeError: super() argument 1 must be type".to_string())?;
+            let obj = args[1].as_any().downcast_ref::<crate::objects::instance::PyInstance>()
+                .ok_or_else(|| "TypeError: super() argument 2 must be instance".to_string())?;
+
+            let type_rc = Rc::new(type_obj.clone()); // Wait, this clones the class. We need the original Rc.
+            // Oh! args[0] is Rc<dyn PyObject>. We can downcast the Rc directly if we wrote a method, 
+            // but we can just use obj.class since the type_obj is usually the class.
+            // Actually, we can clone args[0] and use it. Wait, PySuper takes Rc<PyClass>.
+            // Since we can't get Rc<PyClass> out of Rc<dyn PyObject> easily without specialized traits,
+            // we can change PySuper to take Rc<dyn PyObject> for type_obj instead, or just clone the PyClass.
+            // Cloning PyClass is cheap because attributes are in Rc<RefCell>.
+            let super_proxy = crate::objects::class::PySuper::new(type_rc, Rc::new(obj.clone()));
+            Ok(Rc::new(super_proxy) as Rc<dyn PyObject>)
         })),
     );
     // abs(x)

@@ -49,29 +49,18 @@ impl PyObject for PyInstance {
             return Ok(Rc::clone(val));
         }
 
-        // 2. Check class dictionary
-        let class_attrs = self.class.attributes.borrow();
-        if let Some(val) = class_attrs.get(attr) {
+        // 2. Check class and its MRO
+        if let Ok(val) = self.class.get_attr(attr) {
             // If it's a function, bind it!
             if val.as_any().is::<crate::objects::function::PyFunction>()
                 || val
                     .as_any()
                     .is::<crate::objects::native_function::PyNativeFunction>()
             {
-                // Return a bound method
-                // Wait, we need an Rc<PyInstance> to create a bound method, but we only have &self.
-                // This is a classic Rust issue. We can't clone `self` easily because we don't have the Rc wrapper.
-                // However, we are implementing `PyObject`.
-                // Let's change PyBoundMethod to hold `Rc<RefCell<HashMap<...>>>` ? No, it needs the instance object.
-                // Alternatively, we can pass `Rc<dyn PyObject>` to `get_attr`.
-                // Let's modify the PyObject trait `get_attr` to take `self_rc: Rc<dyn PyObject>` ? No, that changes the trait.
-                // Let's panic for a moment here to think: what if `PyBoundMethod` just holds a clone of PyInstance?
-                // `PyInstance` is `Clone` and its internal attributes are in an `Rc<RefCell>`.
-                // So cloning `PyInstance` is cheap and maintains the same state!
-                let bound = PyBoundMethod::new(self.clone(), Rc::clone(val));
+                let bound = PyBoundMethod::new(self.clone(), Rc::clone(&val));
                 return Ok(Rc::new(bound));
             }
-            return Ok(Rc::clone(val));
+            return Ok(val);
         }
 
         Err(format!(
