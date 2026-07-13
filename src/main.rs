@@ -1,51 +1,65 @@
 mod ast;
+mod compiler;
 mod diagnostics;
 mod lexer;
 mod objects;
 mod parser;
 mod runtime;
+mod vm;
 
+use compiler::Compiler;
 use lexer::Lexer;
-use objects::{PyObject, int::PyInt};
 use parser::Parser;
 use runtime::Environment;
-use std::rc::Rc;
+use vm::VirtualMachine;
+use vm::frame::Frame;
 
 fn main() {
-    println!("RustPy Interpreter - Phase 3");
+    println!("RustPy Interpreter - Phase 5");
 
-    // Demonstrate beautiful errors
-    let source = "def add(a, b\n    return a + b\n";
+    // Demonstrate End-to-End Execution
+    let source = "a = 10 * 5\nb = a + 2\n";
+    println!("Executing source:\n{}", source);
+
     let lexer = Lexer::new(source);
     match Parser::new(lexer) {
         Ok(mut parser) => {
-            if let Err(e) = parser.parse_module() {
-                println!(
+            match parser.parse_module() {
+                Ok(module) => {
+                    let compiler = Compiler::new();
+                    match compiler.compile(&module) {
+                        Ok(code) => {
+                            let mut env = Environment::new();
+                            let mut frame = Frame::new(code, env);
+                            let mut vm = VirtualMachine::new();
+
+                            match vm.run(&mut frame) {
+                                Ok(_) => {
+                                    println!("Execution successful!");
+                                    // Verify state
+                                    if let Some(a) = frame.env.get("a") {
+                                        println!("a = {}", a.repr());
+                                    }
+                                    if let Some(b) = frame.env.get("b") {
+                                        println!("b = {}", b.repr());
+                                    }
+                                }
+                                Err(e) => println!("Runtime error: {}", e),
+                            }
+                        }
+                        Err(e) => println!("Compiler error: {}", e),
+                    }
+                }
+                Err(e) => println!(
                     "{}",
                     diagnostics::format_error(source, &e.span, &e.to_string())
-                );
+                ),
             }
         }
-        Err(e) => {
-            println!(
-                "{}",
-                diagnostics::format_error(source, &e.span, &e.to_string())
-            );
-        }
-    }
-
-    // Demonstrate Object Model
-    let a: Rc<dyn PyObject> = Rc::new(PyInt::new(10));
-    let b: Rc<dyn PyObject> = Rc::new(PyInt::new(20));
-
-    if let Some(result) = a.add(b) {
-        println!("10 + 20 = {}", result.repr());
-    }
-
-    let mut env = Environment::new();
-    env.set("x".to_string(), Rc::new(PyInt::new(42)));
-    if let Some(val) = env.get("x") {
-        println!("x = {}", val.repr());
+        Err(e) => println!(
+            "{}",
+            diagnostics::format_error(source, &e.span, &e.to_string())
+        ),
     }
 }
 
@@ -54,35 +68,39 @@ mod tests {
     use super::*;
     use crate::objects::PyObject;
     use crate::objects::int::PyInt;
-    use crate::runtime::Environment;
     use std::rc::Rc;
 
-    #[test]
-    fn test_pyint_operations() {
-        let a: Rc<dyn PyObject> = Rc::new(PyInt::new(10));
-        let b: Rc<dyn PyObject> = Rc::new(PyInt::new(5));
-
-        // Test add
-        let sum = a.add(Rc::clone(&b)).unwrap();
-        assert_eq!(sum.repr(), "15");
-
-        // Test sub
-        let diff = a.sub(Rc::clone(&b)).unwrap();
-        assert_eq!(diff.repr(), "5");
-
-        // Test mul
-        let prod = a.mul(Rc::clone(&b)).unwrap();
-        assert_eq!(prod.repr(), "50");
+    fn execute_source(source: &str) -> Environment {
+        let lexer = Lexer::new(source);
+        let mut parser = Parser::new(lexer).unwrap();
+        let module = parser.parse_module().unwrap();
+        let compiler = Compiler::new();
+        let code = compiler.compile(&module).unwrap();
+        let env = Environment::new();
+        let mut frame = Frame::new(code, env);
+        let mut vm = VirtualMachine::new();
+        vm.run(&mut frame).unwrap();
+        frame.env
     }
 
     #[test]
-    fn test_environment() {
-        let mut env = Environment::new();
-        env.set("x".to_string(), Rc::new(PyInt::new(42)));
+    fn test_end_to_end_math() {
+        let env = execute_source("a = 10 * 5 + 2\n");
+        let a = env.get("a").unwrap();
+        assert_eq!(a.repr(), "52");
+    }
 
-        let val = env.get("x").unwrap();
-        assert_eq!(val.repr(), "42");
+    #[test]
+    fn test_end_to_end_variables() {
+        let env = execute_source("a = 10\nb = a + 5\n");
+        let b = env.get("b").unwrap();
+        assert_eq!(b.repr(), "15");
+    }
 
-        assert!(env.get("y").is_none());
+    #[test]
+    fn test_end_to_end_if_statement() {
+        let env = execute_source("a = 0\nif 1:\n    a = 42\n");
+        let a = env.get("a").unwrap();
+        assert_eq!(a.repr(), "42");
     }
 }
