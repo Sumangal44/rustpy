@@ -371,6 +371,36 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_list_comp(&mut self, elt: Expr) -> Result<Expr, ParseError> {
+        self.consume(TokenKind::For)?;
+        let target = self.parse_for_target()?;
+        self.consume(TokenKind::In)?;
+        let iter = self.parse_expression(0)?;
+        self.consume(TokenKind::RBracket)?;
+        Ok(Expr::Comprehension {
+            kind: crate::ast::CompKind::List,
+            elt: Box::new(elt),
+            key: None,
+            target: Box::new(target),
+            iter: Box::new(iter),
+        })
+    }
+
+    fn parse_dict_comp(&mut self, key: Expr, elt: Expr) -> Result<Expr, ParseError> {
+        self.consume(TokenKind::For)?;
+        let target = self.parse_for_target()?;
+        self.consume(TokenKind::In)?;
+        let iter = self.parse_expression(0)?;
+        self.consume(TokenKind::RBrace)?;
+        Ok(Expr::Comprehension {
+            kind: crate::ast::CompKind::Dict,
+            elt: Box::new(elt),
+            key: Some(Box::new(key)),
+            target: Box::new(target),
+            iter: Box::new(iter),
+        })
+    }
+
     fn parse_for(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::For)?;
         let target = self.parse_for_target()?;
@@ -624,35 +654,53 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LBracket => {
                 self.advance()?;
-                let mut elements = Vec::new();
-                if !self.check(&TokenKind::RBracket) {
-                    loop {
-                        elements.push(self.parse_expression(0)?);
-                        if self.check(&TokenKind::Comma) {
-                            self.advance()?;
-                        } else {
-                            break;
-                        }
+                if self.check(&TokenKind::RBracket) {
+                    self.advance()?;
+                    return Ok(Expr::List(Vec::new()));
+                }
+                let first = self.parse_expression(0)?;
+                if self.check(&TokenKind::For) {
+                    return self.parse_list_comp(first);
+                }
+                let mut elements = vec![first];
+                while self.check(&TokenKind::Comma) {
+                    self.advance()?;
+                    if self.check(&TokenKind::RBracket) {
+                        break;
                     }
+                    elements.push(self.parse_expression(0)?);
                 }
                 self.consume(TokenKind::RBracket)?;
                 Ok(Expr::List(elements))
             }
             TokenKind::LBrace => {
                 self.advance()?;
-                let mut pairs = Vec::new();
-                if !self.check(&TokenKind::RBrace) {
-                    loop {
-                        let key = self.parse_expression(0)?;
-                        self.consume(TokenKind::Colon)?;
-                        let value = self.parse_expression(0)?;
-                        pairs.push((key, value));
-                        if self.check(&TokenKind::Comma) {
-                            self.advance()?;
-                        } else {
-                            break;
-                        }
+                if self.check(&TokenKind::RBrace) {
+                    self.advance()?;
+                    return Ok(Expr::Dict(Vec::new()));
+                }
+                let first = self.parse_expression(0)?;
+                if self.check(&TokenKind::For) {
+                    return Err(ParseError::new(
+                        ParseErrorKind::InvalidSyntax("set comprehensions not yet supported".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+                self.consume(TokenKind::Colon)?;
+                let second = self.parse_expression(0)?;
+                if self.check(&TokenKind::For) {
+                    return self.parse_dict_comp(first, second);
+                }
+                let mut pairs = vec![(first, second)];
+                while self.check(&TokenKind::Comma) {
+                    self.advance()?;
+                    if self.check(&TokenKind::RBrace) {
+                        break;
                     }
+                    let key = self.parse_expression(0)?;
+                    self.consume(TokenKind::Colon)?;
+                    let value = self.parse_expression(0)?;
+                    pairs.push((key, value));
                 }
                 self.consume(TokenKind::RBrace)?;
                 Ok(Expr::Dict(pairs))

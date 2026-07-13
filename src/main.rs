@@ -806,4 +806,37 @@ mod tests {
         assert_eq!(env.borrow().get("b").unwrap().repr(), "False");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "True");
     }
+
+    #[test]
+    fn test_list_comprehension_simple() {
+        let source = "result = [x for x in [1, 2, 3]]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_list_comprehension_expr() {
+        let source = "result = [x*2 for x in [1, 2, 3]]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "[2, 4, 6]");
+    }
+
+    #[test]
+    fn test_list_comprehension_strings() {
+        let source = "result = [s.upper() for s in [\"a\", \"b\", \"c\"]]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "['A', 'B', 'C']");
+    }
+
+    #[test]
+    fn test_dict_comprehension() {
+        let source = "result = {x: x*2 for x in [1, 2, 3]}\n";
+        let env = execute_source(source);
+        let result = env.borrow().get("result").unwrap();
+        assert!(result.is_truthy());
+        // Check values via get_item
+        let key = std::rc::Rc::new(crate::objects::string::PyString::new("1".to_string())) as std::rc::Rc<dyn crate::objects::PyObject>;
+        let val = result.get_item(key).unwrap();
+        assert_eq!(val.repr(), "2");
+    }
 }

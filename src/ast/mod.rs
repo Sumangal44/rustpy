@@ -33,6 +33,19 @@ pub enum Expr {
         kwargs_unpack: Vec<Expr>,
     },
     Yield(Option<Box<Expr>>),
+    Comprehension {
+        kind: CompKind,
+        elt: Box<Expr>,
+        key: Option<Box<Expr>>,
+        target: Box<Expr>,
+        iter: Box<Expr>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CompKind {
+    List,
+    Dict,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

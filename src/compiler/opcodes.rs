@@ -57,6 +57,8 @@ pub enum Opcode {
     BuildMap(usize),  // count (number of key-value pairs)
     ListExtend,       // pops an iterable, pops a list, extends list, pushes list
     DictMerge,        // pops a dict, pops a dict, merges, pushes dict
+    ListAppend,       // pops item, pops list, appends item, pushes list back
+    MapAdd,           // pops value, pops key, pops dict, inserts key:value, pushes dict back
     BinarySubscript,  // pops index, pops collection, pushes item
     StoreSubscript,   // pops value, pops index, pops collection, stores item
 

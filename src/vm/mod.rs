@@ -337,6 +337,28 @@ impl VirtualMachine {
                     return Err("TypeError: dict merge expected a dict".to_string());
                 }
             }
+            Opcode::ListAppend => {
+                let item = frame.pop()?;
+                let list_obj = frame.pop()?;
+                if let Some(list) = list_obj.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    list.elements.borrow_mut().push(item);
+                    frame.push(list_obj);
+                } else {
+                    return Err("TypeError: ListAppend expected a list".to_string());
+                }
+            }
+            Opcode::MapAdd => {
+                let value = frame.pop()?;
+                let key = frame.pop()?;
+                let dict_obj = frame.pop()?;
+                if let Some(dict) = dict_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                    let key_str = key.str();
+                    dict.entries.borrow_mut().insert(key_str, value);
+                    frame.push(dict_obj);
+                } else {
+                    return Err("TypeError: MapAdd expected a dict".to_string());
+                }
+            }
             Opcode::BinarySubscript => {
                 let idx = frame.pop()?;
                 let collection = frame.pop()?;

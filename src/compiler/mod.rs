@@ -1,7 +1,7 @@
 pub mod code;
 pub mod opcodes;
 
-use crate::ast::{BinOpKind, Expr, Module, Stmt};
+use crate::ast::{BinOpKind, CompKind, Expr, Module, Stmt};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
@@ -613,6 +613,86 @@ impl Compiler {
             Expr::Attribute { value, attr } => {
                 self.compile_expr(value)?;
                 self.emit(Opcode::LoadAttr(attr.clone()));
+            }
+            Expr::Comprehension { kind, elt, key, target, iter } => {
+                match kind {
+                    CompKind::List => {
+                        self.compile_expr(iter)?;
+                        self.emit(Opcode::GetIter);
+                        let iter_name = self.get_or_add_name("__comp_iter");
+                        self.emit(Opcode::StoreName(iter_name));
+
+                        self.emit(Opcode::BuildList(0));
+                        let result_name = self.get_or_add_name("__comp_result");
+                        self.emit(Opcode::StoreName(result_name));
+
+                        let loop_start = self.code.instructions.len();
+
+                        self.emit(Opcode::LoadName(iter_name));
+                        let for_iter_idx = self.emit(Opcode::ForIter(0));
+                        // FOR_ITER pushes [iter, item]; store item first, then iter
+
+                        if let Expr::Identifier(name) = target.as_ref() {
+                            let target_idx = self.get_or_add_name(name);
+                            self.emit(Opcode::StoreName(target_idx));
+                        } else {
+                            return Err("Comprehension target must be an identifier".to_string());
+                        }
+
+                        self.emit(Opcode::StoreName(iter_name));
+
+                        self.emit(Opcode::LoadName(result_name));
+                        self.compile_expr(elt)?;
+                        self.emit(Opcode::ListAppend);
+                        self.emit(Opcode::StoreName(result_name));
+
+                        self.emit(Opcode::JumpAbsolute(loop_start));
+
+                        let loop_end = self.code.instructions.len();
+                        self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
+
+                        self.emit(Opcode::LoadName(result_name));
+                    }
+                    CompKind::Dict => {
+                        self.compile_expr(iter)?;
+                        self.emit(Opcode::GetIter);
+                        let iter_name = self.get_or_add_name("__comp_iter");
+                        self.emit(Opcode::StoreName(iter_name));
+
+                        self.emit(Opcode::BuildMap(0));
+                        let result_name = self.get_or_add_name("__comp_result");
+                        self.emit(Opcode::StoreName(result_name));
+
+                        let loop_start = self.code.instructions.len();
+
+                        self.emit(Opcode::LoadName(iter_name));
+                        let for_iter_idx = self.emit(Opcode::ForIter(0));
+
+                        if let Expr::Identifier(name) = target.as_ref() {
+                            let target_idx = self.get_or_add_name(name);
+                            self.emit(Opcode::StoreName(target_idx));
+                        } else {
+                            return Err("Comprehension target must be an identifier".to_string());
+                        }
+
+                        self.emit(Opcode::StoreName(iter_name));
+
+                        self.emit(Opcode::LoadName(result_name));
+                        if let Some(key_expr) = key {
+                            self.compile_expr(key_expr)?;
+                        }
+                        self.compile_expr(elt)?;
+                        self.emit(Opcode::MapAdd);
+                        self.emit(Opcode::StoreName(result_name));
+
+                        self.emit(Opcode::JumpAbsolute(loop_start));
+
+                        let loop_end = self.code.instructions.len();
+                        self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
+
+                        self.emit(Opcode::LoadName(result_name));
+                    }
+                }
             }
         }
         Ok(())
