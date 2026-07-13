@@ -977,4 +977,46 @@ mod tests {
         let env = execute_source("result = f\"\"\n");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "''");
     }
+
+    #[test]
+    fn test_range_simple() {
+        let env = execute_source("r = range(5)\na = list(r)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[0, 1, 2, 3, 4]");
+    }
+
+    #[test]
+    fn test_range_start_stop() {
+        let env = execute_source("r = range(2, 5)\na = list(r)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[2, 3, 4]");
+    }
+
+    #[test]
+    fn test_range_step() {
+        let env = execute_source("r = range(0, 10, 3)\na = list(r)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[0, 3, 6, 9]");
+    }
+
+    #[test]
+    fn test_range_negative_step() {
+        let env = execute_source("r = range(5, 0, -1)\na = list(r)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[5, 4, 3, 2, 1]");
+    }
+
+    #[test]
+    fn test_range_len() {
+        let env = execute_source("a = len(range(10))\nb = len(range(2, 8))\nc = len(range(0, 10, 3))\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "10");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "6");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "4");
+    }
+
+    #[test]
+    fn test_range_for_loop() {
+        let env = execute_source("
+result = []
+for i in range(3):
+    result.append(i)
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "[0, 1, 2]");
+    }
 }

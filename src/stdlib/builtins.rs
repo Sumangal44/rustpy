@@ -100,6 +100,8 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 Ok(Rc::new(PyInt::new(l.elements.borrow().len() as i64)))
             } else if let Some(d) = obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                 Ok(Rc::new(PyInt::new(d.entries.borrow().len() as i64)))
+            } else if let Some(r) = obj.as_any().downcast_ref::<crate::objects::range::PyRange>() {
+                Ok(Rc::new(PyInt::new(r.len() as i64)))
             } else {
                 Err(format!(
                     "TypeError: object of type '{}' has no len()",
@@ -688,6 +690,33 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         "eval".to_string(),
         Rc::new(PyNativeFunction::new("eval".to_string(), |args| {
             Err("NotImplementedError: eval() is not fully wired to the AST yet".to_string())
+        })),
+    );
+
+    // range(stop), range(start, stop), range(start, stop, step)
+    env_mut.set(
+        "range".to_string(),
+        Rc::new(PyNativeFunction::new("range".to_string(), |args| {
+            if args.is_empty() || args.len() > 3 {
+                return Err(format!("TypeError: range() takes 1-3 arguments ({} given)", args.len()));
+            }
+            let to_i64 = |obj: &Rc<dyn PyObject>| -> Result<i64, String> {
+                if let Some(i) = obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    Ok(i.value)
+                } else {
+                    Err(format!("TypeError: '{}' object cannot be interpreted as an integer", obj.get_type()))
+                }
+            };
+            let (start, stop, step) = match args.len() {
+                1 => (0, to_i64(&args[0])?, 1),
+                2 => (to_i64(&args[0])?, to_i64(&args[1])?, 1),
+                3 => (to_i64(&args[0])?, to_i64(&args[1])?, to_i64(&args[2])?),
+                _ => unreachable!(),
+            };
+            if step == 0 {
+                return Err("ValueError: range() arg 3 must not be zero".to_string());
+            }
+            Ok(Rc::new(crate::objects::range::PyRange::new(start, stop, step)))
         })),
     );
 
