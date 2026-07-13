@@ -45,6 +45,7 @@ pub enum TokenKind {
     FloatLiteral(f64),
     StringLiteral(String),
     BytesLiteral(Vec<u8>),
+    FStringLiteral(String),
 
     // Operators and Punctuation
     Plus,

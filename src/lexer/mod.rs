@@ -188,6 +188,12 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // Check for f-string prefix: f or F followed by a quote
+        if (value == "f" || value == "F") && (self.current == Some('"') || self.current == Some('\'')) {
+            let quote = self.current.unwrap();
+            return self.lex_fstring(start_pos, start_col, quote);
+        }
+
         let kind = match value.as_str() {
             "def" => TokenKind::Def,
             "return" => TokenKind::Return,
@@ -271,6 +277,59 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(self.make_token(kind, start_pos, start_col))
+    }
+
+    fn lex_fstring(
+        &mut self,
+        start_pos: usize,
+        start_col: usize,
+        quote: char,
+    ) -> Result<Token, LexerError> {
+        self.advance(); // consume opening quote
+        let mut value = String::new();
+        let mut escape = false;
+        let mut brace_depth = 0;
+
+        while let Some(c) = self.current {
+            if escape {
+                value.push('\\');
+                value.push(c);
+                escape = false;
+                self.advance();
+                continue;
+            }
+            if c == '\\' {
+                value.push('\\');
+                escape = true;
+                self.advance();
+                continue;
+            }
+            if c == '{' {
+                brace_depth += 1;
+                value.push('{');
+                self.advance();
+                continue;
+            }
+            if c == '}' {
+                if brace_depth > 0 {
+                    brace_depth -= 1;
+                }
+                value.push('}');
+                self.advance();
+                continue;
+            }
+            if c == quote && brace_depth == 0 {
+                self.advance();
+                return Ok(self.make_token(TokenKind::FStringLiteral(value), start_pos, start_col));
+            }
+            value.push(c);
+            self.advance();
+        }
+
+        Err(LexerError::new(
+            LexerErrorKind::UnterminatedString,
+            self.span(start_pos, start_col),
+        ))
     }
 
     fn lex_string(

@@ -1,7 +1,7 @@
 pub mod code;
 pub mod opcodes;
 
-use crate::ast::{BinOpKind, CompKind, Expr, Module, Stmt};
+use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, Module, Stmt};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
@@ -663,6 +663,29 @@ impl Compiler {
                 let code_idx = self.add_constant(code_obj);
                 self.emit(Opcode::LoadConst(code_idx));
                 self.emit(Opcode::MakeFunction);
+            }
+            Expr::FString(segments) => {
+                for (i, seg) in segments.iter().enumerate() {
+                    match seg {
+                        FStringSegment::Text(text) => {
+                            let idx = self.add_constant(Rc::new(PyString::new(text.clone())));
+                            self.emit(Opcode::LoadConst(idx));
+                        }
+                        FStringSegment::Expr(expr) => {
+                            let str_idx = self.get_or_add_name("str");
+                            self.emit(Opcode::LoadName(str_idx));
+                            self.compile_expr(expr)?;
+                            self.emit(Opcode::CallFunction(1));
+                        }
+                    }
+                    if i > 0 {
+                        self.emit(Opcode::BinaryAdd);
+                    }
+                }
+                if segments.is_empty() {
+                    let idx = self.add_constant(Rc::new(PyString::new(String::new())));
+                    self.emit(Opcode::LoadConst(idx));
+                }
             }
             Expr::Comprehension { kind, elt, key, target, iter } => {
                 match kind {

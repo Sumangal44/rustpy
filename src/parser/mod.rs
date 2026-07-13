@@ -622,6 +622,11 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 Ok(expr)
             }
+            TokenKind::FStringLiteral(content) => {
+                let content_clone = content.clone();
+                self.advance()?;
+                self.parse_fstring_content(&content_clone)
+            }
             TokenKind::True => {
                 self.advance()?;
                 Ok(Expr::BooleanLiteral(true))
@@ -776,6 +781,102 @@ impl<'a> Parser<'a> {
                 self.current_token.span.clone(),
             )),
         }
+    }
+
+    fn parse_fstring_content(&self, content: &str) -> Result<Expr, ParseError> {
+        use crate::ast::FStringSegment;
+
+        let mut segments = Vec::new();
+        let mut literal = String::new();
+        let mut chars = content.char_indices().peekable();
+        let mut escape = false;
+
+        while let Some((_, c)) = chars.next() {
+            if escape {
+                match c {
+                    'n' => literal.push('\n'),
+                    't' => literal.push('\t'),
+                    'r' => literal.push('\r'),
+                    '\\' => literal.push('\\'),
+                    '{' => literal.push('{'),
+                    '}' => literal.push('}'),
+                    '\'' => literal.push('\''),
+                    '"' => literal.push('"'),
+                    _ => { literal.push('\\'); literal.push(c); }
+                }
+                escape = false;
+                continue;
+            }
+            if c == '\\' {
+                escape = true;
+                continue;
+            }
+            if c == '{' {
+                if chars.peek().map(|(_, c)| *c) == Some('{') {
+                    chars.next();
+                    literal.push('{');
+                    continue;
+                }
+                if !literal.is_empty() {
+                    segments.push(FStringSegment::Text(literal.clone()));
+                    literal.clear();
+                }
+                let mut expr_text = String::new();
+                let mut depth = 1;
+                while let Some((_, ec)) = chars.next() {
+                    if ec == '{' { depth += 1; expr_text.push('{'); }
+                    else if ec == '}' { depth -= 1; if depth == 0 { break; } expr_text.push('}'); }
+                    else { expr_text.push(ec); }
+                }
+                if depth != 0 {
+                    return Err(ParseError::new(
+                        ParseErrorKind::InvalidSyntax("Unclosed '{' in f-string expression".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+                let sub_expr = self.parse_fstring_expr(&expr_text)?;
+                segments.push(FStringSegment::Expr(Box::new(sub_expr)));
+                continue;
+            }
+            if c == '}' {
+                if chars.peek().map(|(_, c)| *c) == Some('}') {
+                    chars.next();
+                    literal.push('}');
+                    continue;
+                }
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidSyntax("Single '}' in f-string; must escape as '}}'".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
+            literal.push(c);
+        }
+
+        if escape {
+            return Err(ParseError::new(
+                ParseErrorKind::InvalidSyntax("Unterminated escape sequence in f-string".to_string()),
+                self.current_token.span.clone(),
+            ));
+        }
+
+        if !literal.is_empty() {
+            segments.push(FStringSegment::Text(literal));
+        }
+
+        Ok(Expr::FString(segments))
+    }
+
+    fn parse_fstring_expr(&self, text: &str) -> Result<Expr, ParseError> {
+        let lexer = crate::lexer::Lexer::new(text);
+        let mut sub_parser = Parser::new(lexer)?;
+        let expr = sub_parser.parse_expression(0)?;
+        if !sub_parser.check(&TokenKind::EOF) {
+            return Err(ParseError::new(
+                ParseErrorKind::InvalidSyntax("Extra tokens in f-string expression".to_string()),
+                self.current_token.span.clone(),
+            ));
+        }
+        Ok(expr)
     }
 
     fn parse_infix(&mut self, left: Expr) -> Result<Expr, ParseError> {

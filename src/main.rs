@@ -953,4 +953,28 @@ mod tests {
         assert!(result.repr().contains("0"));
         assert!(result.repr().contains("'a'"));
     }
+
+    #[test]
+    fn test_fstring_simple() {
+        let env = execute_source("name = \"world\"\nresult = f\"hello {name}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'hello world'");
+    }
+
+    #[test]
+    fn test_fstring_int_expr() {
+        let env = execute_source("x = 42\nresult = f\"x is {x}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'x is 42'");
+    }
+
+    #[test]
+    fn test_fstring_expr_arith() {
+        let env = execute_source("x = 3\ny = 4\nresult = f\"{x} + {y} = {x+y}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'3 + 4 = 7'");
+    }
+
+    #[test]
+    fn test_fstring_empty() {
+        let env = execute_source("result = f\"\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "''");
+    }
 }

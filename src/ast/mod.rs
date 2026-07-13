@@ -1,4 +1,10 @@
 #[derive(Debug, Clone, PartialEq)]
+pub enum FStringSegment {
+    Text(String),
+    Expr(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Identifier(String),
     IntLiteral(i64),
@@ -52,6 +58,7 @@ pub enum Expr {
         kwarg: Option<String>,
         body: Box<Expr>,
     },
+    FString(Vec<FStringSegment>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
