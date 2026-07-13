@@ -201,8 +201,7 @@ mod tests {
 
     #[test]
     fn test_exceptions() {
-        let source =
-            "handled = 0\ntry:\n    raise \"Error\"\n    handled = 99\nexcept:\n    handled = 1\n";
+        let source = "handled = 0\nexc = None\ntry:\n    raise ValueError(\"Error Message\")\n    handled = 99\nexcept:\n    handled = 1\n";
         let env = execute_source(source);
         let handled = env.borrow().get("handled").unwrap();
         assert_eq!(handled.repr(), "1");

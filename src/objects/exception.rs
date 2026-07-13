@@ -29,7 +29,7 @@ impl PyObject for PyException {
             format!("{}()", self.exc_type)
         }
     }
-    
+
     fn str(&self) -> String {
         if let Some(msg) = &self.message {
             msg.clone()

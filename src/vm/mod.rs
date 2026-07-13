@@ -8,11 +8,15 @@ use crate::runtime::Environment;
 use frame::Frame;
 use std::rc::Rc;
 
-pub struct VirtualMachine;
+pub struct VirtualMachine {
+    pub last_exception: Option<Rc<dyn PyObject>>,
+}
 
 impl VirtualMachine {
     pub fn new() -> Self {
-        Self
+        Self {
+            last_exception: None,
+        }
     }
 
     pub fn run(&mut self, frame: &mut Frame) -> Result<Option<Rc<dyn PyObject>>, String> {
@@ -32,7 +36,15 @@ impl VirtualMachine {
                     }) = frame.block_stack.pop()
                     {
                         frame.stack.truncate(stack_size);
-                        let exc_obj = Rc::new(crate::objects::string::PyString { value: e });
+
+                        let exc_obj = self.last_exception.take().unwrap_or_else(|| {
+                            // If there's no exception object, create a generic one
+                            Rc::new(crate::objects::exception::PyException::new(
+                                "RuntimeError".to_string(),
+                                Some(e.clone()),
+                            ))
+                        });
+
                         frame.push(exc_obj);
                         frame.ip = handler_ip;
                     } else {
@@ -383,7 +395,8 @@ impl VirtualMachine {
             }
             Opcode::Raise => {
                 let exc = frame.pop()?;
-                // We expect exc to be a string or we can just use repr
+                self.last_exception = Some(exc.clone());
+                // We expect exc to be an Exception object
                 return Err(exc.repr());
             }
             _ => return Err(format!("Opcode {:?} not yet implemented in VM", opcode)),

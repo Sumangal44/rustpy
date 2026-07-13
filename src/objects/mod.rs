@@ -65,12 +65,18 @@ pub trait PyObject: Debug + Any {
             self.get_type()
         ))
     }
+
+    fn hash(&self) -> Result<i64, String> {
+        Err(format!("TypeError: unhashable type: '{}'", self.get_type()))
+    }
 }
 
 pub mod bool;
 pub mod bound_method;
 pub mod class;
+pub mod constants;
 pub mod dict;
+pub mod exception;
 pub mod function;
 pub mod instance;
 pub mod int;
