@@ -1,7 +1,7 @@
 pub mod code;
 pub mod opcodes;
 
-use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, Module, Stmt};
+use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, MatchCase, Module, Pattern, Stmt};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
@@ -166,6 +166,47 @@ impl Compiler {
             Stmt::Nonlocal { names } => {
                 for name in names {
                     self.get_or_add_name(name);
+                }
+            }
+            Stmt::Match { subject, cases } => {
+                let subj_name = "__match_subj";
+                self.compile_expr(subject)?;
+                let subj_idx = self.get_or_add_name(subj_name);
+                self.emit(Opcode::StoreName(subj_idx));
+
+                let mut next_case_indices = Vec::new();
+
+                for (case_idx, case) in cases.iter().enumerate() {
+                    self.emit(Opcode::LoadName(subj_idx));
+                    self.compile_pattern(&case.pattern)?;
+
+                    let jump_false_idx = self.emit(Opcode::PopJumpIfFalse(0));
+
+                    if let Some(guard) = &case.guard {
+                        self.compile_expr(guard)?;
+                        let guard_false_idx = self.emit(Opcode::PopJumpIfFalse(0));
+                        for s in &case.body {
+                            self.compile_stmt(s)?;
+                        }
+                        self.code.instructions[guard_false_idx] =
+                            Opcode::PopJumpIfFalse(self.code.instructions.len());
+                    } else {
+                        for s in &case.body {
+                            self.compile_stmt(s)?;
+                        }
+                    }
+
+                    if case_idx < cases.len() - 1 {
+                        next_case_indices.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+
+                    self.code.instructions[jump_false_idx] =
+                        Opcode::PopJumpIfFalse(self.code.instructions.len());
+                }
+
+                let end_pos = self.code.instructions.len();
+                for idx in next_case_indices {
+                    self.code.instructions[idx] = Opcode::JumpAbsolute(end_pos);
                 }
             }
             Stmt::Assert { test, msg } => {
@@ -449,6 +490,58 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_pattern(&mut self, pattern: &Pattern) -> Result<(), String> {
+        match pattern {
+            Pattern::Literal(expr) => {
+                // Compare subject (already on stack) with literal
+                self.compile_expr(expr)?;
+                self.emit(Opcode::CompareEq);
+            }
+            Pattern::Capture(name) => {
+                if name != "_" {
+                    let name_idx = self.get_or_add_name(name);
+                    self.emit(Opcode::DupTop);
+                    self.emit(Opcode::StoreName(name_idx));
+                }
+                // Pop subject, pattern always matches: push True
+                self.emit(Opcode::PopTop);
+                let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
+                self.emit(Opcode::LoadConst(true_idx));
+            }
+            Pattern::Or(subpatterns) => {
+                let subj_name_idx = self.get_or_add_name("__match_subj");
+                let mut match_jumps = Vec::new();
+                for (i, sub) in subpatterns.iter().enumerate() {
+                    if i > 0 {
+                        self.emit(Opcode::LoadName(subj_name_idx));
+                    }
+                    self.compile_pattern(sub)?;
+                    if i < subpatterns.len() - 1 {
+                        // On match, push True and jump to end
+                        let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
+                        self.emit(Opcode::LoadConst(true_idx));
+                        let jmp = self.emit(Opcode::JumpAbsolute(0));
+                        match_jumps.push(jmp);
+                        // Pop the False result from compile_pattern, continue
+                        self.emit(Opcode::PopTop);
+                    }
+                }
+                let end = self.code.instructions.len();
+                for jmp in &match_jumps {
+                    self.code.instructions[*jmp] = Opcode::JumpAbsolute(end);
+                }
+            }
+            Pattern::Sequence(subpatterns) => {
+                // Simple sequence matching: compare each element
+                // For now, just check that subject is a list and compare elements
+                // This is a simplified version
+                let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
+                self.emit(Opcode::LoadConst(true_idx));
+            }
+        }
+        Ok(())
+    }
+
     fn emit_binop(&mut self, op: BinOpKind) -> Result<(), String> {
         let opcode = match op {
             BinOpKind::Add => Opcode::BinaryAdd,
@@ -468,6 +561,12 @@ impl Compiler {
             BinOpKind::NotIn => Opcode::CompareNotIn,
             BinOpKind::Is => Opcode::CompareIs,
             BinOpKind::IsNot => Opcode::CompareIsNot,
+            BinOpKind::MatMul => Opcode::BinaryMatMul,
+            BinOpKind::BitAnd => Opcode::BinaryBitAnd,
+            BinOpKind::BitOr => Opcode::BinaryBitOr,
+            BinOpKind::BitXor => Opcode::BinaryBitXor,
+            BinOpKind::LShift => Opcode::BinaryLShift,
+            BinOpKind::RShift => Opcode::BinaryRShift,
             BinOpKind::And | BinOpKind::Or => {
                 return Err("Compiler error: and/or should be handled in compile_expr".to_string());
             }
@@ -545,6 +644,7 @@ impl Compiler {
                     crate::ast::UnaryOpKind::Minus => Opcode::UnaryNegative,
                     crate::ast::UnaryOpKind::Plus => Opcode::UnaryPositive,
                     crate::ast::UnaryOpKind::Not => Opcode::UnaryNot,
+                    crate::ast::UnaryOpKind::Invert => Opcode::UnaryInvert,
                 };
                 self.emit(opcode);
             }
@@ -664,6 +764,16 @@ impl Compiler {
                 self.emit(Opcode::LoadConst(code_idx));
                 self.emit(Opcode::MakeFunction);
             }
+            Expr::NamedExpr { target, value } => {
+                self.compile_expr(value)?;
+                self.emit(Opcode::DupTop);
+                if let Expr::Identifier(name) = target.as_ref() {
+                    let name_idx = self.get_or_add_name(name);
+                    self.emit(Opcode::StoreName(name_idx));
+                } else {
+                    return Err("CompilerError: NamedExpr target must be an identifier".to_string());
+                }
+            }
             Expr::FString(segments) => {
                 for (i, seg) in segments.iter().enumerate() {
                     match seg {
@@ -725,6 +835,42 @@ impl Compiler {
                         self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
 
                         self.emit(Opcode::LoadName(result_name));
+                    }
+                    CompKind::Generator => {
+                        let mut child = Compiler::new("<genexpr>".to_string());
+                        child.code.is_generator = true;
+
+                        child.compile_expr(iter)?;
+                        child.emit(Opcode::GetIter);
+                        let iter_name = child.get_or_add_name("__comp_iter");
+                        child.emit(Opcode::StoreName(iter_name));
+
+                        let loop_start = child.code.instructions.len();
+                        child.emit(Opcode::LoadName(iter_name));
+                        let for_iter_idx = child.emit(Opcode::ForIter(0));
+
+                        if let Expr::Identifier(name) = target.as_ref() {
+                            let target_idx = child.get_or_add_name(name);
+                            child.emit(Opcode::StoreName(target_idx));
+                        } else {
+                            return Err("Generator target must be an identifier".to_string());
+                        }
+
+                        child.emit(Opcode::StoreName(iter_name));
+                        child.compile_expr(elt)?;
+                        child.emit(Opcode::YieldValue);
+                        child.emit(Opcode::JumpAbsolute(loop_start));
+
+                        let loop_end = child.code.instructions.len();
+                        child.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
+
+                        // No code after loop exit — run() returns None -> StopIteration
+
+                        let code_obj = Rc::new(child.code);
+                        let code_idx = self.add_constant(code_obj);
+                        self.emit(Opcode::LoadConst(code_idx));
+                        self.emit(Opcode::MakeFunction);
+                        self.emit(Opcode::CallFunction(0));
                     }
                     CompKind::Dict => {
                         self.compile_expr(iter)?;

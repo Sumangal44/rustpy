@@ -1,4 +1,4 @@
-use crate::ast::{BinOpKind, Expr, Module, Stmt, UnaryOpKind};
+use crate::ast::{BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind};
 use crate::diagnostics::{LexerError, ParseError, ParseErrorKind};
 use crate::lexer::Lexer;
 use crate::lexer::tokens::{Span, Token, TokenKind};
@@ -153,6 +153,10 @@ impl<'a> Parser<'a> {
             TokenKind::Assert => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.parse_assert()
+            }
+            TokenKind::Match => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_match()
             }
             TokenKind::Yield => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
@@ -597,6 +601,23 @@ impl<'a> Parser<'a> {
             left = self.parse_infix(left)?;
         }
 
+        // Walrus operator := has lowest precedence, only parsed at top level
+        if precedence == 0 && self.check(&TokenKind::ColonEqual) {
+            self.advance()?;
+            let value = self.parse_expression(0)?;
+            if let Expr::Identifier(_) = &left {
+                left = Expr::NamedExpr {
+                    target: Box::new(left),
+                    value: Box::new(value),
+                };
+            } else {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidSyntax("Assignment target must be an identifier".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
+        }
+
         Ok(left)
     }
 
@@ -641,9 +662,17 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LParen => {
                 self.advance()?;
-                let expr = self.parse_expression(0)?;
+                if self.check(&TokenKind::RParen) {
+                    self.advance()?;
+                    return Ok(Expr::NoneLiteral);  // empty tuple? For now, just return None
+                }
+                let first = self.parse_expression(0)?;
+                // Check for generator expression: (expr for target in iter)
+                if self.check(&TokenKind::For) {
+                    return self.parse_generator_expr(first);
+                }
                 self.consume(TokenKind::RParen)?;
-                Ok(expr)
+                Ok(first)
             }
             TokenKind::Yield => {
                 self.advance()?;
@@ -773,6 +802,11 @@ impl<'a> Parser<'a> {
                 let operand = Box::new(self.parse_expression(3)?); // Looser than comparisons
                 Ok(Expr::UnaryOp { op, operand })
             }
+            TokenKind::Tilde => {
+                self.advance()?;
+                let operand = Box::new(self.parse_expression(6)?);
+                Ok(Expr::UnaryOp { op: UnaryOpKind::Invert, operand })
+            }
             _ => Err(ParseError::new(
                 ParseErrorKind::InvalidSyntax(format!(
                     "Expected expression, got {:?}",
@@ -879,6 +913,130 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    fn parse_generator_expr(&mut self, elt: Expr) -> Result<Expr, ParseError> {
+        self.consume(TokenKind::For)?;
+        let target = self.parse_for_target()?;
+        self.consume(TokenKind::In)?;
+        let iter = self.parse_expression(0)?;
+        self.consume(TokenKind::RParen)?;
+        Ok(Expr::Comprehension {
+            kind: CompKind::Generator,
+            elt: Box::new(elt),
+            key: None,
+            target: Box::new(target),
+            iter: Box::new(iter),
+        })
+    }
+
+    fn parse_match(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Match)?;
+        let subject = self.parse_expression(0)?;
+        self.consume(TokenKind::Colon)?;
+        self.consume(TokenKind::Newline)?;
+        self.consume(TokenKind::Indent)?;
+
+        let mut cases = Vec::new();
+        while self.check(&TokenKind::Case) {
+            cases.push(self.parse_case()?);
+        }
+
+        self.consume(TokenKind::Dedent)?;
+        Ok(Stmt::Match {
+            subject: Box::new(subject),
+            cases,
+        })
+    }
+
+    fn parse_case(&mut self) -> Result<MatchCase, ParseError> {
+        self.consume(TokenKind::Case)?;
+        let pattern = self.parse_pattern()?;
+        let guard = if self.check(&TokenKind::If) {
+            self.advance()?;
+            Some(Box::new(self.parse_expression(0)?))
+        } else {
+            None
+        };
+        self.consume(TokenKind::Colon)?;
+        self.consume(TokenKind::Newline)?;
+        self.consume(TokenKind::Indent)?;
+        let mut body = Vec::new();
+        while !self.check(&TokenKind::Dedent) && !self.check(&TokenKind::EOF) {
+            body.push(self.parse_statement()?);
+        }
+        self.consume(TokenKind::Dedent)?;
+        Ok(MatchCase { pattern, guard, body })
+    }
+
+    fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let mut patterns = vec![self.parse_single_pattern()?];
+        while self.check(&TokenKind::Pipe) {
+            self.advance()?;
+            patterns.push(self.parse_single_pattern()?);
+        }
+        if patterns.len() == 1 {
+            Ok(patterns.into_iter().next().unwrap())
+        } else {
+            Ok(Pattern::Or(patterns))
+        }
+    }
+
+    fn parse_single_pattern(&mut self) -> Result<Pattern, ParseError> {
+        match &self.current_token.kind {
+            TokenKind::IntLiteral(val) => {
+                let expr = Expr::IntLiteral(*val);
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(expr)))
+            }
+            TokenKind::FloatLiteral(val) => {
+                let expr = Expr::FloatLiteral(*val);
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(expr)))
+            }
+            TokenKind::StringLiteral(val) => {
+                let expr = Expr::StringLiteral(val.clone());
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(expr)))
+            }
+            TokenKind::True => {
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(Expr::BooleanLiteral(true))))
+            }
+            TokenKind::False => {
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(Expr::BooleanLiteral(false))))
+            }
+            TokenKind::None => {
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(Expr::NoneLiteral)))
+            }
+            TokenKind::Identifier(name) => {
+                let name = name.clone();
+                self.advance()?;
+                Ok(Pattern::Capture(name))
+            }
+            TokenKind::LBracket => {
+                self.advance()?;
+                let mut elements = Vec::new();
+                if !self.check(&TokenKind::RBracket) {
+                    loop {
+                        elements.push(self.parse_pattern()?);
+                        if self.check(&TokenKind::Comma) {
+                            self.advance()?;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenKind::RBracket)?;
+                Ok(Pattern::Sequence(elements))
+            }
+            _ => Err(ParseError::new(
+                ParseErrorKind::InvalidSyntax(format!("Expected pattern, got {:?}", self.current_token.kind)),
+                self.current_token.span.clone(),
+            )),
+        }
+    }
+
     fn parse_infix(&mut self, left: Expr) -> Result<Expr, ParseError> {
         if self.check(&TokenKind::LParen) {
             return self.parse_call(left);
@@ -924,6 +1082,12 @@ impl<'a> Parser<'a> {
             }
             TokenKind::And => BinOpKind::And,
             TokenKind::Or => BinOpKind::Or,
+            TokenKind::At => BinOpKind::MatMul,
+            TokenKind::LeftShift => BinOpKind::LShift,
+            TokenKind::RightShift => BinOpKind::RShift,
+            TokenKind::Ampersand => BinOpKind::BitAnd,
+            TokenKind::Pipe => BinOpKind::BitOr,
+            TokenKind::Caret => BinOpKind::BitXor,
             _ => {
                 return Err(ParseError::new(
                     ParseErrorKind::InvalidSyntax(format!(
@@ -1103,8 +1267,8 @@ impl<'a> Parser<'a> {
             TokenKind::Dot => 8,
             TokenKind::LParen | TokenKind::LBracket => 7,
             TokenKind::DoubleStar => 6,
-            TokenKind::Star | TokenKind::Slash | TokenKind::DoubleSlash | TokenKind::Percent => 5,
-            TokenKind::Plus | TokenKind::Minus => 4,
+            TokenKind::Star | TokenKind::Slash | TokenKind::DoubleSlash | TokenKind::Percent | TokenKind::At => 5,
+            TokenKind::Plus | TokenKind::Minus | TokenKind::LeftShift | TokenKind::RightShift => 4,
             // Comparisons: ==, !=, <, <=, >, >=, in, not in, is, is not
             TokenKind::EqualEqual
             | TokenKind::NotEqual
@@ -1115,6 +1279,7 @@ impl<'a> Parser<'a> {
             | TokenKind::In
             | TokenKind::Is
             | TokenKind::Not => 4,
+            TokenKind::Ampersand | TokenKind::Pipe | TokenKind::Caret => 3,
             TokenKind::And => 2,
             TokenKind::Or => 1,
             _ => 0,

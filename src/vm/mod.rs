@@ -536,6 +536,62 @@ impl VirtualMachine {
                     ));
                 }
             }
+            Opcode::BinaryMatMul => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.matmul(Rc::clone(&right)) {
+                    frame.push(result);
+                } else if let Some(result) = right.rmatmul(Rc::clone(&left)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: unsupported operand type(s) for @: '{}' and '{}'", left.get_type(), right.get_type()));
+                }
+            }
+            Opcode::BinaryBitAnd => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.bitand(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: unsupported operand type(s) for &: '{}' and '{}'", left.get_type(), right.get_type()));
+                }
+            }
+            Opcode::BinaryBitOr => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.bitor(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: unsupported operand type(s) for |: '{}' and '{}'", left.get_type(), right.get_type()));
+                }
+            }
+            Opcode::BinaryBitXor => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.bitxor(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: unsupported operand type(s) for ^: '{}' and '{}'", left.get_type(), right.get_type()));
+                }
+            }
+            Opcode::BinaryLShift => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.lshift(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: unsupported operand type(s) for <<: '{}' and '{}'", left.get_type(), right.get_type()));
+                }
+            }
+            Opcode::BinaryRShift => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.rshift(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: unsupported operand type(s) for >>: '{}' and '{}'", left.get_type(), right.get_type()));
+                }
+            }
             Opcode::UnaryNegative => {
                 let obj = frame.pop()?;
                 if let Some(result) = obj.neg() {
@@ -561,6 +617,14 @@ impl VirtualMachine {
             Opcode::UnaryNot => {
                 let obj = frame.pop()?;
                 frame.push(Rc::new(crate::objects::bool::PyBool::new(!obj.is_truthy())));
+            }
+            Opcode::UnaryInvert => {
+                let val = frame.pop()?;
+                if let Some(result) = val.invert() {
+                    frame.push(result);
+                } else {
+                    return Err(format!("TypeError: bad operand type for unary ~: '{}'", val.get_type()));
+                }
             }
             Opcode::CompareEq => {
                 let right = frame.pop()?;

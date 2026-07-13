@@ -41,6 +41,31 @@ pub trait PyObject: Debug + Any {
         None
     }
 
+    fn matmul(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn rmatmul(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn bitand(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn bitor(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn bitxor(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn lshift(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn rshift(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn invert(&self) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+
     fn neg(&self) -> Option<Rc<dyn PyObject>> {
         None
     }
@@ -124,6 +149,7 @@ pub trait PyObject: Debug + Any {
 pub mod bool;
 pub mod bound_method;
 pub mod class;
+pub mod classmethod;
 pub mod constants;
 pub mod dict;
 pub mod exception;
@@ -135,6 +161,8 @@ pub mod int;
 pub mod list;
 pub mod native_function;
 pub mod none;
+pub mod property;
 pub mod range;
 pub mod slice;
+pub mod staticmethod;
 pub mod string;

@@ -59,12 +59,17 @@ pub enum Expr {
         body: Box<Expr>,
     },
     FString(Vec<FStringSegment>),
+    NamedExpr {
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CompKind {
     List,
     Dict,
+    Generator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,6 +93,12 @@ pub enum BinOpKind {
     IsNot,
     And,
     Or,
+    MatMul,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LShift,
+    RShift,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,6 +106,7 @@ pub enum UnaryOpKind {
     Plus,
     Minus,
     Not,
+    Invert,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,6 +175,10 @@ pub enum Stmt {
     Nonlocal {
         names: Vec<String>,
     },
+    Match {
+        subject: Box<Expr>,
+        cases: Vec<MatchCase>,
+    },
     Assert {
         test: Expr,
         msg: Option<Box<Expr>>,
@@ -172,6 +188,21 @@ pub enum Stmt {
     },
     YieldStmt(Expr),
     Pass,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Literal(Box<Expr>),
+    Capture(String),
+    Or(Vec<Pattern>),
+    Sequence(Vec<Pattern>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchCase {
+    pub pattern: Pattern,
+    pub guard: Option<Box<Expr>>,
+    pub body: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

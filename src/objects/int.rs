@@ -122,6 +122,66 @@ impl PyObject for PyInt {
         Some(Rc::new(PyInt::new(self.value)))
     }
 
+    fn bitand(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
+            Some(Rc::new(PyInt::new(self.value & i.value)))
+        } else {
+            None
+        }
+    }
+
+    fn bitor(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
+            Some(Rc::new(PyInt::new(self.value | i.value)))
+        } else {
+            None
+        }
+    }
+
+    fn bitxor(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
+            Some(Rc::new(PyInt::new(self.value ^ i.value)))
+        } else {
+            None
+        }
+    }
+
+    fn lshift(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
+            if i.value >= 0 && i.value < 64 {
+                Some(Rc::new(PyInt::new(self.value << i.value)))
+            } else if i.value >= 64 {
+                Some(Rc::new(PyInt::new(0)))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn rshift(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
+            if i.value >= 0 && i.value < 64 {
+                Some(Rc::new(PyInt::new(self.value >> i.value)))
+            } else if i.value >= 64 {
+                if self.value >= 0 {
+                    Some(Rc::new(PyInt::new(0)))
+                } else {
+                    Some(Rc::new(PyInt::new(-1)))
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn invert(&self) -> Option<Rc<dyn PyObject>> {
+        Some(Rc::new(PyInt::new(!self.value)))
+    }
+
     fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value == i.value)))

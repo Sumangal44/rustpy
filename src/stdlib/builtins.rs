@@ -102,6 +102,8 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 Ok(Rc::new(PyInt::new(d.entries.borrow().len() as i64)))
             } else if let Some(r) = obj.as_any().downcast_ref::<crate::objects::range::PyRange>() {
                 Ok(Rc::new(PyInt::new(r.len() as i64)))
+            } else if let Some(inst) = obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                Ok(Rc::new(PyInt::new(inst.len()? as i64)))
             } else {
                 Err(format!(
                     "TypeError: object of type '{}' has no len()",
@@ -398,7 +400,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             if args.len() != 1 {
                 return Err("TypeError: classmethod() takes exactly one argument".to_string());
             }
-            Ok(args[0].clone()) // Stub for now
+            Ok(Rc::new(crate::objects::classmethod::PyClassMethod::new(Rc::clone(&args[0]))))
         })),
     );
 
@@ -409,18 +411,21 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             if args.len() != 1 {
                 return Err("TypeError: staticmethod() takes exactly one argument".to_string());
             }
-            Ok(args[0].clone()) // Stub for now
+            Ok(Rc::new(crate::objects::staticmethod::PyStaticMethod::new(Rc::clone(&args[0]))))
         })),
     );
 
-    // property(fget)
+    // property(fget, fset=None, fdel=None, doc=None)
     env_mut.set(
         "property".to_string(),
         Rc::new(PyNativeFunction::new("property".to_string(), |args| {
             if args.is_empty() || args.len() > 4 {
                 return Err("TypeError: property() takes 1-4 arguments".to_string());
             }
-            Ok(args[0].clone()) // Stub for now
+            let fget = Some(Rc::clone(&args[0]));
+            let fset = if args.len() > 1 { Some(Rc::clone(&args[1])) } else { None };
+            let fdel = if args.len() > 2 { Some(Rc::clone(&args[2])) } else { None };
+            Ok(Rc::new(crate::objects::property::PyProperty::new(fget, fset, fdel)))
         })),
     );
 

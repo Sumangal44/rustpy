@@ -19,9 +19,16 @@ pub enum Opcode {
     BinaryFloorDivide,
     BinaryModulo,
     BinaryPower,
+    BinaryMatMul,
+    BinaryBitAnd,
+    BinaryBitOr,
+    BinaryBitXor,
+    BinaryLShift,
+    BinaryRShift,
     UnaryNegative,
     UnaryPositive,
     UnaryNot,
+    UnaryInvert,
 
     // Stack manipulation
     DupTop,

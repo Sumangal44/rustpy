@@ -1019,4 +1019,114 @@ for i in range(3):
 ");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "[0, 1, 2]");
     }
+
+    #[test]
+    fn test_bitwise_ops() {
+        let env = execute_source("a = 5 & 3\nb = 5 | 3\nc = 5 ^ 3\nd = 5 << 1\ne = 5 >> 1\nf = ~5\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "1");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "7");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "6");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "10");
+        assert_eq!(env.borrow().get("e").unwrap().repr(), "2");
+        assert_eq!(env.borrow().get("f").unwrap().repr(), "-6");
+    }
+
+    #[test]
+    fn test_walrus_operator() {
+        let env = execute_source("(a := 42)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_walrus_in_while() {
+        let env = execute_source("
+x = 0
+results = []
+while (y := x + 1) < 5:
+    results.append(y)
+    x = y
+");
+        assert_eq!(env.borrow().get("results").unwrap().repr(), "[1, 2, 3, 4]");
+    }
+
+    #[test]
+    fn test_generator_expression() {
+        let env = execute_source("g = (x for x in [1, 2, 3])\nresult = list(g)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_match_literal() {
+        let env = execute_source("
+x = 2
+result = None
+match x:
+    case 1:
+        result = \"one\"
+    case 2:
+        result = \"two\"
+    case 3:
+        result = \"three\"
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'two'");
+    }
+
+    #[test]
+    fn test_match_capture() {
+        let env = execute_source("
+x = 42
+match x:
+    case y:
+        result = y
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_match_wildcard() {
+        let env = execute_source("
+x = 99
+result = \"default\"
+match x:
+    case 1:
+        result = \"one\"
+    case _:
+        result = \"other\"
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'other'");
+    }
+
+    #[test]
+    fn test_match_guard() {
+        let env = execute_source("
+x = 5
+result = None
+match x:
+    case n if n > 0:
+        result = \"positive\"
+    case _:
+        result = \"non-positive\"
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'positive'");
+    }
+
+    #[test]
+    fn test_or_pattern() {
+        let env = execute_source("
+x = 2
+result = None
+match x:
+    case 1 | 2 | 3:
+        result = \"small\"
+    case _:
+        result = \"large\"
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'small'");
+    }
+
+    #[test]
+    fn test_generator_list_comprehension() {
+        let env = execute_source("g = (x*2 for x in [1, 2, 3])\nresult = list(g)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "[2, 4, 6]");
+    }
 }
