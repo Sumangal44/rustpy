@@ -28,6 +28,9 @@ pub enum Expr {
     Call {
         func: Box<Expr>,
         args: Vec<Expr>,
+        kwargs: Vec<(String, Expr)>,
+        starargs: Vec<Expr>,
+        kwargs_unpack: Vec<Expr>,
     },
     Yield(Option<Box<Expr>>),
 }
@@ -61,6 +64,8 @@ pub enum Stmt {
     FunctionDef {
         name: String,
         params: Vec<String>,
+        vararg: Option<String>,
+        kwarg: Option<String>,
         body: Vec<Stmt>,
     },
     ClassDef {

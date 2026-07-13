@@ -139,16 +139,13 @@ impl VirtualMachine {
                     let params = code
                         .names
                         .iter()
-                        .take(code.instructions.len())
+                        .take(code.arg_count)
                         .cloned()
-                        .collect::<Vec<_>>(); // Simplification
-                    // We actually should pass the real params in CodeObject, let's just grab them from names for now.
-                    // Wait, in compiler we added params to names! So they are at the beginning.
-                    // It's a bit hacky to slice without knowing exactly how many params there are if we don't store arg_count.
-                    // Let's assume the VM doesn't check param names strictly right now, just arg count when calling.
+                        .collect::<Vec<_>>();
+
                     let func = Rc::new(PyFunction::new(
                         name,
-                        code.names.clone(),
+                        params,
                         code.clone(),
                         Rc::clone(&frame.env),
                     ));
@@ -165,121 +162,51 @@ impl VirtualMachine {
                 args.reverse(); // Pop gets them in reverse order
 
                 let func_obj = frame.pop()?;
-                if let Some(func) = func_obj.as_any().downcast_ref::<PyFunction>() {
-                    // Create a new environment bounded to the function's closure env
-                    let new_env = Environment::new_enclosed(Rc::clone(&func.env));
+                let result = self.invoke(func_obj, args, std::collections::HashMap::new())?;
+                frame.push(result);
+            }
+            Opcode::CallFunctionKw(argc) => {
+                let kwarg_names_obj = frame.pop()?;
+                let mut args = Vec::new();
+                for _ in 0..*argc {
+                    args.push(frame.pop()?);
+                }
+                args.reverse();
 
-                    // Bind arguments to parameters (we assume names[0..argc] are the params)
-                    for (i, arg) in args.into_iter().enumerate() {
-                        if i < func.params.len() {
-                            let param_name = func.params[i].clone();
-                            new_env.borrow_mut().set(param_name, arg);
-                        }
-                    }
+                let func_obj = frame.pop()?;
 
-                    // Create a new frame and execute it (or wrap it in a generator)!
-                    let mut new_frame = Frame::new(func.code.clone(), new_env);
-
-                    if func.code.is_generator {
-                        let generator =
-                            Rc::new(crate::objects::generator::PyGenerator::new(new_frame));
-                        frame.push(generator);
-                    } else {
-                        if let Some(result) = self.run(&mut new_frame)? {
-                            frame.push(result);
-                        } else {
-                            return Err("Function returned without a value".to_string());
-                        }
-                    }
-                } else if let Some(native_func) = func_obj
-                    .as_any()
-                    .downcast_ref::<crate::objects::native_function::PyNativeFunction>(
-                ) {
-                    // Execute native Rust function directly
-                    let result = (native_func.func)(args)?;
-                    frame.push(result);
-                } else if let Some(class_obj) = func_obj
-                    .as_any()
-                    .downcast_ref::<crate::objects::class::PyClass>()
-                {
-                    // Instantiation!
-                    let instance = Rc::new(crate::objects::instance::PyInstance::new(Rc::new(
-                        class_obj.clone(),
-                    )));
-
-                    // Check for __init__
-                    if let Ok(init_func) = instance.get_attr("__init__") {
-                        // It returns a bound method, so we can call it.
-                        if let Some(bound_method) = init_func
-                            .as_any()
-                            .downcast_ref::<crate::objects::bound_method::PyBoundMethod>(
-                        ) {
-                            // Extract the underlying function
-                            if let Some(func) =
-                                bound_method.func.as_any().downcast_ref::<PyFunction>()
-                            {
-                                let new_env = Environment::new_enclosed(Rc::clone(&func.env));
-
-                                // Bind 'self' as the first parameter
-                                if !func.params.is_empty() {
-                                    new_env.borrow_mut().set(
-                                        func.params[0].clone(),
-                                        Rc::clone(&instance) as Rc<dyn PyObject>,
-                                    );
-                                }
-
-                                // Bind the rest of the arguments
-                                for (i, arg) in args.into_iter().enumerate() {
-                                    if i + 1 < func.params.len() {
-                                        new_env.borrow_mut().set(func.params[i + 1].clone(), arg);
-                                    }
-                                }
-
-                                let mut new_frame = Frame::new(func.code.clone(), new_env);
-                                self.run(&mut new_frame)?; // __init__ returns None in Python
-                            }
-                        }
-                    }
-
-                    frame.push(instance);
-                } else if let Some(bound_method) = func_obj
-                    .as_any()
-                    .downcast_ref::<crate::objects::bound_method::PyBoundMethod>(
-                ) {
-                    if let Some(func) = bound_method.func.as_any().downcast_ref::<PyFunction>() {
-                        let new_env = Environment::new_enclosed(Rc::clone(&func.env));
-
-                        // Bind 'self' as the first parameter
-                        if !func.params.is_empty() {
-                            // Convert PyInstance to Rc<dyn PyObject>. Since we cloned PyInstance, we need to wrap it.
-                            let instance_rc = Rc::new(bound_method.instance.clone());
-                            new_env
-                                .borrow_mut()
-                                .set(func.params[0].clone(), instance_rc as Rc<dyn PyObject>);
-                        }
-
-                        // Bind the rest of the arguments
-                        for (i, arg) in args.into_iter().enumerate() {
-                            if i + 1 < func.params.len() {
-                                new_env.borrow_mut().set(func.params[i + 1].clone(), arg);
-                            }
-                        }
-
-                        let mut new_frame = Frame::new(func.code.clone(), new_env);
-                        if let Some(result) = self.run(&mut new_frame)? {
-                            frame.push(result);
-                        } else {
-                            return Err("Function returned without a value".to_string());
+                let mut kwargs = std::collections::HashMap::new();
+                // This opcode isn't generated currently (we use BuildMap and CallFunctionEx instead), 
+                // but implemented just in case for parity.
+                let result = self.invoke(func_obj, args, kwargs)?;
+                frame.push(result);
+            }
+            Opcode::CallFunctionEx(flags) => {
+                let mut kwargs = std::collections::HashMap::new();
+                if *flags & 1 != 0 {
+                    let kwargs_dict_obj = frame.pop()?;
+                    if let Some(dict) = kwargs_dict_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                        for (k, v) in dict.entries.borrow().iter() {
+                            kwargs.insert(k.clone(), Rc::clone(v));
                         }
                     } else {
-                        return Err("Bound method does not wrap a PyFunction".to_string());
+                        return Err("TypeError: kwargs must be a dict".to_string());
+                    }
+                }
+
+                let args_iter_obj = frame.pop()?;
+                let mut args = Vec::new();
+                if let Some(list) = args_iter_obj.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    for el in list.elements.borrow().iter() {
+                        args.push(Rc::clone(el));
                     }
                 } else {
-                    return Err(format!(
-                        "TypeError: '{}' object is not callable",
-                        func_obj.get_type()
-                    ));
+                    return Err("TypeError: args must be an iterable".to_string());
                 }
+
+                let func_obj = frame.pop()?;
+                let result = self.invoke(func_obj, args, kwargs)?;
+                frame.push(result);
             }
             Opcode::BuildList(count) => {
                 let mut elements = Vec::new();
@@ -292,28 +219,52 @@ impl VirtualMachine {
             }
             Opcode::BuildMap(count) => {
                 let mut entries = std::collections::HashMap::new();
-                // Each pair was compiled as key, then value.
-                // This means value is on top of stack, then key.
-                // Actually let's pop pairs.
                 for _ in 0..*count {
                     let value = frame.pop()?;
                     let key_obj = frame.pop()?;
 
-                    // We only support strings for keys currently
-                    if let Some(str_key) = key_obj
-                        .as_any()
-                        .downcast_ref::<crate::objects::string::PyString>()
-                    {
+                    if let Some(str_key) = key_obj.as_any().downcast_ref::<crate::objects::string::PyString>() {
                         entries.insert(str_key.value.clone(), value);
                     } else {
-                        return Err(format!(
-                            "TypeError: unhashable type: '{}' (Only strings supported as dict keys)",
-                            key_obj.get_type()
-                        ));
+                        return Err(format!("TypeError: unhashable type: '{}' (Only strings supported as dict keys)", key_obj.get_type()));
                     }
                 }
                 let dict = Rc::new(crate::objects::dict::PyDict::new(entries));
                 frame.push(dict);
+            }
+            Opcode::ListExtend => {
+                let iterable = frame.pop()?;
+                let list_obj = frame.pop()?;
+
+                if let Some(list) = list_obj.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    if let Some(other_list) = iterable.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                        for el in other_list.elements.borrow().iter() {
+                            list.elements.borrow_mut().push(Rc::clone(el));
+                        }
+                    } else {
+                        return Err("TypeError: object is not iterable".to_string());
+                    }
+                    frame.push(list_obj); // push list back
+                } else {
+                    return Err("TypeError: ListExtend expected a list".to_string());
+                }
+            }
+            Opcode::DictMerge => {
+                let dict2_obj = frame.pop()?;
+                let dict1_obj = frame.pop()?;
+
+                if let Some(dict1) = dict1_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                    if let Some(dict2) = dict2_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                        for (k, v) in dict2.entries.borrow().iter() {
+                            dict1.entries.borrow_mut().insert(k.clone(), Rc::clone(v));
+                        }
+                        frame.push(dict1_obj); // push dict1 back
+                    } else {
+                        return Err("TypeError: dict merge expected a dict".to_string());
+                    }
+                } else {
+                    return Err("TypeError: dict merge expected a dict".to_string());
+                }
             }
             Opcode::BinarySubscript => {
                 let idx = frame.pop()?;
@@ -415,5 +366,101 @@ impl VirtualMachine {
             _ => return Err(format!("Opcode {:?} not yet implemented in VM", opcode)),
         }
         Ok(None)
+    }
+
+    pub fn invoke(
+        &mut self,
+        func_obj: Rc<dyn PyObject>,
+        args: Vec<Rc<dyn PyObject>>,
+        kwargs: std::collections::HashMap<String, Rc<dyn PyObject>>,
+    ) -> Result<Rc<dyn PyObject>, String> {
+        if let Some(func) = func_obj.as_any().downcast_ref::<PyFunction>() {
+            let new_env = Environment::new_enclosed(Rc::clone(&func.env));
+            
+            // 1. Bind positional arguments
+            for (i, arg) in args.iter().enumerate() {
+                if i < func.params.len() {
+                    new_env.borrow_mut().set(func.params[i].clone(), Rc::clone(arg));
+                } else {
+                    // Collect into *args if vararg is present
+                    if let Some(vararg) = &func.code.vararg {
+                        let mut env = new_env.borrow_mut();
+                        let existing = env.get(vararg);
+                        if let Some(existing_tuple) = existing {
+                            // Append to tuple (list for now)
+                            if let Some(list) = existing_tuple.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                                list.elements.borrow_mut().push(Rc::clone(arg));
+                            }
+                        } else {
+                            // Create new tuple (list for now)
+                            let list = Rc::new(crate::objects::list::PyList::new(vec![Rc::clone(arg)]));
+                            env.set(vararg.clone(), list);
+                        }
+                    } else {
+                        return Err(format!("TypeError: {}() takes {} positional arguments but {} were given", func.code.name, func.params.len(), args.len()));
+                    }
+                }
+            }
+
+            // 2. Initialize empty *args if vararg is present but no extra args were given
+            if let Some(vararg) = &func.code.vararg {
+                let mut env = new_env.borrow_mut();
+                if env.get(vararg).is_none() {
+                    let list = Rc::new(crate::objects::list::PyList::new(Vec::new()));
+                    env.set(vararg.clone(), list);
+                }
+            }
+
+            // 3. Bind keyword arguments
+            let mut unused_kwargs = std::collections::HashMap::new();
+            for (key, val) in kwargs {
+                if func.params.contains(&key) {
+                    new_env.borrow_mut().set(key, val);
+                } else {
+                    unused_kwargs.insert(key, val);
+                }
+            }
+
+            // 4. Handle **kwargs if kwarg is present
+            if let Some(kwarg) = &func.code.kwarg {
+                let dict = Rc::new(crate::objects::dict::PyDict::new(unused_kwargs));
+                new_env.borrow_mut().set(kwarg.clone(), dict);
+            } else if !unused_kwargs.is_empty() {
+                let first_unexpected = unused_kwargs.keys().next().unwrap();
+                return Err(format!("TypeError: {}() got an unexpected keyword argument '{}'", func.code.name, first_unexpected));
+            }
+
+            let mut new_frame = Frame::new(func.code.clone(), new_env);
+
+            if func.code.is_generator {
+                Ok(Rc::new(crate::objects::generator::PyGenerator::new(new_frame)))
+            } else {
+                if let Some(result) = self.run(&mut new_frame)? {
+                    Ok(result)
+                } else {
+                    Err("Function returned without a value".to_string())
+                }
+            }
+        } else if let Some(native_func) = func_obj.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+            // We ignore kwargs for native functions for now to keep it simple, or pass them if we update NativeFunction signatures.
+            // Let's just pass positional args.
+            (native_func.func)(args)
+        } else if let Some(class_obj) = func_obj.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+            let instance = Rc::new(crate::objects::instance::PyInstance::new(Rc::new(class_obj.clone())));
+            if let Ok(init_func) = instance.get_attr("__init__") {
+                if let Some(bound_method) = init_func.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
+                    // Call the underlying function but manually prepend 'self'.
+                    // Or we can just call self.invoke on the bound_method!
+                    self.invoke(init_func, args, kwargs)?;
+                }
+            }
+            Ok(instance)
+        } else if let Some(bound_method) = func_obj.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
+            let mut bound_args = vec![Rc::new(bound_method.instance.clone()) as Rc<dyn PyObject>];
+            bound_args.extend(args);
+            self.invoke(Rc::clone(&bound_method.func), bound_args, kwargs)
+        } else {
+            Err(format!("TypeError: '{}' object is not callable", func_obj.get_type()))
+        }
     }
 }

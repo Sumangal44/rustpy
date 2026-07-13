@@ -123,9 +123,36 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenKind::LParen)?;
         let mut params = Vec::new();
+        let mut vararg = None;
+        let mut kwarg = None;
+
         if !self.check(&TokenKind::RParen) {
             loop {
                 match &self.current_token.kind {
+                    TokenKind::Star => {
+                        self.advance()?;
+                        if let TokenKind::Identifier(n) = &self.current_token.kind {
+                            vararg = Some(n.clone());
+                            self.advance()?;
+                        } else {
+                            return Err(ParseError::new(
+                                ParseErrorKind::UnexpectedToken("Expected identifier after *".to_string()),
+                                self.current_token.span.clone(),
+                            ));
+                        }
+                    }
+                    TokenKind::DoubleStar => {
+                        self.advance()?;
+                        if let TokenKind::Identifier(n) = &self.current_token.kind {
+                            kwarg = Some(n.clone());
+                            self.advance()?;
+                        } else {
+                            return Err(ParseError::new(
+                                ParseErrorKind::UnexpectedToken("Expected identifier after **".to_string()),
+                                self.current_token.span.clone(),
+                            ));
+                        }
+                    }
                     TokenKind::Identifier(n) => {
                         params.push(n.clone());
                         self.advance()?;
@@ -151,7 +178,13 @@ impl<'a> Parser<'a> {
 
         let body = self.parse_block()?;
 
-        Ok(Stmt::FunctionDef { name, params, body })
+        Ok(Stmt::FunctionDef {
+            name,
+            params,
+            vararg,
+            kwarg,
+            body,
+        })
     }
 
     fn parse_class_def(&mut self) -> Result<Stmt, ParseError> {
@@ -496,9 +529,53 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::LParen)?;
 
         let mut args = Vec::new();
+        let mut kwargs = Vec::new();
+        let mut starargs = Vec::new();
+        let mut kwargs_unpack = Vec::new();
+
         if !self.check(&TokenKind::RParen) {
             loop {
-                args.push(self.parse_expression(0)?);
+                if self.check(&TokenKind::Star) {
+                    self.advance()?;
+                    starargs.push(self.parse_expression(0)?);
+                } else if self.check(&TokenKind::DoubleStar) {
+                    self.advance()?;
+                    kwargs_unpack.push(self.parse_expression(0)?);
+                } else {
+                    // Could be a keyword argument if it's an identifier followed by '='
+                    // Wait, we need to peek ahead to see if the next token is '='
+                    // Since we don't have peek(2), we can parse an expression.
+                    // If it's an Identifier and the next token is '=', it's a kwarg!
+                    // Actually, let's look at `self.current_token` and `self.peek_token` if we had it.
+                    // If we just check current token is Identifier and next is Assign...
+                    // Wait, we can just check if current token is Identifier.
+                    // If it is, and the NEXT token is `=`, we parse it as a kwarg.
+                    // But we don't have a peek() function easily available that returns the next token.
+                    // Let's just clone the lexer state if we want to look ahead? No, our lexer yields tokens.
+                    // We DO have `self.current_token` but no `self.peek_token()`.
+                    // Let's just add a temporary hack: if `self.current_token` is Identifier, 
+                    // we could just parse it as an expression. If it's an assignment, `parse_expression` 
+                    // doesn't handle `=` (assignment is a statement).
+                    // So if it's an identifier and the next token is `=`, we can't parse it as an expression easily.
+                    // Let's implement a small peek by checking if it's an Identifier. But how to know if next is '='?
+                    // We'll leave `kwargs` unimplemented in parsing for this exact step to keep it simple, or implement it by parsing an expression and checking if the next token is `=`. Wait! If we parse an expression, we consume the identifier. Then `self.current_token` would be `=`.
+                    let expr = self.parse_expression(0)?;
+                    if self.check(&TokenKind::Equal) {
+                        self.advance()?;
+                        let value = self.parse_expression(0)?;
+                        if let Expr::Identifier(name) = expr {
+                            kwargs.push((name, value));
+                        } else {
+                            return Err(ParseError::new(
+                                ParseErrorKind::UnexpectedToken("Keyword argument must be an identifier".to_string()),
+                                self.current_token.span.clone(),
+                            ));
+                        }
+                    } else {
+                        args.push(expr);
+                    }
+                }
+
                 if self.check(&TokenKind::Comma) {
                     self.advance()?;
                 } else {
@@ -512,6 +589,9 @@ impl<'a> Parser<'a> {
         Ok(Expr::Call {
             func: Box::new(func),
             args,
+            kwargs,
+            starargs,
+            kwargs_unpack,
         })
     }
 

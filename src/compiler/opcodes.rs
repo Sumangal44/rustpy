@@ -33,13 +33,17 @@ pub enum Opcode {
 
     // Functions
     MakeFunction,        // Pops a code object and creates a function object
-    CallFunction(usize), // number of arguments
+    CallFunction(usize), // number of positional arguments
+    CallFunctionKw(usize), // number of total arguments. Top of stack is a tuple of kwarg names.
+    CallFunctionEx(usize), // 0 if only *args on stack, 1 if both *args and **kwargs on stack.
     ReturnValue,
     YieldValue,
 
     // Data Structures
     BuildList(usize), // count
     BuildMap(usize),  // count (number of key-value pairs)
+    ListExtend,       // pops an iterable, pops a list, extends list, pushes list
+    DictMerge,        // pops a dict, pops a dict, merges, pushes dict
     BinarySubscript,  // pops index, pops collection, pushes item
 
     // Control Flow

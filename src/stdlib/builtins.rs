@@ -95,8 +95,11 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             }
             let obj = &args[0];
             if let Some(s) = obj.as_any().downcast_ref::<PyString>() {
-                // String length (character count)
                 Ok(Rc::new(PyInt::new(s.value.chars().count() as i64)))
+            } else if let Some(l) = obj.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                Ok(Rc::new(PyInt::new(l.elements.borrow().len() as i64)))
+            } else if let Some(d) = obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                Ok(Rc::new(PyInt::new(d.entries.borrow().len() as i64)))
             } else {
                 Err(format!(
                     "TypeError: object of type '{}' has no len()",

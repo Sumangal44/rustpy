@@ -214,4 +214,12 @@ mod tests {
         let total = env.borrow().get("total").unwrap();
         assert_eq!(total.repr(), "6");
     }
+
+    #[test]
+    fn test_advanced_functions() {
+        let source = "def foo(a, b, *args, **kwargs):\n    return (a + b) + len(args) + len(kwargs)\nresult = foo(1, 2, 3, 4, c=5, d=6)\n";
+        let env = execute_source(source);
+        let result = env.borrow().get("result").unwrap();
+        assert_eq!(result.repr(), "7");
+    }
 }

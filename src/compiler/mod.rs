@@ -222,12 +222,21 @@ impl Compiler {
                 }
                 self.emit(Opcode::ReturnValue);
             }
-            Stmt::FunctionDef { name, params, body } => {
+            Stmt::FunctionDef { name, params, vararg, kwarg, body } => {
                 let mut child_compiler = Compiler::new(name.clone());
+                child_compiler.code.arg_count = params.len();
+                child_compiler.code.vararg = vararg.clone();
+                child_compiler.code.kwarg = kwarg.clone();
+
                 // Add parameter names to the child code object's names list implicitly
-                // The VM will bind arguments to these names when creating the frame
                 for param in params {
                     child_compiler.get_or_add_name(param);
+                }
+                if let Some(v) = vararg {
+                    child_compiler.get_or_add_name(v);
+                }
+                if let Some(k) = kwarg {
+                    child_compiler.get_or_add_name(k);
                 }
 
                 for s in body {
@@ -312,16 +321,46 @@ impl Compiler {
             Expr::UnaryOp { .. } => {
                 return Err("Unary ops not yet implemented in compiler".to_string());
             }
-            Expr::Call { func, args } => {
+            Expr::Call { func, args, kwargs, starargs, kwargs_unpack } => {
                 // Compile function to call
                 self.compile_expr(func)?;
 
-                // Compile arguments
-                for arg in args {
-                    self.compile_expr(arg)?;
+                if kwargs.is_empty() && starargs.is_empty() && kwargs_unpack.is_empty() {
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    self.emit(Opcode::CallFunction(args.len()));
+                } else {
+                    // 1. Build the *args list
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    self.emit(Opcode::BuildList(args.len()));
+                    
+                    for stararg in starargs {
+                        self.compile_expr(stararg)?;
+                        self.emit(Opcode::ListExtend);
+                    }
+                    
+                    let has_kwargs = !kwargs.is_empty() || !kwargs_unpack.is_empty();
+                    if has_kwargs {
+                        // 2. Build the **kwargs dict
+                        for (key, value) in kwargs {
+                            let idx = self.add_constant(std::rc::Rc::new(crate::objects::string::PyString::new(key.clone())));
+                            self.emit(Opcode::LoadConst(idx));
+                            self.compile_expr(value)?;
+                        }
+                        self.emit(Opcode::BuildMap(kwargs.len()));
+                        
+                        for kwarg_up in kwargs_unpack {
+                            self.compile_expr(kwarg_up)?;
+                            self.emit(Opcode::DictMerge);
+                        }
+                        self.emit(Opcode::CallFunctionEx(1));
+                    } else {
+                        self.emit(Opcode::CallFunctionEx(0));
+                    }
                 }
-
-                self.emit(Opcode::CallFunction(args.len()));
             }
             Expr::List(elements) => {
                 for el in elements {

@@ -10,6 +10,9 @@ pub struct CodeObject {
     pub names: Vec<String>,
     pub name: String,
     pub is_generator: bool,
+    pub arg_count: usize,
+    pub vararg: Option<String>,
+    pub kwarg: Option<String>,
 }
 
 impl CodeObject {
@@ -20,6 +23,9 @@ impl CodeObject {
             constants: Vec::new(),
             names: Vec::new(),
             is_generator: false,
+            arg_count: 0,
+            vararg: None,
+            kwarg: None,
         }
     }
 }
