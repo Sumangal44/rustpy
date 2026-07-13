@@ -68,4 +68,53 @@ impl PyObject for PyList {
             ))
         }
     }
+
+    fn get_iter(&self) -> Result<Rc<dyn PyObject>, String> {
+        Ok(Rc::new(PyListIterator {
+            list: Rc::clone(&self.elements),
+            index: RefCell::new(0),
+        }))
+    }
+}
+
+#[derive(Clone)]
+pub struct PyListIterator {
+    pub list: Rc<RefCell<Vec<Rc<dyn PyObject>>>>,
+    pub index: RefCell<usize>,
+}
+
+impl std::fmt::Debug for PyListIterator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.repr())
+    }
+}
+
+impl PyObject for PyListIterator {
+    fn get_type(&self) -> &'static str {
+        "list_iterator"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn repr(&self) -> String {
+        format!("<list_iterator object at {:p}>", self)
+    }
+
+    fn get_iter(&self) -> Result<Rc<dyn PyObject>, String> {
+        Ok(Rc::new(self.clone()))
+    }
+
+    fn get_next(&self) -> Result<Option<Rc<dyn PyObject>>, String> {
+        let mut idx = self.index.borrow_mut();
+        let list = self.list.borrow();
+        if *idx < list.len() {
+            let item = Rc::clone(&list[*idx]);
+            *idx += 1;
+            Ok(Some(item))
+        } else {
+            Ok(None)
+        }
+    }
 }

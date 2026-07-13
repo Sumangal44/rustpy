@@ -59,11 +59,21 @@ impl Compiler {
                     return Err("Multiple assignment targets not yet supported".to_string());
                 }
 
-                if let Expr::Identifier(name) = &targets[0] {
-                    let name_idx = self.get_or_add_name(name);
-                    self.emit(Opcode::StoreName(name_idx));
-                } else {
-                    return Err("Assignment target must be an identifier".to_string());
+                match &targets[0] {
+                    Expr::Identifier(name) => {
+                        let name_idx = self.get_or_add_name(name);
+                        self.emit(Opcode::StoreName(name_idx));
+                    }
+                    Expr::Attribute {
+                        value: target_value,
+                        attr,
+                    } => {
+                        self.compile_expr(target_value)?;
+                        self.emit(Opcode::StoreAttr(attr.clone()));
+                    }
+                    _ => {
+                        return Err("CompilerError: Unsupported assignment target".to_string());
+                    }
                 }
             }
             Stmt::ExprStmt { value } => {
@@ -107,6 +117,96 @@ impl Compiler {
                 self.emit(Opcode::JumpAbsolute(loop_start));
                 self.code.instructions[jump_if_false_idx] =
                     Opcode::PopJumpIfFalse(self.code.instructions.len());
+            }
+            Stmt::For { target, iter, body } => {
+                self.compile_expr(iter)?;
+                self.emit(Opcode::GetIter);
+                let loop_start = self.code.instructions.len();
+                let for_iter_idx = self.emit(Opcode::ForIter(0));
+                if let Expr::Identifier(name) = target {
+                    let name_idx = self.get_or_add_name(name);
+                    self.emit(Opcode::StoreName(name_idx));
+                } else {
+                    return Err(format!(
+                        "CompilerError: Expected identifier for loop target, got {:?}",
+                        target
+                    ));
+                }
+                for s in body {
+                    self.compile_stmt(s)?;
+                }
+                self.emit(Opcode::JumpAbsolute(loop_start));
+                let loop_end = self.code.instructions.len();
+                self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
+            }
+            Stmt::ClassDef { name, body } => {
+                // To build a class, we evaluate its body, which defines its methods.
+                // We'll push the name, then evaluate the body to build a dict, then BuildClass.
+                // Since our VM doesn't have a concept of class body execution namespace directly yet,
+                // we will fake it by compiling the body inside a new compiler, getting a CodeObject,
+                // creating a function, calling it to get a dict?
+                // No, that's complex. Let's do it inline:
+                // We will just compile the methods and store them into a map.
+                // Actually, the simplest way is to create a map, then for each method, compile it,
+                let mut class_compiler = Compiler::new(name.clone());
+                for s in body {
+                    class_compiler.compile_stmt(s)?;
+                }
+
+                let none_obj = std::rc::Rc::new(crate::objects::none::PyNone);
+                class_compiler.code.constants.push(none_obj);
+                let none_idx = class_compiler.code.constants.len() - 1;
+                class_compiler.emit(Opcode::LoadConst(none_idx));
+                class_compiler.emit(Opcode::ReturnValue);
+
+                let code_obj = class_compiler.code;
+
+                let name_obj = std::rc::Rc::new(crate::objects::string::PyString {
+                    value: name.clone(),
+                });
+                self.code.constants.push(name_obj);
+                let name_idx = self.code.constants.len() - 1;
+                self.emit(Opcode::LoadConst(name_idx));
+
+                let code_idx = self.code.constants.len();
+                self.code.constants.push(std::rc::Rc::new(code_obj));
+                self.emit(Opcode::LoadConst(code_idx));
+
+                self.emit(Opcode::BuildClass);
+
+                let name_idx = self.get_or_add_name(&name);
+                self.emit(Opcode::StoreName(name_idx));
+            }
+            Stmt::Try { body, handlers } => {
+                let setup_except_idx = self.emit(Opcode::SetupExcept(0));
+
+                for s in body {
+                    self.compile_stmt(s)?;
+                }
+
+                self.emit(Opcode::PopExcept);
+
+                let jump_forward_idx = self.emit(Opcode::JumpAbsolute(0));
+
+                let except_target = self.code.instructions.len();
+                self.code.instructions[setup_except_idx] = Opcode::SetupExcept(except_target);
+
+                // Currently assuming one global handler
+                if let Some((_, handler_body)) = handlers.first() {
+                    // Python pushes the exception object onto the stack for the except block
+                    // Since we aren't binding it yet, we just pop it to clean the stack
+                    self.emit(Opcode::PopTop);
+                    for s in handler_body {
+                        self.compile_stmt(s)?;
+                    }
+                }
+
+                self.code.instructions[jump_forward_idx] =
+                    Opcode::JumpAbsolute(self.code.instructions.len());
+            }
+            Stmt::Raise { exc } => {
+                self.compile_expr(exc)?;
+                self.emit(Opcode::Raise);
             }
             Stmt::Pass => {}
             Stmt::Return { value } => {
@@ -229,6 +329,10 @@ impl Compiler {
                 self.compile_expr(value)?;
                 self.compile_expr(slice)?;
                 self.emit(Opcode::BinarySubscript);
+            }
+            Expr::Attribute { value, attr } => {
+                self.compile_expr(value)?;
+                self.emit(Opcode::LoadAttr(attr.clone()));
             }
         }
         Ok(())

@@ -27,6 +27,10 @@ impl Environment {
         self.variables.insert(name, value);
     }
 
+    pub fn get_all_locals(&self) -> HashMap<String, Rc<dyn PyObject>> {
+        self.variables.clone()
+    }
+
     pub fn get(&self, name: &str) -> Option<Rc<dyn PyObject>> {
         if let Some(val) = self.variables.get(name) {
             Some(Rc::clone(val))

@@ -82,9 +82,13 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         match &self.current_token.kind {
             TokenKind::Def => self.parse_function_def(),
+            TokenKind::Class => self.parse_class_def(),
+            TokenKind::Try => self.parse_try(),
+            TokenKind::Raise => self.parse_raise(),
             TokenKind::Return => self.parse_return(),
             TokenKind::If => self.parse_if(),
             TokenKind::While => self.parse_while(),
+            TokenKind::For => self.parse_for(),
             TokenKind::Pass => {
                 self.advance()?;
                 self.consume(TokenKind::Newline)?;
@@ -139,6 +143,38 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
 
         Ok(Stmt::FunctionDef { name, params, body })
+    }
+
+    fn parse_class_def(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Class)?;
+
+        let name = match &self.current_token.kind {
+            TokenKind::Identifier(n) => n.clone(),
+            _ => {
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken("Expected class name".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
+        };
+        self.advance()?;
+
+        // Optional inheritance (skip for Phase 11)
+        if self.check(&TokenKind::LParen) {
+            self.advance()?;
+            // Ignoring base classes for now, just consume them
+            while !self.check(&TokenKind::RParen) && !self.check(&TokenKind::EOF) {
+                self.advance()?;
+            }
+            self.consume(TokenKind::RParen)?;
+        }
+
+        self.consume(TokenKind::Colon)?;
+        self.consume(TokenKind::Newline)?;
+
+        let body = self.parse_block()?;
+
+        Ok(Stmt::ClassDef { name, body })
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {
@@ -207,6 +243,61 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
 
         Ok(Stmt::While { test, body })
+    }
+
+    fn parse_for(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::For)?;
+        let target = self.parse_expression(0)?;
+        self.consume(TokenKind::In)?;
+        let iter = self.parse_expression(0)?;
+        self.consume(TokenKind::Colon)?;
+        self.consume(TokenKind::Newline)?;
+
+        let body = self.parse_block()?;
+
+        Ok(Stmt::For { target, iter, body })
+    }
+
+    fn parse_try(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Try)?;
+        self.consume(TokenKind::Colon)?;
+        self.consume(TokenKind::Newline)?;
+
+        let body = self.parse_block()?;
+
+        let mut handlers = Vec::new();
+        while self.check(&TokenKind::Except) {
+            self.advance()?;
+
+            // For now, support bare `except:` or `except Exception:` but don't bind it.
+            // Actually, we'll just skip the exception type if it's there.
+            if !self.check(&TokenKind::Colon) {
+                // Read whatever expression is there
+                self.parse_expression(0)?;
+                // Ignore `as X` for now
+                if self.check(&TokenKind::As) {
+                    self.advance()?;
+                    self.parse_expression(0)?;
+                }
+            }
+
+            self.consume(TokenKind::Colon)?;
+            self.consume(TokenKind::Newline)?;
+
+            let handler_body = self.parse_block()?;
+            handlers.push(("Exception".to_string(), handler_body));
+        }
+
+        Ok(Stmt::Try { body, handlers })
+    }
+
+    fn parse_raise(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Raise)?;
+        let exc = self.parse_expression(0)?;
+        if self.check(&TokenKind::Newline) {
+            self.advance()?;
+        }
+        Ok(Stmt::Raise { exc: Box::new(exc) })
     }
 
     fn parse_assign_or_expr(&mut self) -> Result<Stmt, ParseError> {
@@ -339,6 +430,8 @@ impl<'a> Parser<'a> {
             return self.parse_call(left);
         } else if self.check(&TokenKind::LBracket) {
             return self.parse_subscript(left);
+        } else if self.check(&TokenKind::Dot) {
+            return self.parse_attribute(left);
         }
 
         let op = match self.current_token.kind {
@@ -411,6 +504,26 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_attribute(&mut self, value: Expr) -> Result<Expr, ParseError> {
+        self.consume(TokenKind::Dot)?;
+
+        let attr = match &self.current_token.kind {
+            TokenKind::Identifier(name) => name.clone(),
+            _ => {
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken("Expected attribute name".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
+        };
+        self.advance()?;
+
+        Ok(Expr::Attribute {
+            value: Box::new(value),
+            attr,
+        })
+    }
+
     fn peek_precedence(&self) -> u8 {
         self.token_precedence(&self.current_token.kind)
     }
@@ -421,6 +534,7 @@ impl<'a> Parser<'a> {
 
     fn token_precedence(&self, kind: &TokenKind) -> u8 {
         match kind {
+            TokenKind::Dot => 8,
             TokenKind::LParen | TokenKind::LBracket => 7,
             TokenKind::DoubleStar => 6,
             TokenKind::Star | TokenKind::Slash | TokenKind::DoubleSlash | TokenKind::Percent => 5,

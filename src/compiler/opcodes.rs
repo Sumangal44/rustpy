@@ -40,4 +40,18 @@ pub enum Opcode {
     BuildList(usize), // count
     BuildMap(usize),  // count (number of key-value pairs)
     BinarySubscript,  // pops index, pops collection, pushes item
+
+    // Control Flow
+    GetIter,        // pops collection, pushes iterator
+    ForIter(usize), // pops iterator, gets next. If some, pushes iterator then item. If none, pops iterator, jumps forward by offset.
+
+    // Classes and Attributes
+    BuildClass,        // pops dict, pops name, pushes class
+    LoadAttr(String),  // pops object, pushes attribute
+    StoreAttr(String), // pops object, pops value, sets attribute
+
+    // Exceptions
+    SetupExcept(usize), // pushes a block onto block stack, with target
+    PopExcept,          // pops a block from block stack
+    Raise,              // pops an object, raises it as an exception
 }

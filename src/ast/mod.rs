@@ -12,6 +12,10 @@ pub enum Expr {
         value: Box<Expr>,
         slice: Box<Expr>,
     },
+    Attribute {
+        value: Box<Expr>,
+        attr: String,
+    },
     BinOp {
         left: Box<Expr>,
         op: BinOpKind,
@@ -58,6 +62,17 @@ pub enum Stmt {
         params: Vec<String>,
         body: Vec<Stmt>,
     },
+    ClassDef {
+        name: String,
+        body: Vec<Stmt>,
+    },
+    Try {
+        body: Vec<Stmt>,
+        handlers: Vec<(String, Vec<Stmt>)>,
+    },
+    Raise {
+        exc: Box<Expr>,
+    },
     Return {
         value: Option<Expr>,
     },
@@ -68,6 +83,11 @@ pub enum Stmt {
     },
     While {
         test: Expr,
+        body: Vec<Stmt>,
+    },
+    For {
+        target: Expr,
+        iter: Expr,
         body: Vec<Stmt>,
     },
     Assign {

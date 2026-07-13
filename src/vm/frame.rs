@@ -4,11 +4,20 @@ use crate::runtime::Environment;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+#[derive(Debug, Clone)]
+pub enum Block {
+    SetupExcept {
+        handler_ip: usize,
+        stack_size: usize,
+    },
+}
+
 pub struct Frame {
     pub code: CodeObject,
     pub ip: usize,
     pub stack: Vec<Rc<dyn PyObject>>,
     pub env: Rc<RefCell<Environment>>,
+    pub block_stack: Vec<Block>,
 }
 
 impl Frame {
@@ -18,6 +27,7 @@ impl Frame {
             ip: 0,
             stack: Vec::new(),
             env,
+            block_stack: Vec::new(),
         }
     }
 

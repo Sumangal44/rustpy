@@ -5,10 +5,10 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct CodeObject {
-    pub name: String,
     pub instructions: Vec<Opcode>,
     pub constants: Vec<Rc<dyn PyObject>>,
     pub names: Vec<String>,
+    pub name: String,
 }
 
 impl CodeObject {

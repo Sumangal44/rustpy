@@ -182,4 +182,29 @@ mod tests {
         let x = env.borrow().get("x").unwrap();
         assert_eq!(x.repr(), "100");
     }
+
+    #[test]
+    fn test_for_loop() {
+        let source = "items = [1, 2, 3]\nsum = 0\nfor x in items:\n    sum = sum + x\n";
+        let env = execute_source(source);
+        let sum = env.borrow().get("sum").unwrap();
+        assert_eq!(sum.repr(), "6");
+    }
+
+    #[test]
+    fn test_class_instantiation() {
+        let source = "class Box:\n    def __init__(self, v):\n        self.val = v\nb = Box(42)\nresult = b.val\n";
+        let env = execute_source(source);
+        let result = env.borrow().get("result").unwrap();
+        assert_eq!(result.repr(), "42");
+    }
+
+    #[test]
+    fn test_exceptions() {
+        let source =
+            "handled = 0\ntry:\n    raise \"Error\"\n    handled = 99\nexcept:\n    handled = 1\n";
+        let env = execute_source(source);
+        let handled = env.borrow().get("handled").unwrap();
+        assert_eq!(handled.repr(), "1");
+    }
 }
