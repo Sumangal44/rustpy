@@ -799,6 +799,48 @@ mod tests {
     }
 
     #[test]
+    fn test_list_slice_basic() {
+        let source = "l = [0, 1, 2, 3, 4]\na = l[1:3]\nb = l[:3]\nc = l[2:]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[1, 2]");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "[0, 1, 2]");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "[2, 3, 4]");
+    }
+
+    #[test]
+    fn test_list_slice_full() {
+        let source = "l = [0, 1, 2, 3, 4]\na = l[:]\nb = l[::2]\nc = l[1:4:2]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[0, 1, 2, 3, 4]");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "[0, 2, 4]");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "[1, 3]");
+    }
+
+    #[test]
+    fn test_list_slice_negative() {
+        let source = "l = [0, 1, 2, 3, 4]\na = l[-3:-1]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[2, 3]");
+    }
+
+    #[test]
+    fn test_string_slice() {
+        let source = "s = \"hello\"\na = s[1:4]\nb = s[:3]\nc = s[2:]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'ell'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'hel'");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "'llo'");
+    }
+
+    #[test]
+    fn test_string_slice_step() {
+        let source = "s = \"hello\"\na = s[::2]\nb = s[::-1]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'hlo'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'olleh'");
+    }
+
+    #[test]
     fn test_is_with_vars() {
         let source = "x = 42\na = x is x\nb = x is 99\nc = x is not 99\n";
         let env = execute_source(source);

@@ -359,6 +359,37 @@ impl VirtualMachine {
                     return Err("TypeError: MapAdd expected a dict".to_string());
                 }
             }
+            Opcode::BuildSlice => {
+                let step_obj = frame.pop()?;
+                let stop_obj = frame.pop()?;
+                let start_obj = frame.pop()?;
+                let start = if start_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
+                    None
+                } else if let Some(i) = start_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    Some(i.value)
+                } else {
+                    return Err("TypeError: slice indices must be integers or None".to_string());
+                };
+                let stop = if stop_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
+                    None
+                } else if let Some(i) = stop_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    Some(i.value)
+                } else {
+                    return Err("TypeError: slice indices must be integers or None".to_string());
+                };
+                let step = if step_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
+                    None
+                } else if let Some(i) = step_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    Some(i.value)
+                } else {
+                    return Err("TypeError: slice indices must be integers or None".to_string());
+                };
+                if let Some(s) = step {
+                    if s == 0 { return Err("ValueError: slice step cannot be zero".to_string()); }
+                }
+                let slice = Rc::new(crate::objects::slice::PySlice::new(start, stop, step));
+                frame.push(slice);
+            }
             Opcode::BinarySubscript => {
                 let idx = frame.pop()?;
                 let collection = frame.pop()?;

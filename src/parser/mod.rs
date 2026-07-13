@@ -871,12 +871,55 @@ impl<'a> Parser<'a> {
 
     fn parse_subscript(&mut self, value: Expr) -> Result<Expr, ParseError> {
         self.consume(TokenKind::LBracket)?;
-        let slice = self.parse_expression(0)?;
-        self.consume(TokenKind::RBracket)?;
-        Ok(Expr::Subscript {
-            value: Box::new(value),
-            slice: Box::new(slice),
-        })
+        if self.check(&TokenKind::Colon) {
+            self.advance()?;
+            let (stop, step) = self.parse_slice_tail()?;
+            self.consume(TokenKind::RBracket)?;
+            return Ok(Expr::Slice {
+                value: Box::new(value),
+                start: None,
+                stop,
+                step,
+            });
+        }
+        let first = self.parse_expression(0)?;
+        if self.check(&TokenKind::Colon) {
+            self.advance()?;
+            let (stop, step) = self.parse_slice_tail()?;
+            self.consume(TokenKind::RBracket)?;
+            Ok(Expr::Slice {
+                value: Box::new(value),
+                start: Some(Box::new(first)),
+                stop,
+                step,
+            })
+        } else {
+            self.consume(TokenKind::RBracket)?;
+            Ok(Expr::Subscript {
+                value: Box::new(value),
+                slice: Box::new(first),
+            })
+        }
+    }
+
+    fn parse_slice_tail(&mut self) -> Result<(Option<Box<Expr>>, Option<Box<Expr>>), ParseError> {
+        // After seeing first ':', parse stop (optional) and step (optional after second ':')
+        let stop = if self.check(&TokenKind::Colon) || self.check(&TokenKind::RBracket) {
+            None
+        } else {
+            Some(Box::new(self.parse_expression(0)?))
+        };
+        let step = if self.check(&TokenKind::Colon) {
+            self.advance()?;
+            if self.check(&TokenKind::RBracket) {
+                None
+            } else {
+                Some(Box::new(self.parse_expression(0)?))
+            }
+        } else {
+            None
+        };
+        Ok((stop, step))
     }
 
     fn parse_attribute(&mut self, value: Expr) -> Result<Expr, ParseError> {

@@ -135,4 +135,5 @@ pub mod int;
 pub mod list;
 pub mod native_function;
 pub mod none;
+pub mod slice;
 pub mod string;

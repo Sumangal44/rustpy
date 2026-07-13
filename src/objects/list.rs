@@ -62,9 +62,33 @@ impl PyObject for PyList {
             } else {
                 Err("IndexError: list index out of range".to_string())
             }
+        } else if let Some(slice) = key.as_any().downcast_ref::<crate::objects::slice::PySlice>() {
+            let elements = self.elements.borrow();
+            let length = elements.len();
+            let (raw_start, raw_stop, step) = slice.resolve(length);
+            let mut result = Vec::new();
+            if step > 0 {
+                let mut i = raw_start;
+                while i < raw_stop {
+                    result.push(Rc::clone(&elements[i]));
+                    i = (i as i64 + step) as usize;
+                }
+            } else if step < 0 {
+                let start = if slice.start.is_some() { raw_start } else { length - 1 };
+                let stop = if slice.stop.is_some() { raw_stop } else { 0 };
+                let mut i = start;
+                loop {
+                    result.push(Rc::clone(&elements[i]));
+                    if i == stop { break; }
+                    let next = (i as i64 + step);
+                    if next < 0 || next as usize >= length { break; }
+                    i = next as usize;
+                }
+            }
+            Ok(Rc::new(crate::objects::list::PyList::new(result)))
         } else {
             Err(format!(
-                "TypeError: list indices must be integers, not {}",
+                "TypeError: list indices must be integers or slices, not {}",
                 key.get_type()
             ))
         }

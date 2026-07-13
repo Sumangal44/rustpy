@@ -102,6 +102,51 @@ impl PyObject for PyString {
         }
     }
 
+    fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
+        if let Some(idx_obj) = key.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+            let mut idx = idx_obj.value;
+            let len = self.value.len() as i64;
+            if idx < 0 {
+                idx += len;
+            }
+            if idx >= 0 && idx < len {
+                let c = self.value.chars().nth(idx as usize).unwrap();
+                Ok(Rc::new(PyString::new(c.to_string())))
+            } else {
+                Err("IndexError: string index out of range".to_string())
+            }
+        } else if let Some(slice) = key.as_any().downcast_ref::<crate::objects::slice::PySlice>() {
+            let length = self.value.chars().count();
+            let (raw_start, raw_stop, step) = slice.resolve(length);
+            let chars: Vec<char> = self.value.chars().collect();
+            let mut result = String::new();
+            if step > 0 {
+                let mut i = raw_start;
+                while i < raw_stop {
+                    result.push(chars[i]);
+                    i = (i as i64 + step) as usize;
+                }
+            } else if step < 0 {
+                let start = if slice.start.is_some() { raw_start } else { length - 1 };
+                let stop = if slice.stop.is_some() { raw_stop } else { 0 };
+                let mut i = start;
+                loop {
+                    result.push(chars[i]);
+                    if i == stop { break; }
+                    let next = (i as i64 + step);
+                    if next < 0 || next as usize >= length { break; }
+                    i = next as usize;
+                }
+            }
+            Ok(Rc::new(PyString::new(result)))
+        } else {
+            Err(format!(
+                "TypeError: string indices must be integers or slices, not {}",
+                key.get_type()
+            ))
+        }
+    }
+
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         match attr {
             "upper" => {

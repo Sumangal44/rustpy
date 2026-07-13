@@ -610,6 +610,32 @@ impl Compiler {
                 self.compile_expr(slice)?;
                 self.emit(Opcode::BinarySubscript);
             }
+            Expr::Slice { value, start, stop, step } => {
+                self.compile_expr(value)?;
+                // Push start (or None)
+                if let Some(start_expr) = start {
+                    self.compile_expr(start_expr)?;
+                } else {
+                    let idx = self.add_constant(Rc::new(PyNone::new()));
+                    self.emit(Opcode::LoadConst(idx));
+                }
+                // Push stop (or None)
+                if let Some(stop_expr) = stop {
+                    self.compile_expr(stop_expr)?;
+                } else {
+                    let idx = self.add_constant(Rc::new(PyNone::new()));
+                    self.emit(Opcode::LoadConst(idx));
+                }
+                // Push step (or None)
+                if let Some(step_expr) = step {
+                    self.compile_expr(step_expr)?;
+                } else {
+                    let idx = self.add_constant(Rc::new(PyNone::new()));
+                    self.emit(Opcode::LoadConst(idx));
+                }
+                self.emit(Opcode::BuildSlice);
+                self.emit(Opcode::BinarySubscript);
+            }
             Expr::Attribute { value, attr } => {
                 self.compile_expr(value)?;
                 self.emit(Opcode::LoadAttr(attr.clone()));

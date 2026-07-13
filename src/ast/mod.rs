@@ -12,6 +12,12 @@ pub enum Expr {
         value: Box<Expr>,
         slice: Box<Expr>,
     },
+    Slice {
+        value: Box<Expr>,
+        start: Option<Box<Expr>>,
+        stop: Option<Box<Expr>>,
+        step: Option<Box<Expr>>,
+    },
     Attribute {
         value: Box<Expr>,
         attr: String,

@@ -59,6 +59,7 @@ pub enum Opcode {
     DictMerge,        // pops a dict, pops a dict, merges, pushes dict
     ListAppend,       // pops item, pops list, appends item, pushes list back
     MapAdd,           // pops value, pops key, pops dict, inserts key:value, pushes dict back
+    BuildSlice,       // pops step (or None), stop (or None), start (or None), pushes PySlice
     BinarySubscript,  // pops index, pops collection, pushes item
     StoreSubscript,   // pops value, pops index, pops collection, stores item
 
