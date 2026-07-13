@@ -6,6 +6,12 @@ pub enum Expr {
     StringLiteral(String),
     BooleanLiteral(bool),
     NoneLiteral,
+    List(Vec<Expr>),
+    Dict(Vec<(Expr, Expr)>),
+    Subscript {
+        value: Box<Expr>,
+        slice: Box<Expr>,
+    },
     BinOp {
         left: Box<Expr>,
         op: BinOpKind,

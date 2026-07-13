@@ -209,6 +209,27 @@ impl Compiler {
 
                 self.emit(Opcode::CallFunction(args.len()));
             }
+            Expr::List(elements) => {
+                for el in elements {
+                    self.compile_expr(el)?;
+                }
+                self.emit(Opcode::BuildList(elements.len()));
+            }
+            Expr::Dict(pairs) => {
+                for (key, value) in pairs {
+                    // Python dict literals evaluate value first, then key? Or key then value?
+                    // Actually usually key then value is evaluated. CPython evaluates key then value, but stacks them value, key.
+                    // Wait, let's just evaluate key, then value, and VM pops value, then key.
+                    self.compile_expr(key)?;
+                    self.compile_expr(value)?;
+                }
+                self.emit(Opcode::BuildMap(pairs.len()));
+            }
+            Expr::Subscript { value, slice } => {
+                self.compile_expr(value)?;
+                self.compile_expr(slice)?;
+                self.emit(Opcode::BinarySubscript);
+            }
         }
         Ok(())
     }

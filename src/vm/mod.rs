@@ -159,6 +159,46 @@ impl VirtualMachine {
                         ));
                     }
                 }
+                Opcode::BuildList(count) => {
+                    let mut elements = Vec::new();
+                    for _ in 0..*count {
+                        elements.push(frame.pop()?);
+                    }
+                    elements.reverse(); // Pop reverses the order
+                    let list = Rc::new(crate::objects::list::PyList::new(elements));
+                    frame.push(list);
+                }
+                Opcode::BuildMap(count) => {
+                    let mut entries = std::collections::HashMap::new();
+                    // Each pair was compiled as key, then value.
+                    // This means value is on top of stack, then key.
+                    // Actually let's pop pairs.
+                    for _ in 0..*count {
+                        let value = frame.pop()?;
+                        let key_obj = frame.pop()?;
+
+                        // We only support strings for keys currently
+                        if let Some(str_key) = key_obj
+                            .as_any()
+                            .downcast_ref::<crate::objects::string::PyString>()
+                        {
+                            entries.insert(str_key.value.clone(), value);
+                        } else {
+                            return Err(format!(
+                                "TypeError: unhashable type: '{}' (Only strings supported as dict keys)",
+                                key_obj.get_type()
+                            ));
+                        }
+                    }
+                    let dict = Rc::new(crate::objects::dict::PyDict::new(entries));
+                    frame.push(dict);
+                }
+                Opcode::BinarySubscript => {
+                    let idx = frame.pop()?;
+                    let collection = frame.pop()?;
+                    let result = collection.get_item(idx)?;
+                    frame.push(result);
+                }
                 Opcode::ReturnValue => {
                     if frame.stack.is_empty() {
                         return Ok(None);

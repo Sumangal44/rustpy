@@ -35,4 +35,9 @@ pub enum Opcode {
     MakeFunction,        // Pops a code object and creates a function object
     CallFunction(usize), // number of arguments
     ReturnValue,
+
+    // Data Structures
+    BuildList(usize), // count
+    BuildMap(usize),  // count (number of key-value pairs)
+    BinarySubscript,  // pops index, pops collection, pushes item
 }

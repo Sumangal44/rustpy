@@ -278,6 +278,41 @@ impl<'a> Parser<'a> {
                 self.consume(TokenKind::RParen)?;
                 Ok(expr)
             }
+            TokenKind::LBracket => {
+                self.advance()?;
+                let mut elements = Vec::new();
+                if !self.check(&TokenKind::RBracket) {
+                    loop {
+                        elements.push(self.parse_expression(0)?);
+                        if self.check(&TokenKind::Comma) {
+                            self.advance()?;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenKind::RBracket)?;
+                Ok(Expr::List(elements))
+            }
+            TokenKind::LBrace => {
+                self.advance()?;
+                let mut pairs = Vec::new();
+                if !self.check(&TokenKind::RBrace) {
+                    loop {
+                        let key = self.parse_expression(0)?;
+                        self.consume(TokenKind::Colon)?;
+                        let value = self.parse_expression(0)?;
+                        pairs.push((key, value));
+                        if self.check(&TokenKind::Comma) {
+                            self.advance()?;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenKind::RBrace)?;
+                Ok(Expr::Dict(pairs))
+            }
             TokenKind::Minus | TokenKind::Plus | TokenKind::Not => {
                 let op = match self.current_token.kind {
                     TokenKind::Minus => UnaryOpKind::Minus,
@@ -302,6 +337,8 @@ impl<'a> Parser<'a> {
     fn parse_infix(&mut self, left: Expr) -> Result<Expr, ParseError> {
         if self.check(&TokenKind::LParen) {
             return self.parse_call(left);
+        } else if self.check(&TokenKind::LBracket) {
+            return self.parse_subscript(left);
         }
 
         let op = match self.current_token.kind {
@@ -364,6 +401,16 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_subscript(&mut self, value: Expr) -> Result<Expr, ParseError> {
+        self.consume(TokenKind::LBracket)?;
+        let slice = self.parse_expression(0)?;
+        self.consume(TokenKind::RBracket)?;
+        Ok(Expr::Subscript {
+            value: Box::new(value),
+            slice: Box::new(slice),
+        })
+    }
+
     fn peek_precedence(&self) -> u8 {
         self.token_precedence(&self.current_token.kind)
     }
@@ -374,7 +421,7 @@ impl<'a> Parser<'a> {
 
     fn token_precedence(&self, kind: &TokenKind) -> u8 {
         match kind {
-            TokenKind::LParen => 7,
+            TokenKind::LParen | TokenKind::LBracket => 7,
             TokenKind::DoubleStar => 6,
             TokenKind::Star | TokenKind::Slash | TokenKind::DoubleSlash | TokenKind::Percent => 5,
             TokenKind::Plus | TokenKind::Minus => 4,

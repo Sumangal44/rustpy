@@ -28,11 +28,20 @@ pub trait PyObject: Debug + Any {
     fn mul(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         None
     }
+
+    fn get_item(&self, _key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
+        Err(format!(
+            "TypeError: '{}' object is not subscriptable",
+            self.get_type()
+        ))
+    }
 }
 
 pub mod bool;
+pub mod dict;
 pub mod function;
 pub mod int;
+pub mod list;
 pub mod native_function;
 pub mod none;
 pub mod string;

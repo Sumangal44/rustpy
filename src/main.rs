@@ -13,48 +13,106 @@ use lexer::Lexer;
 use parser::Parser;
 use runtime::Environment;
 use std::cell::RefCell;
+use std::env;
+use std::fs;
+use std::io::{self, Write};
 use std::rc::Rc;
 use vm::VirtualMachine;
 use vm::frame::Frame;
 
 fn main() {
-    println!("RustPy Interpreter - Phase 7");
+    let args: Vec<String> = env::args().collect();
 
-    let source =
-        "print(\"Hello from RustPy built-ins!\")\nx = len(\"12345\")\nprint(\"Length is:\", x)\n";
-    println!("Executing source:\n{}", source);
+    if args.len() > 2 {
+        println!("Usage: rustpy [script]");
+        std::process::exit(64);
+    } else if args.len() == 2 {
+        run_file(&args[1]);
+    } else {
+        run_repl();
+    }
+}
 
+fn run_file(path: &str) {
+    let source = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("Error reading file '{}': {}", path, e);
+            std::process::exit(74);
+        }
+    };
+
+    let env = Environment::new();
+    stdlib::builtins::inject_builtins(&env);
+
+    execute(&source, env, path);
+}
+
+fn run_repl() {
+    println!("RustPy Interpreter 0.1.0 (Phase 8)");
+    println!("Type 'quit()' or 'exit()' to exit.");
+
+    let env = Environment::new();
+    stdlib::builtins::inject_builtins(&env);
+
+    let mut input = String::new();
+
+    loop {
+        print!(">>> ");
+        io::stdout().flush().unwrap();
+
+        input.clear();
+        match io::stdin().read_line(&mut input) {
+            Ok(0) => break, // EOF
+            Ok(_) => {
+                let trimmed = input.trim();
+                if trimmed == "quit()" || trimmed == "exit()" {
+                    break;
+                }
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                // For REPL, we want the newline appended to help the parser
+                execute(&input, Rc::clone(&env), "<stdin>");
+            }
+            Err(e) => {
+                eprintln!("Error reading input: {}", e);
+                break;
+            }
+        }
+    }
+}
+
+fn execute(source: &str, env: Rc<RefCell<Environment>>, filename: &str) {
     let lexer = Lexer::new(source);
     match Parser::new(lexer) {
         Ok(mut parser) => {
             match parser.parse_module() {
                 Ok(module) => {
-                    let compiler = Compiler::new("<module>".to_string());
+                    let compiler = Compiler::new(filename.to_string());
                     match compiler.compile(&module) {
                         Ok(code) => {
-                            let env = Environment::new();
-                            stdlib::builtins::inject_builtins(&env); // Inject Built-ins!
-
-                            let mut frame = Frame::new(code, Rc::clone(&env));
+                            let mut frame = Frame::new(code, env);
                             let mut vm = VirtualMachine::new();
 
                             match vm.run(&mut frame) {
                                 Ok(_) => {
-                                    println!("Execution successful!");
+                                    // Execution succeeded
                                 }
-                                Err(e) => println!("Runtime error: {}", e),
+                                Err(e) => eprintln!("RuntimeError: {}", e),
                             }
                         }
-                        Err(e) => println!("Compiler error: {}", e),
+                        Err(e) => eprintln!("CompilerError: {}", e),
                     }
                 }
-                Err(e) => println!(
+                Err(e) => eprintln!(
                     "{}",
                     diagnostics::format_error(source, &e.span, &e.to_string())
                 ),
             }
         }
-        Err(e) => println!(
+        Err(e) => eprintln!(
             "{}",
             diagnostics::format_error(source, &e.span, &e.to_string())
         ),
@@ -67,16 +125,9 @@ mod tests {
     use crate::objects::PyObject;
 
     fn execute_source(source: &str) -> Rc<RefCell<Environment>> {
-        let lexer = Lexer::new(source);
-        let mut parser = Parser::new(lexer).unwrap();
-        let module = parser.parse_module().unwrap();
-        let compiler = Compiler::new("<test_module>".to_string());
-        let code = compiler.compile(&module).unwrap();
         let env = Environment::new();
         stdlib::builtins::inject_builtins(&env);
-        let mut frame = Frame::new(code, Rc::clone(&env));
-        let mut vm = VirtualMachine::new();
-        vm.run(&mut frame).unwrap();
+        execute(source, Rc::clone(&env), "<test>");
         env
     }
 
@@ -108,6 +159,27 @@ mod tests {
         let source = "s = str(123)\n";
         let env = execute_source(source);
         let s = env.borrow().get("s").unwrap();
-        assert_eq!(s.repr(), "'123'"); // Evaluates to string representation
+        assert_eq!(s.repr(), "'123'");
+    }
+
+    #[test]
+    fn test_list_creation_and_subscript() {
+        let source = "l = [10, 20, 30]\nx = l[1]\n";
+        let env = execute_source(source);
+        let l = env.borrow().get("l").unwrap();
+        assert_eq!(l.repr(), "[10, 20, 30]");
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "20");
+    }
+
+    #[test]
+    fn test_dict_creation_and_subscript() {
+        let source = "d = {\"a\": 100, \"b\": 200}\nx = d[\"a\"]\n";
+        let env = execute_source(source);
+        let d = env.borrow().get("d").unwrap();
+        // Hash map ordering is non-deterministic, so just check it's truthy
+        assert!(d.is_truthy());
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "100");
     }
 }
