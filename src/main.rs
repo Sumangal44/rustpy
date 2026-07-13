@@ -729,4 +729,81 @@ mod tests {
         let env = execute_source(source);
         assert_eq!(env.borrow().get("x").unwrap().repr(), "1");
     }
+
+    #[test]
+    fn test_in_list() {
+        let source = "a = 1 in [1, 2, 3]\nb = 4 in [1, 2, 3]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_not_in_list() {
+        let source = "a = 1 not in [1, 2, 3]\nb = 4 not in [1, 2, 3]\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_in_string() {
+        let source = "a = \"ll\" in \"hello\"\nb = \"zz\" in \"hello\"\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_in_dict() {
+        let source = "d = {\"a\": 1, \"b\": 2}\na = \"a\" in d\nb = \"c\" in d\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_is_operator() {
+        let source = "a = [1, 2]\nb = a\nc = [1, 2]\nx = a is b\ny = a is c\nz = a is not c\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_and_short_circuit() {
+        let source = "x = 0 and 1\ny = 1 and 2\nz = 0 and None\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "0");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "2");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "0");
+    }
+
+    #[test]
+    fn test_or_short_circuit() {
+        let source = "x = 0 or 1\ny = 1 or 2\nz = 0 or 42\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "1");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "1");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_and_or_combined() {
+        let source = "x = 0 and 1 or 2\ny = 1 and 0 or 3\nz = 0 and 1 and 2\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "2");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "3");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "0");
+    }
+
+    #[test]
+    fn test_is_with_vars() {
+        let source = "x = 42\na = x is x\nb = x is 99\nc = x is not 99\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "True");
+    }
 }

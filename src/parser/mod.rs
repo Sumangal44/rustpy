@@ -357,9 +357,23 @@ impl<'a> Parser<'a> {
         Ok(Stmt::While { test, body })
     }
 
+    fn parse_for_target(&mut self) -> Result<Expr, ParseError> {
+        match &self.current_token.kind {
+            TokenKind::Identifier(name) => {
+                let expr = Expr::Identifier(name.clone());
+                self.advance()?;
+                Ok(expr)
+            }
+            _ => Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken("Expected identifier in for loop target".to_string()),
+                self.current_token.span.clone(),
+            )),
+        }
+    }
+
     fn parse_for(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::For)?;
-        let target = self.parse_expression(0)?;
+        let target = self.parse_for_target()?;
         self.consume(TokenKind::In)?;
         let iter = self.parse_expression(0)?;
         self.consume(TokenKind::Colon)?;
@@ -643,15 +657,20 @@ impl<'a> Parser<'a> {
                 self.consume(TokenKind::RBrace)?;
                 Ok(Expr::Dict(pairs))
             }
-            TokenKind::Minus | TokenKind::Plus | TokenKind::Not => {
+            TokenKind::Minus | TokenKind::Plus => {
                 let op = match self.current_token.kind {
                     TokenKind::Minus => UnaryOpKind::Minus,
                     TokenKind::Plus => UnaryOpKind::Plus,
-                    TokenKind::Not => UnaryOpKind::Not,
                     _ => unreachable!(),
                 };
                 self.advance()?;
-                let operand = Box::new(self.parse_expression(6)?); // Unary precedence
+                let operand = Box::new(self.parse_expression(6)?); // Unary precedence (tighter than **)
+                Ok(Expr::UnaryOp { op, operand })
+            }
+            TokenKind::Not => {
+                let op = UnaryOpKind::Not;
+                self.advance()?;
+                let operand = Box::new(self.parse_expression(3)?); // Looser than comparisons
                 Ok(Expr::UnaryOp { op, operand })
             }
             _ => Err(ParseError::new(
@@ -673,7 +692,7 @@ impl<'a> Parser<'a> {
             return self.parse_attribute(left);
         }
 
-        let op = match self.current_token.kind {
+        let op = match &self.current_token.kind {
             TokenKind::Plus => BinOpKind::Add,
             TokenKind::Minus => BinOpKind::Sub,
             TokenKind::Star => BinOpKind::Mult,
@@ -687,6 +706,28 @@ impl<'a> Parser<'a> {
             TokenKind::LessEqual => BinOpKind::LtEq,
             TokenKind::Greater => BinOpKind::Gt,
             TokenKind::GreaterEqual => BinOpKind::GtEq,
+            TokenKind::In => BinOpKind::In,
+            TokenKind::Is => {
+                if self.check_peek(&TokenKind::Not) {
+                    self.advance()?;
+                    BinOpKind::IsNot
+                } else {
+                    BinOpKind::Is
+                }
+            }
+            TokenKind::Not => {
+                if self.check_peek(&TokenKind::In) {
+                    self.advance()?;
+                    BinOpKind::NotIn
+                } else {
+                    return Err(ParseError::new(
+                        ParseErrorKind::InvalidSyntax("expected 'in' after 'not'".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+            }
+            TokenKind::And => BinOpKind::And,
+            TokenKind::Or => BinOpKind::Or,
             _ => {
                 return Err(ParseError::new(
                     ParseErrorKind::InvalidSyntax(format!(
@@ -825,12 +866,16 @@ impl<'a> Parser<'a> {
             TokenKind::DoubleStar => 6,
             TokenKind::Star | TokenKind::Slash | TokenKind::DoubleSlash | TokenKind::Percent => 5,
             TokenKind::Plus | TokenKind::Minus => 4,
+            // Comparisons: ==, !=, <, <=, >, >=, in, not in, is, is not
             TokenKind::EqualEqual
             | TokenKind::NotEqual
             | TokenKind::Less
             | TokenKind::LessEqual
             | TokenKind::Greater
-            | TokenKind::GreaterEqual => 3,
+            | TokenKind::GreaterEqual
+            | TokenKind::In
+            | TokenKind::Is
+            | TokenKind::Not => 4,
             TokenKind::And => 2,
             TokenKind::Or => 1,
             _ => 0,

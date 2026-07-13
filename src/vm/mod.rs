@@ -86,6 +86,10 @@ impl VirtualMachine {
             Opcode::PopTop => {
                 frame.pop()?;
             }
+            Opcode::DupTop => {
+                let val = frame.last()?;
+                frame.push(val);
+            }
             Opcode::LoadConst(idx) => {
                 let obj = Rc::clone(&frame.code.constants[*idx]);
                 frame.push(obj);
@@ -582,6 +586,32 @@ impl VirtualMachine {
                         right.get_type()
                     ));
                 }
+            }
+            Opcode::CompareIn => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                match right.contains(Rc::clone(&left)) {
+                    Ok(result) => frame.push(Rc::new(crate::objects::bool::PyBool::new(result))),
+                    Err(e) => return Err(e),
+                }
+            }
+            Opcode::CompareNotIn => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                match right.contains(Rc::clone(&left)) {
+                    Ok(result) => frame.push(Rc::new(crate::objects::bool::PyBool::new(!result))),
+                    Err(e) => return Err(e),
+                }
+            }
+            Opcode::CompareIs => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(Rc::ptr_eq(&left, &right))));
+            }
+            Opcode::CompareIsNot => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(!Rc::ptr_eq(&left, &right))));
             }
             Opcode::JumpForward(offset) => {
                 frame.ip += offset;

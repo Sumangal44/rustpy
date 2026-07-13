@@ -464,6 +464,13 @@ impl Compiler {
             BinOpKind::LtEq => Opcode::CompareLtEq,
             BinOpKind::Gt => Opcode::CompareGt,
             BinOpKind::GtEq => Opcode::CompareGtEq,
+            BinOpKind::In => Opcode::CompareIn,
+            BinOpKind::NotIn => Opcode::CompareNotIn,
+            BinOpKind::Is => Opcode::CompareIs,
+            BinOpKind::IsNot => Opcode::CompareIsNot,
+            BinOpKind::And | BinOpKind::Or => {
+                return Err("Compiler error: and/or should be handled in compile_expr".to_string());
+            }
         };
         self.emit(opcode);
         Ok(())
@@ -506,26 +513,31 @@ impl Compiler {
                 self.emit(Opcode::LoadName(idx));
             }
             Expr::BinOp { left, op, right } => {
-                self.compile_expr(left)?;
-                self.compile_expr(right)?;
-
-                let opcode = match op {
-                    BinOpKind::Add => Opcode::BinaryAdd,
-                    BinOpKind::Sub => Opcode::BinarySubtract,
-                    BinOpKind::Mult => Opcode::BinaryMultiply,
-                    BinOpKind::Div => Opcode::BinaryTrueDivide,
-                    BinOpKind::FloorDiv => Opcode::BinaryFloorDivide,
-                    BinOpKind::Mod => Opcode::BinaryModulo,
-                    BinOpKind::Pow => Opcode::BinaryPower,
-                    BinOpKind::Eq => Opcode::CompareEq,
-                    BinOpKind::NotEq => Opcode::CompareNotEq,
-                    BinOpKind::Lt => Opcode::CompareLt,
-                    BinOpKind::LtEq => Opcode::CompareLtEq,
-                    BinOpKind::Gt => Opcode::CompareGt,
-                    BinOpKind::GtEq => Opcode::CompareGtEq,
-                };
-
-                self.emit(opcode);
+                match op {
+                    BinOpKind::And | BinOpKind::Or => {
+                        self.compile_expr(left)?;
+                        self.emit(Opcode::DupTop);
+                        let is_and = *op == BinOpKind::And;
+                        let jump_idx = if is_and {
+                            self.emit(Opcode::PopJumpIfFalse(0))
+                        } else {
+                            self.emit(Opcode::PopJumpIfTrue(0))
+                        };
+                        self.emit(Opcode::PopTop);
+                        self.compile_expr(right)?;
+                        let end = self.code.instructions.len();
+                        self.code.instructions[jump_idx] = if is_and {
+                            Opcode::PopJumpIfFalse(end)
+                        } else {
+                            Opcode::PopJumpIfTrue(end)
+                        };
+                    }
+                    _ => {
+                        self.compile_expr(left)?;
+                        self.compile_expr(right)?;
+                        self.emit_binop(*op)?;
+                    }
+                }
             }
             Expr::UnaryOp { op, operand } => {
                 self.compile_expr(operand)?;

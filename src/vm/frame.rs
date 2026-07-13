@@ -45,4 +45,11 @@ impl Frame {
             .pop()
             .ok_or_else(|| "Pop from empty stack".to_string())
     }
+
+    pub fn last(&self) -> Result<Rc<dyn PyObject>, String> {
+        self.stack
+            .last()
+            .cloned()
+            .ok_or_else(|| "Peek from empty stack".to_string())
+    }
 }
