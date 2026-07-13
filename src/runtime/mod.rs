@@ -40,4 +40,14 @@ impl Environment {
             None
         }
     }
+
+    pub fn remove(&mut self, name: &str) -> bool {
+        if self.variables.remove(name).is_some() {
+            true
+        } else if let Some(parent) = &self.parent {
+            parent.borrow_mut().remove(name)
+        } else {
+            false
+        }
+    }
 }

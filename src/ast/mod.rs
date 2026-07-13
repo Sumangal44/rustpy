@@ -35,7 +35,7 @@ pub enum Expr {
     Yield(Option<Box<Expr>>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOpKind {
     Add,
     Sub,
@@ -50,6 +50,12 @@ pub enum BinOpKind {
     LtEq,
     Gt,
     GtEq,
+    In,
+    NotIn,
+    Is,
+    IsNot,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,7 +83,8 @@ pub enum Stmt {
     },
     Try {
         body: Vec<Stmt>,
-        handlers: Vec<(String, Vec<Stmt>)>,
+        handlers: Vec<(Option<String>, Vec<Stmt>)>,
+        finally_body: Option<Vec<Stmt>>,
     },
     Raise {
         exc: Box<Expr>,
@@ -107,6 +114,26 @@ pub enum Stmt {
     Assign {
         targets: Vec<Expr>,
         value: Expr,
+    },
+    AugAssign {
+        target: Box<Expr>,
+        op: BinOpKind,
+        value: Expr,
+    },
+    Break,
+    Continue,
+    Del {
+        target: Box<Expr>,
+    },
+    Global {
+        names: Vec<String>,
+    },
+    Nonlocal {
+        names: Vec<String>,
+    },
+    Assert {
+        test: Expr,
+        msg: Option<Box<Expr>>,
     },
     ExprStmt {
         value: Expr,

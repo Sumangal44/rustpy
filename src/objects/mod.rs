@@ -81,6 +81,18 @@ pub trait PyObject: Debug + Any {
         ))
     }
 
+    fn contains(&self, other: Rc<dyn PyObject>) -> Result<bool, String> {
+        let iter = self.get_iter()?;
+        while let Some(item) = iter.get_next()? {
+            if let Some(eq_result) = item.eq(Rc::clone(&other)) {
+                if eq_result.is_truthy() {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         Err(format!(
             "AttributeError: '{}' object has no attribute '{}'",

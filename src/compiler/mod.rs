@@ -7,14 +7,21 @@ use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
 use std::rc::Rc;
 
+struct LoopInfo {
+    start: usize,
+    break_targets: Vec<usize>,
+}
+
 pub struct Compiler {
     code: CodeObject,
+    loop_stack: Vec<LoopInfo>,
 }
 
 impl Compiler {
     pub fn new(name: String) -> Self {
         Self {
             code: CodeObject::new(name),
+            loop_stack: Vec::new(),
         }
     }
 
@@ -71,10 +78,116 @@ impl Compiler {
                         self.compile_expr(target_value)?;
                         self.emit(Opcode::StoreAttr(attr.clone()));
                     }
+                    Expr::Subscript { value, slice } => {
+                        // For subscript assignment: evaluate once, then use StoreSubscript
+                        self.compile_expr(value)?;
+                        self.compile_expr(slice)?;
+                        // Stack is: collection, index, value (from right side)
+                        // We need: collection, index, value -> StoreSubscript pops value, index, collection
+                        // Wait, value is already on stack from compile_expr(value) above
+                        // The stack is: collection, index, (value from parent compile)
+                        // So we just emit StoreSubscript
+                        self.emit(Opcode::StoreSubscript);
+                    }
                     _ => {
                         return Err("CompilerError: Unsupported assignment target".to_string());
                     }
                 }
+            }
+            Stmt::AugAssign { target, op, value } => {
+                match target.as_ref() {
+                    Expr::Identifier(name) => {
+                        let name_idx = self.get_or_add_name(name);
+                        self.emit(Opcode::LoadName(name_idx));
+                        self.compile_expr(value)?;
+                        self.emit_binop(op.clone())?;
+                        self.emit(Opcode::StoreName(name_idx));
+                    }
+                    Expr::Attribute { value: target_val, attr } => {
+                        self.compile_expr(target_val)?;
+                        // Dup the object by compiling twice (simplified)
+                        self.compile_expr(target_val)?;
+                        self.emit(Opcode::LoadAttr(attr.clone()));
+                        self.compile_expr(value)?;
+                        self.emit_binop(op.clone())?;
+                        self.emit(Opcode::StoreAttr(attr.clone()));
+                    }
+                    _ => {
+                        return Err("CompilerError: Unsupported augmented assignment target".to_string());
+                    }
+                }
+            }
+            Stmt::Break => {
+                if self.loop_stack.is_empty() {
+                    return Err("SyntaxError: 'break' outside loop".to_string());
+                }
+                let idx_in_stack = self.loop_stack.len() - 1;
+                let break_idx = self.emit(Opcode::JumpAbsolute(0));
+                self.loop_stack[idx_in_stack].break_targets.push(break_idx);
+            }
+            Stmt::Continue => {
+                let start = self.loop_stack.last().ok_or_else(|| {
+                    "SyntaxError: 'continue' outside loop".to_string()
+                })?.start;
+                self.emit(Opcode::JumpAbsolute(start));
+            }
+            Stmt::Del { target } => {
+                match target.as_ref() {
+                    Expr::Identifier(name) => {
+                        let name_idx = self.get_or_add_name(name);
+                        self.emit(Opcode::DeleteName(name_idx));
+                    }
+                    Expr::Attribute { value: obj, attr } => {
+                        self.compile_expr(obj)?;
+                        self.emit(Opcode::DeleteAttr(attr.clone()));
+                    }
+                    Expr::Subscript { value, slice } => {
+                        self.compile_expr(value)?;
+                        self.compile_expr(slice)?;
+                        self.emit(Opcode::DeleteSubscript);
+                    }
+                    _ => {
+                        return Err("CompilerError: Unsupported del target".to_string());
+                    }
+                }
+            }
+            Stmt::Global { names } => {
+                // For now, we just ensure the name is stored at global scope
+                // In a real implementation we'd use a StoreGlobal opcode
+                // For simplicity, we mark it in the code object
+                for name in names {
+                    self.get_or_add_name(name);
+                    // We'll handle this in the VM by looking at the code object's globals
+                }
+                // Emit nothing for now - the effect is that StoreName will
+                // check if the name should be stored globally
+                // For a proper implementation we'd need StoreGlobal opcode
+            }
+            Stmt::Nonlocal { names } => {
+                for name in names {
+                    self.get_or_add_name(name);
+                }
+            }
+            Stmt::Assert { test, msg } => {
+                self.compile_expr(test)?;
+                let jump_if_true_idx = self.emit(Opcode::PopJumpIfTrue(0));
+
+                // Load "Exception" name (it's always available as a builtin)
+                let exc_name_idx = self.get_or_add_name("Exception");
+                self.emit(Opcode::LoadName(exc_name_idx));
+
+                if let Some(msg_expr) = msg {
+                    self.compile_expr(msg_expr)?;
+                } else {
+                    let idx = self.add_constant(Rc::new(crate::objects::string::PyString::new("AssertionError".to_string())));
+                    self.emit(Opcode::LoadConst(idx));
+                }
+
+                self.emit(Opcode::CallFunction(1));
+                self.emit(Opcode::Raise);
+
+                self.code.instructions[jump_if_true_idx] =
+                    Opcode::PopJumpIfTrue(self.code.instructions.len());
             }
             Stmt::ExprStmt { value } => {
                 self.compile_expr(value)?;
@@ -110,6 +223,10 @@ impl Compiler {
             }
             Stmt::While { test, body } => {
                 let loop_start = self.code.instructions.len();
+                self.loop_stack.push(LoopInfo {
+                    start: loop_start,
+                    break_targets: Vec::new(),
+                });
 
                 self.compile_expr(test)?;
                 let jump_if_false_idx = self.emit(Opcode::PopJumpIfFalse(0));
@@ -119,13 +236,24 @@ impl Compiler {
                 }
 
                 self.emit(Opcode::JumpAbsolute(loop_start));
+                
+                let loop_end = self.code.instructions.len();
                 self.code.instructions[jump_if_false_idx] =
-                    Opcode::PopJumpIfFalse(self.code.instructions.len());
+                    Opcode::PopJumpIfFalse(loop_end);
+
+                let info = self.loop_stack.pop().unwrap();
+                for idx in &info.break_targets {
+                    self.code.instructions[*idx] = Opcode::JumpAbsolute(loop_end);
+                }
             }
             Stmt::For { target, iter, body } => {
                 self.compile_expr(iter)?;
                 self.emit(Opcode::GetIter);
                 let loop_start = self.code.instructions.len();
+                self.loop_stack.push(LoopInfo {
+                    start: loop_start,
+                    break_targets: Vec::new(),
+                });
                 let for_iter_idx = self.emit(Opcode::ForIter(0));
                 if let Expr::Identifier(name) = target {
                     let name_idx = self.get_or_add_name(name);
@@ -142,6 +270,11 @@ impl Compiler {
                 self.emit(Opcode::JumpAbsolute(loop_start));
                 let loop_end = self.code.instructions.len();
                 self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
+                
+                let info = self.loop_stack.pop().unwrap();
+                for idx in &info.break_targets {
+                    self.code.instructions[*idx] = Opcode::JumpAbsolute(loop_end);
+                }
             }
             Stmt::ClassDef { name, bases, body, decorators } => {
                 // Compile decorators first so they are on the stack
@@ -188,7 +321,7 @@ impl Compiler {
                 let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::StoreName(name_idx));
             }
-            Stmt::Try { body, handlers } => {
+            Stmt::Try { body, handlers, finally_body } => {
                 let setup_except_idx = self.emit(Opcode::SetupExcept(0));
 
                 for s in body {
@@ -202,11 +335,16 @@ impl Compiler {
                 let except_target = self.code.instructions.len();
                 self.code.instructions[setup_except_idx] = Opcode::SetupExcept(except_target);
 
-                // Currently assuming one global handler
-                if let Some((_, handler_body)) = handlers.first() {
-                    // Python pushes the exception object onto the stack for the except block
-                    // Since we aren't binding it yet, we just pop it to clean the stack
-                    self.emit(Opcode::PopTop);
+                // Compile handlers
+                for (exc_type, handler_body) in handlers {
+                    // The exception object is pushed onto the stack by the VM
+                    if exc_type.is_some() {
+                        // Pop the exception for typed except - we're ignoring type checking for now
+                        self.emit(Opcode::PopTop);
+                    } else {
+                        // Bare except: pop the exception
+                        self.emit(Opcode::PopTop);
+                    }
                     for s in handler_body {
                         self.compile_stmt(s)?;
                     }
@@ -214,6 +352,11 @@ impl Compiler {
 
                 self.code.instructions[jump_forward_idx] =
                     Opcode::JumpAbsolute(self.code.instructions.len());
+                
+                // TODO: Implement finally when we add SetupFinally/PopFinally opcodes
+                if let Some(_finally) = finally_body {
+                    // Not yet implemented
+                }
             }
             Stmt::With {
                 context_expr,
@@ -303,6 +446,26 @@ impl Compiler {
                 self.emit(Opcode::StoreName(name_idx));
             }
         }
+        Ok(())
+    }
+
+    fn emit_binop(&mut self, op: BinOpKind) -> Result<(), String> {
+        let opcode = match op {
+            BinOpKind::Add => Opcode::BinaryAdd,
+            BinOpKind::Sub => Opcode::BinarySubtract,
+            BinOpKind::Mult => Opcode::BinaryMultiply,
+            BinOpKind::Div => Opcode::BinaryTrueDivide,
+            BinOpKind::FloorDiv => Opcode::BinaryFloorDivide,
+            BinOpKind::Mod => Opcode::BinaryModulo,
+            BinOpKind::Pow => Opcode::BinaryPower,
+            BinOpKind::Eq => Opcode::CompareEq,
+            BinOpKind::NotEq => Opcode::CompareNotEq,
+            BinOpKind::Lt => Opcode::CompareLt,
+            BinOpKind::LtEq => Opcode::CompareLtEq,
+            BinOpKind::Gt => Opcode::CompareGt,
+            BinOpKind::GtEq => Opcode::CompareGtEq,
+        };
+        self.emit(opcode);
         Ok(())
     }
 

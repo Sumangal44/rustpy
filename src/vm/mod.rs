@@ -104,6 +104,53 @@ impl VirtualMachine {
                 let obj = frame.pop()?;
                 frame.env.borrow_mut().set(name, obj);
             }
+            Opcode::DeleteName(idx) => {
+                let name = &frame.code.names[*idx];
+                if frame.env.borrow_mut().remove(name) {
+                    // success
+                } else {
+                    return Err(format!("NameError: name '{}' is not defined", name));
+                }
+            }
+            Opcode::DeleteAttr(attr_name) => {
+                let obj = frame.pop()?;
+                // For simplicity, we just set the attribute to None (we can't remove it from the trait easily)
+                // Actually, let's just set it to PyNone
+                obj.set_attr(attr_name, Rc::new(crate::objects::none::PyNone))?;
+            }
+            Opcode::DeleteSubscript => {
+                let idx = frame.pop()?;
+                let collection = frame.pop()?;
+                // For simplicity, we set the item to None via the subscript
+                // Actually, we need a del_item method. Let's just error for now.
+                return Err("TypeError: '{}' object does not support item deletion".to_string());
+            }
+            Opcode::StoreSubscript => {
+                let value = frame.pop()?;
+                let idx = frame.pop()?;
+                let collection = frame.pop()?;
+                // Call set_item on the collection
+                // We don't have set_item on the trait, so let's implement it
+                // For now, return an error for non-list types
+                if let Some(list) = collection.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    if let Some(int_idx) = idx.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                        let mut elements = list.elements.borrow_mut();
+                        let mut idx_val = int_idx.value;
+                        if idx_val < 0 {
+                            idx_val += elements.len() as i64;
+                        }
+                        if idx_val >= 0 && (idx_val as usize) < elements.len() {
+                            elements[idx_val as usize] = value;
+                        } else {
+                            return Err("IndexError: list assignment index out of range".to_string());
+                        }
+                    } else {
+                        return Err("TypeError: list indices must be integers, not ...".to_string());
+                    }
+                } else {
+                    return Err("TypeError: '{}' object does not support item assignment".to_string());
+                }
+            }
             Opcode::BinaryAdd => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;

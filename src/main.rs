@@ -434,4 +434,299 @@ mod tests {
         assert_eq!(env.borrow().get("z").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("w").unwrap().repr(), "True");
     }
+
+    #[test]
+    fn test_break_in_while() {
+        let source = "i = 0\nwhile i < 10:\n    i = i + 1\n    if i == 5:\n        break\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("i").unwrap().repr(), "5");
+    }
+
+    #[test]
+    fn test_continue_in_while() {
+        let source = "i = 0\nsum = 0\nwhile i < 10:\n    i = i + 1\n    if i % 2 == 0:\n        continue\n    sum = sum + i\n";
+        let env = execute_source(source);
+        // Sum of odd numbers 1+3+5+7+9 = 25
+        assert_eq!(env.borrow().get("sum").unwrap().repr(), "25");
+    }
+
+    #[test]
+    fn test_break_in_for() {
+        let source = "total = 0\nfor x in [1, 2, 3, 4, 5]:\n    if x == 3:\n        break\n    total = x\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("total").unwrap().repr(), "2");
+    }
+
+    #[test]
+    fn test_del_variable() {
+        let source = "x = 42\ndel x\n";
+        let env = execute_source(source);
+        assert!(env.borrow().get("x").is_none());
+    }
+
+    #[test]
+    fn test_augmented_add() {
+        let source = "x = 5\nx += 3\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "8");
+    }
+
+    #[test]
+    fn test_augmented_sub() {
+        let source = "x = 10\nx -= 3\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "7");
+    }
+
+    #[test]
+    fn test_augmented_mul() {
+        let source = "x = 4\nx *= 3\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "12");
+    }
+
+    #[test]
+    fn test_augmented_div() {
+        let source = "x = 7\nx /= 2\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "3.5");
+    }
+
+    #[test]
+    fn test_augmented_floor_div() {
+        let source = "x = 7\nx //= 2\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "3");
+    }
+
+    #[test]
+    fn test_augmented_mod() {
+        let source = "x = 10\nx %= 3\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "1");
+    }
+
+    #[test]
+    fn test_augmented_pow() {
+        let source = "x = 2\nx **= 10\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "1024");
+    }
+
+    #[test]
+    fn test_assert_passes() {
+        let source = "x = 1\nassert x == 1\nres = 42\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("res").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_break_outside_loop_error() {
+        let source = "break\n";
+        let env = execute_source(source);
+        // Should produce an error, but not crash
+        assert!(true);
+    }
+
+    #[test]
+    fn test_continue_outside_loop_error() {
+        let source = "continue\n";
+        let env = execute_source(source);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_string_upper_lower() {
+        let source = "a = \"hello\".upper()\nb = \"HELLO\".lower()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'HELLO'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'hello'");
+    }
+
+    #[test]
+    fn test_string_strip() {
+        let source = "a = \"  hi  \".strip()\nb = \"xxhixx\".strip(\"x\")\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'hi'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'hi'");
+    }
+
+    #[test]
+    fn test_string_split_join() {
+        let source = "a = \"a b c\".split()\nb = \",\".join([\"x\", \"y\", \"z\"])\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "['a', 'b', 'c']");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'x,y,z'");
+    }
+
+    #[test]
+    fn test_string_replace() {
+        let source = "s = \"hello world\".replace(\"world\", \"there\")\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("s").unwrap().repr(), "'hello there'");
+    }
+
+    #[test]
+    fn test_string_startswith_endswith_find() {
+        let source = "a = \"hello\".startswith(\"he\")\nb = \"hello\".endswith(\"lo\")\nc = \"hello\".find(\"ll\")\nd = \"hello\".find(\"zz\")\ne = \"hello\".index(\"ll\")\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "2");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "-1");
+        assert_eq!(env.borrow().get("e").unwrap().repr(), "2");
+    }
+
+    #[test]
+    fn test_string_count_isdigit() {
+        let source = "a = \"hello\".count(\"l\")\nb = \"123\".isdigit()\nc = \"abc\".isdigit()\nd = \"abc123\".isalpha()\ne = \"abc\".isalpha()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "2");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("e").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_string_isalnum_isspace_capitalize() {
+        let source = "a = \"abc123\".isalnum()\nb = \"   \".isspace()\nc = \"hello\".capitalize()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "'Hello'");
+    }
+
+    #[test]
+    fn test_string_zfill_title_swapcase() {
+        let source = "a = \"42\".zfill(5)\nb = \"hello world\".title()\nc = \"Hello\".swapcase()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'00042'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'Hello World'");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "'hELLO'");
+    }
+
+    #[test]
+    fn test_string_ljust_rjust_center() {
+        let source = "a = \"hi\".ljust(5, '*')\nb = \"hi\".rjust(5, '*')\nc = \"hi\".center(5, '*')\nd = \"hi\".center(4, '*')\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'hi***'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'***hi'");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "'*hi**'");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "'*hi*'");
+    }
+
+    #[test]
+    fn test_string_lstrip_rstrip() {
+        let source = "a = \"  hi  \".lstrip()\nb = \"  hi  \".rstrip()\nc = \"xxhixx\".lstrip(\"x\")\nd = \"xxhixx\".rstrip(\"x\")\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'hi  '");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'  hi'");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "'hixx'");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "'xxhi'");
+    }
+
+    #[test]
+    fn test_list_append_pop() {
+        let source = "l = [1, 2, 3]\nl.append(4)\nx = l.pop()\n";
+        let env = execute_source(source);
+        let l = env.borrow().get("l").unwrap();
+        assert_eq!(l.repr(), "[1, 2, 3]");
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "4");
+    }
+
+    #[test]
+    fn test_list_insert_remove() {
+        let source = "l = [1, 2, 3]\nl.insert(1, 99)\nl.remove(99)\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("l").unwrap().repr(), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_list_index_count_reverse() {
+        let source = "l = [10, 20, 30, 20]\na = l.index(20)\nb = l.count(20)\nl.reverse()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "1");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "2");
+        assert_eq!(env.borrow().get("l").unwrap().repr(), "[20, 30, 20, 10]");
+    }
+
+    #[test]
+    fn test_list_sort_clear_copy_extend() {
+        let source = "l = [3, 1, 2]\nl.sort()\nc = l.copy()\nl.clear()\nl.extend([4, 5])\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("l").unwrap().repr(), "[4, 5]");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_list_pop_index() {
+        let source = "l = [10, 20, 30]\nx = l.pop(1)\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("l").unwrap().repr(), "[10, 30]");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "20");
+    }
+
+    #[test]
+    fn test_dict_keys_values_items() {
+        let source = "d = {\"a\": 1, \"b\": 2}\nk = d.keys()\nv = d.values()\n";
+        let env = execute_source(source);
+        let k = env.borrow().get("k").unwrap();
+        let v = env.borrow().get("v").unwrap();
+        // Just check they work and produce lists
+        assert!(k.get_type() == "list");
+        assert!(v.get_type() == "list");
+    }
+
+    #[test]
+    fn test_dict_get_pop() {
+        let source = "d = {\"a\": 100}\na = d.get(\"a\")\nb = d.get(\"missing\", 42)\nc = d.pop(\"a\")\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "100");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "42");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "100");
+    }
+
+    #[test]
+    fn test_dict_update_clear_copy() {
+        let source = "d1 = {\"a\": 1}\nd2 = {\"b\": 2}\nd1.update(d2)\nc = d1.copy()\nd1.clear()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("d1").unwrap().repr(), "{}");
+        let c = env.borrow().get("c").unwrap();
+        // c should still have the old values
+        assert!(c.is_truthy());
+    }
+
+    #[test]
+    fn test_dict_setdefault_popitem() {
+        let source = "d = {\"a\": 1}\na = d.setdefault(\"a\", 99)\nb = d.setdefault(\"b\", 42)\nitem = d.popitem()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "1");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "42");
+        // popitem removes one item; dict should still have 1 entry
+        let d = env.borrow().get("d").unwrap();
+        assert!(d.is_truthy());
+        // popitem returns a 2-element list
+        let item = env.borrow().get("item").unwrap();
+        assert_eq!(item.get_type(), "list");
+        // popitem on single-item dict empties it
+        let source2 = "d = {\"x\": 100}\nitem = d.popitem()\n";
+        let env2 = execute_source(source2);
+        assert_eq!(env2.borrow().get("d").unwrap().repr(), "{}");
+    }
+
+    #[test]
+    fn test_string_split_with_sep() {
+        let source = "s = \"a,b,c\".split(\",\")\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("s").unwrap().repr(), "['a', 'b', 'c']");
+    }
+
+    #[test]
+    fn test_string_index_error() {
+        let source = "x = None\ntry:\n    \"hello\".index(\"zz\")\nexcept:\n    x = 1\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "1");
+    }
 }

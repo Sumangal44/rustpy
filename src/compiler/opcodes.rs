@@ -7,6 +7,9 @@ pub enum Opcode {
     LoadConst(usize), // index into constants pool
     LoadName(usize),  // index into names pool
     StoreName(usize), // index into names pool
+    DeleteName(usize), // index into names pool
+    DeleteAttr(String), // pops object, deletes attribute
+    DeleteSubscript, // pops key, pops collection, deletes item
 
     // Math operations
     BinaryAdd,
@@ -20,6 +23,9 @@ pub enum Opcode {
     UnaryPositive,
     UnaryNot,
 
+    // Stack manipulation
+    DupTop,
+
     // Comparisons
     CompareEq,
     CompareNotEq,
@@ -27,6 +33,10 @@ pub enum Opcode {
     CompareLtEq,
     CompareGt,
     CompareGtEq,
+    CompareIn,
+    CompareNotIn,
+    CompareIs,
+    CompareIsNot,
 
     // Control flow
     JumpForward(usize),    // offset
@@ -48,6 +58,7 @@ pub enum Opcode {
     ListExtend,       // pops an iterable, pops a list, extends list, pushes list
     DictMerge,        // pops a dict, pops a dict, merges, pushes dict
     BinarySubscript,  // pops index, pops collection, pushes item
+    StoreSubscript,   // pops value, pops index, pops collection, stores item
 
     // Control Flow
     GetIter,        // pops collection, pushes iterator

@@ -126,6 +126,34 @@ impl<'a> Parser<'a> {
                 self.consume(TokenKind::Newline)?;
                 Ok(Stmt::Pass)
             }
+            TokenKind::Break => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.advance()?;
+                self.consume(TokenKind::Newline)?;
+                Ok(Stmt::Break)
+            }
+            TokenKind::Continue => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.advance()?;
+                self.consume(TokenKind::Newline)?;
+                Ok(Stmt::Continue)
+            }
+            TokenKind::Del => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_del()
+            }
+            TokenKind::Global => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_global()
+            }
+            TokenKind::Nonlocal => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_nonlocal()
+            }
+            TokenKind::Assert => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_assert()
+            }
             TokenKind::Yield => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
@@ -375,15 +403,19 @@ impl<'a> Parser<'a> {
         while self.check(&TokenKind::Except) {
             self.advance()?;
 
-            // For now, support bare `except:` or `except Exception:` but don't bind it.
-            // Actually, we'll just skip the exception type if it's there.
+            let mut exc_type_name = None;
             if !self.check(&TokenKind::Colon) {
-                // Read whatever expression is there
-                self.parse_expression(0)?;
-                // Ignore `as X` for now
+                let exc_expr = self.parse_expression(0)?;
+                // Extract the type name if it's an identifier
+                if let Expr::Identifier(name) = &exc_expr {
+                    exc_type_name = Some(name.clone());
+                }
                 if self.check(&TokenKind::As) {
                     self.advance()?;
-                    self.parse_expression(0)?;
+                    // Bind the exception to a variable - consume the identifier
+                    if let TokenKind::Identifier(_) = &self.current_token.kind {
+                        self.advance()?;
+                    }
                 }
             }
 
@@ -391,10 +423,18 @@ impl<'a> Parser<'a> {
             self.consume(TokenKind::Newline)?;
 
             let handler_body = self.parse_block()?;
-            handlers.push(("Exception".to_string(), handler_body));
+            handlers.push((exc_type_name, handler_body));
         }
 
-        Ok(Stmt::Try { body, handlers })
+        let mut finally_body = None;
+        if self.check(&TokenKind::Finally) {
+            self.advance()?;
+            self.consume(TokenKind::Colon)?;
+            self.consume(TokenKind::Newline)?;
+            finally_body = Some(self.parse_block()?);
+        }
+
+        Ok(Stmt::Try { body, handlers, finally_body })
     }
 
     fn parse_raise(&mut self) -> Result<Stmt, ParseError> {
@@ -406,10 +446,91 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Raise { exc: Box::new(exc) })
     }
 
+    fn parse_del(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Del)?;
+        let target = self.parse_expression(0)?;
+        self.consume(TokenKind::Newline)?;
+        Ok(Stmt::Del { target: Box::new(target) })
+    }
+
+    fn parse_global(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Global)?;
+        let mut names = Vec::new();
+        loop {
+            if let TokenKind::Identifier(n) = &self.current_token.kind {
+                names.push(n.clone());
+                self.advance()?;
+            } else {
+                return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected identifier".to_string()), self.current_token.span.clone()));
+            }
+            if self.check(&TokenKind::Comma) {
+                self.advance()?;
+            } else {
+                break;
+            }
+        }
+        self.consume(TokenKind::Newline)?;
+        Ok(Stmt::Global { names })
+    }
+
+    fn parse_nonlocal(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Nonlocal)?;
+        let mut names = Vec::new();
+        loop {
+            if let TokenKind::Identifier(n) = &self.current_token.kind {
+                names.push(n.clone());
+                self.advance()?;
+            } else {
+                return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected identifier".to_string()), self.current_token.span.clone()));
+            }
+            if self.check(&TokenKind::Comma) {
+                self.advance()?;
+            } else {
+                break;
+            }
+        }
+        self.consume(TokenKind::Newline)?;
+        Ok(Stmt::Nonlocal { names })
+    }
+
+    fn parse_assert(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Assert)?;
+        let test = self.parse_expression(0)?;
+        let mut msg = None;
+        if self.check(&TokenKind::Comma) {
+            self.advance()?;
+            msg = Some(Box::new(self.parse_expression(0)?));
+        }
+        self.consume(TokenKind::Newline)?;
+        Ok(Stmt::Assert { test, msg })
+    }
+
+    fn parse_aug_op(&self) -> Option<BinOpKind> {
+        match &self.current_token.kind {
+            TokenKind::PlusEqual => Some(BinOpKind::Add),
+            TokenKind::MinusEqual => Some(BinOpKind::Sub),
+            TokenKind::StarEqual => Some(BinOpKind::Mult),
+            TokenKind::SlashEqual => Some(BinOpKind::Div),
+            TokenKind::DoubleSlashEqual => Some(BinOpKind::FloorDiv),
+            TokenKind::PercentEqual => Some(BinOpKind::Mod),
+            TokenKind::DoubleStarEqual => Some(BinOpKind::Pow),
+            _ => None,
+        }
+    }
+
     fn parse_assign_or_expr(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.parse_expression(0)?;
 
-        if self.check(&TokenKind::Equal) {
+        if let Some(op) = self.parse_aug_op() {
+            self.advance()?;
+            let value = self.parse_expression(0)?;
+            self.consume(TokenKind::Newline)?;
+            Ok(Stmt::AugAssign {
+                target: Box::new(expr),
+                op,
+                value,
+            })
+        } else if self.check(&TokenKind::Equal) {
             self.advance()?;
             let value = self.parse_expression(0)?;
             self.consume(TokenKind::Newline)?;
