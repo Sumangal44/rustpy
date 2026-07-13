@@ -833,6 +833,41 @@ mod tests {
     }
 
     #[test]
+    fn test_lambda_simple() {
+        let source = "f = lambda x: x + 1\nresult = f(5)\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "6");
+    }
+
+    #[test]
+    fn test_lambda_no_args() {
+        let source = "f = lambda: 42\nresult = f()\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_lambda_multiple_args() {
+        let source = "f = lambda a, b: a * b\nresult = f(3, 4)\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "12");
+    }
+
+    #[test]
+    fn test_lambda_closure() {
+        let source = "x = 10\nf = lambda y: x + y\nresult = f(5)\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "15");
+    }
+
+    #[test]
+    fn test_lambda_as_argument() {
+        let source = "def apply(f, x):\n    return f(x)\nresult = apply(lambda x: x * 2, 7)\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "14");
+    }
+
+    #[test]
     fn test_string_slice_step() {
         let source = "s = \"hello\"\na = s[::2]\nb = s[::-1]\n";
         let env = execute_source(source);
@@ -880,5 +915,42 @@ mod tests {
         let key = std::rc::Rc::new(crate::objects::string::PyString::new("1".to_string())) as std::rc::Rc<dyn crate::objects::PyObject>;
         let val = result.get_item(key).unwrap();
         assert_eq!(val.repr(), "2");
+    }
+
+    #[test]
+    fn test_builtin_chr_ord() {
+        let env = execute_source("a = chr(65)\nb = ord('A')\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'A'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "65");
+    }
+
+    #[test]
+    fn test_builtin_pow() {
+        let env = execute_source("a = pow(2, 3)\nb = pow(5, 0)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "8");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "1");
+    }
+
+    #[test]
+    fn test_builtin_round() {
+        let env = execute_source("a = round(3.7)\nb = round(42)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "4");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_builtin_sorted_reversed() {
+        let env = execute_source("a = sorted([3, 1, 2])\nb = reversed([1, 2, 3])\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "[1, 2, 3]");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "[3, 2, 1]");
+    }
+
+    #[test]
+    fn test_builtin_enumerate() {
+        let env = execute_source("a = enumerate(['a', 'b', 'c'])\n");
+        // Eager: returns list of [index, value] pairs
+        let result = env.borrow().get("a").unwrap();
+        assert!(result.repr().contains("0"));
+        assert!(result.repr().contains("'a'"));
     }
 }

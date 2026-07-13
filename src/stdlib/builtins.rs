@@ -714,4 +714,198 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             Err("ImportError: __import__() module loading not implemented yet".to_string())
         })),
     );
+
+    // chr(i) -> str
+    env_mut.set(
+        "chr".to_string(),
+        Rc::new(PyNativeFunction::new("chr".to_string(), |args| {
+            if args.len() != 1 { return Err("TypeError: chr() takes exactly one argument".to_string()); }
+            let val = if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                i.value
+            } else {
+                return Err("TypeError: 'int' object expected".to_string());
+            };
+            if val < 0 || val > 0x10FFFF {
+                return Err("ValueError: chr() arg not in range(0x110000)".to_string());
+            }
+            match char::from_u32(val as u32) {
+                Some(c) => Ok(Rc::new(crate::objects::string::PyString::new(c.to_string()))),
+                None => Err("ValueError: chr() arg not in range(0x110000)".to_string()),
+            }
+        })),
+    );
+
+    // ord(c) -> int
+    env_mut.set(
+        "ord".to_string(),
+        Rc::new(PyNativeFunction::new("ord".to_string(), |args| {
+            if args.len() != 1 { return Err("TypeError: ord() takes exactly one argument".to_string()); }
+            let s = args[0].str();
+            let c = s.chars().next().ok_or_else(|| "TypeError: ord() expected a character, not empty string".to_string())?;
+            Ok(Rc::new(crate::objects::int::PyInt::new(c as i64)))
+        })),
+    );
+
+    // pow(x, y) -> number
+    env_mut.set(
+        "pow".to_string(),
+        Rc::new(PyNativeFunction::new("pow".to_string(), |args| {
+            if args.len() < 2 || args.len() > 3 { return Err("TypeError: pow() takes 2-3 arguments".to_string()); }
+            // Simple two-argument pow using multiplication
+            let base = &args[0];
+            let exp = &args[1];
+            match base.pow(Rc::clone(exp)) {
+                Some(result) => Ok(result),
+                None => Err(format!("TypeError: unsupported operand type(s) for pow(): '{}' and '{}'", base.get_type(), exp.get_type())),
+            }
+        })),
+    );
+
+    // round(x) -> int
+    env_mut.set(
+        "round".to_string(),
+        Rc::new(PyNativeFunction::new("round".to_string(), |args| {
+            if args.len() != 1 { return Err("TypeError: round() takes exactly one argument".to_string()); }
+            if let Some(f) = args[0].as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                Ok(Rc::new(crate::objects::int::PyInt::new(f.value.round() as i64)))
+            } else if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                Ok(Rc::new(crate::objects::int::PyInt::new(i.value)))
+            } else {
+                Err(format!("TypeError: type {} doesn't define __round__", args[0].get_type()))
+            }
+        })),
+    );
+
+    // sorted(iterable) -> list
+    env_mut.set(
+        "sorted".to_string(),
+        Rc::new(PyNativeFunction::new("sorted".to_string(), |args| {
+            if args.len() != 1 { return Err("TypeError: sorted() takes exactly one argument".to_string()); }
+            let iter = args[0].get_iter()?;
+            let mut items: Vec<Rc<dyn PyObject>> = Vec::new();
+            while let Some(item) = iter.get_next()? {
+                items.push(item);
+            }
+            // Bubble sort using lt()
+            let n = items.len();
+            for i in 0..n {
+                for j in 0..n-1-i {
+                    let do_swap = {
+                        let a = Rc::clone(&items[j]);
+                        let b = Rc::clone(&items[j+1]);
+                        match a.lt(b) {
+                            Some(result) => !result.is_truthy(),
+                            None => false,
+                        }
+                    };
+                    if do_swap {
+                        items.swap(j, j+1);
+                    }
+                }
+            }
+            Ok(Rc::new(crate::objects::list::PyList::new(items)))
+        })),
+    );
+
+    // reversed(seq) -> iterator (eager: returns a reversed list)
+    env_mut.set(
+        "reversed".to_string(),
+        Rc::new(PyNativeFunction::new("reversed".to_string(), |args| {
+            if args.len() != 1 { return Err("TypeError: reversed() takes exactly one argument".to_string()); }
+            let iter = args[0].get_iter()?;
+            let mut items: Vec<Rc<dyn PyObject>> = Vec::new();
+            while let Some(item) = iter.get_next()? {
+                items.push(item);
+            }
+            items.reverse();
+            Ok(Rc::new(crate::objects::list::PyList::new(items)))
+        })),
+    );
+
+    // enumerate(iterable, start=0) -> list of [index, value] pairs
+    env_mut.set(
+        "enumerate".to_string(),
+        Rc::new(PyNativeFunction::new("enumerate".to_string(), |args| {
+            if args.len() < 1 || args.len() > 2 { return Err("TypeError: enumerate() takes 1-2 arguments".to_string()); }
+            let start = if args.len() >= 2 {
+                if let Some(i) = args[1].as_any().downcast_ref::<crate::objects::int::PyInt>() { i.value } else { 0 }
+            } else { 0 };
+            let iter = args[0].get_iter()?;
+            let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
+            let mut idx = start;
+            while let Some(item) = iter.get_next()? {
+                let pair = vec![
+                    Rc::new(crate::objects::int::PyInt::new(idx)) as Rc<dyn PyObject>,
+                    item,
+                ];
+                result.push(Rc::new(crate::objects::list::PyList::new(pair)) as Rc<dyn PyObject>);
+                idx += 1;
+            }
+            Ok(Rc::new(crate::objects::list::PyList::new(result)))
+        })),
+    );
+
+    // map(func, iterable) -> list (eager; only native functions for now)
+    env_mut.set(
+        "map".to_string(),
+        Rc::new(PyNativeFunction::new("map".to_string(), |args| {
+            if args.len() != 2 { return Err("TypeError: map() takes exactly 2 arguments".to_string()); }
+            if let Some(native) = args[0].as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                let iter = args[1].get_iter()?;
+                let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
+                while let Some(item) = iter.get_next()? {
+                    result.push((native.func)(vec![item])?);
+                }
+                Ok(Rc::new(crate::objects::list::PyList::new(result)))
+            } else {
+                Err("TypeError: map() currently only supports native functions".to_string())
+            }
+        })),
+    );
+
+    // filter(func, iterable) -> list (eager; only native functions for now)
+    env_mut.set(
+        "filter".to_string(),
+        Rc::new(PyNativeFunction::new("filter".to_string(), |args| {
+            if args.len() != 2 { return Err("TypeError: filter() takes exactly 2 arguments".to_string()); }
+            if let Some(native) = args[0].as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                let iter = args[1].get_iter()?;
+                let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
+                while let Some(item) = iter.get_next()? {
+                    let should_keep = (native.func)(vec![Rc::clone(&item)])?;
+                    if should_keep.is_truthy() {
+                        result.push(item);
+                    }
+                }
+                Ok(Rc::new(crate::objects::list::PyList::new(result)))
+            } else {
+                Err("TypeError: filter() currently only supports native functions".to_string())
+            }
+        })),
+    );
+
+    // zip(*iterables) -> list of lists (eager)
+    env_mut.set(
+        "zip".to_string(),
+        Rc::new(PyNativeFunction::new("zip".to_string(), |args| {
+            if args.is_empty() { return Ok(Rc::new(crate::objects::list::PyList::new(Vec::new()))); }
+            let mut iters: Vec<Rc<dyn PyObject>> = Vec::new();
+            for arg in args {
+                iters.push(arg.get_iter()?);
+            }
+            let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
+            loop {
+                let mut group: Vec<Rc<dyn PyObject>> = Vec::new();
+                for iter in &iters {
+                    match iter.get_next()? {
+                        Some(item) => group.push(item),
+                        None => {
+                            return Ok(Rc::new(crate::objects::list::PyList::new(result)));
+                        }
+                    }
+                }
+                result.push(Rc::new(crate::objects::list::PyList::new(group)) as Rc<dyn PyObject>);
+            }
+        })),
+    );
 }

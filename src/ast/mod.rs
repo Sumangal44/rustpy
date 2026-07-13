@@ -46,6 +46,12 @@ pub enum Expr {
         target: Box<Expr>,
         iter: Box<Expr>,
     },
+    Lambda {
+        params: Vec<String>,
+        vararg: Option<String>,
+        kwarg: Option<String>,
+        body: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -640,6 +640,30 @@ impl Compiler {
                 self.compile_expr(value)?;
                 self.emit(Opcode::LoadAttr(attr.clone()));
             }
+            Expr::Lambda { params, vararg, kwarg, body } => {
+                let mut child_compiler = Compiler::new("<lambda>".to_string());
+                child_compiler.code.arg_count = params.len();
+                child_compiler.code.vararg = vararg.clone();
+                child_compiler.code.kwarg = kwarg.clone();
+
+                for param in params {
+                    child_compiler.get_or_add_name(param);
+                }
+                if let Some(v) = vararg {
+                    child_compiler.get_or_add_name(v);
+                }
+                if let Some(k) = kwarg {
+                    child_compiler.get_or_add_name(k);
+                }
+
+                child_compiler.compile_expr(body)?;
+                child_compiler.emit(Opcode::ReturnValue);
+
+                let code_obj = Rc::new(child_compiler.code);
+                let code_idx = self.add_constant(code_obj);
+                self.emit(Opcode::LoadConst(code_idx));
+                self.emit(Opcode::MakeFunction);
+            }
             Expr::Comprehension { kind, elt, key, target, iter } => {
                 match kind {
                     CompKind::List => {

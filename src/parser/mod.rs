@@ -705,6 +705,53 @@ impl<'a> Parser<'a> {
                 self.consume(TokenKind::RBrace)?;
                 Ok(Expr::Dict(pairs))
             }
+            TokenKind::Lambda => {
+                self.advance()?;
+                let mut params = Vec::new();
+                let mut vararg = None;
+                let mut kwarg = None;
+                if !self.check(&TokenKind::Colon) {
+                    loop {
+                        if self.check(&TokenKind::Star) {
+                            self.advance()?;
+                            if self.check(&TokenKind::Star) {
+                                self.advance()?;
+                                if let TokenKind::Identifier(name) = &self.current_token.kind {
+                                    kwarg = Some(name.clone());
+                                    self.advance()?;
+                                } else {
+                                    return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name after **".to_string()), self.current_token.span.clone()));
+                                }
+                            } else {
+                                if let TokenKind::Identifier(name) = &self.current_token.kind {
+                                    vararg = Some(name.clone());
+                                    self.advance()?;
+                                } else {
+                                    return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name after *".to_string()), self.current_token.span.clone()));
+                                }
+                            }
+                        } else if let TokenKind::Identifier(name) = &self.current_token.kind {
+                            params.push(name.clone());
+                            self.advance()?;
+                        } else {
+                            return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name".to_string()), self.current_token.span.clone()));
+                        }
+                        if self.check(&TokenKind::Comma) {
+                            self.advance()?;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenKind::Colon)?;
+                let body = self.parse_expression(0)?;
+                Ok(Expr::Lambda {
+                    params,
+                    vararg,
+                    kwarg,
+                    body: Box::new(body),
+                })
+            }
             TokenKind::Minus | TokenKind::Plus => {
                 let op = match self.current_token.kind {
                     TokenKind::Minus => UnaryOpKind::Minus,
