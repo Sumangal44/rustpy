@@ -33,5 +33,6 @@ pub trait PyObject: Debug + Any {
 pub mod bool;
 pub mod function;
 pub mod int;
+pub mod native_function;
 pub mod none;
 pub mod string;

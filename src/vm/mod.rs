@@ -144,6 +144,14 @@ impl VirtualMachine {
                         } else {
                             return Err("Function returned without a value".to_string());
                         }
+                    } else if let Some(native_func) =
+                        func_obj
+                            .as_any()
+                            .downcast_ref::<crate::objects::native_function::PyNativeFunction>()
+                    {
+                        // Execute native Rust function directly
+                        let result = (native_func.func)(args)?;
+                        frame.push(result);
                     } else {
                         return Err(format!(
                             "TypeError: '{}' object is not callable",
