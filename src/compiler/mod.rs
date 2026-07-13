@@ -143,7 +143,12 @@ impl Compiler {
                 let loop_end = self.code.instructions.len();
                 self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
             }
-            Stmt::ClassDef { name, bases, body } => {
+            Stmt::ClassDef { name, bases, body, decorators } => {
+                // Compile decorators first so they are on the stack
+                for decorator in decorators {
+                    self.compile_expr(decorator)?;
+                }
+
                 let mut class_compiler = Compiler::new(name.clone());
                 for s in body {
                     class_compiler.compile_stmt(s)?;
@@ -175,7 +180,12 @@ impl Compiler {
 
                 self.emit(Opcode::BuildClass(bases.len()));
 
-                let name_idx = self.get_or_add_name(&name);
+                // Apply decorators
+                for _ in 0..decorators.len() {
+                    self.emit(Opcode::CallFunction(1));
+                }
+
+                let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::StoreName(name_idx));
             }
             Stmt::Try { body, handlers } => {
@@ -219,7 +229,12 @@ impl Compiler {
                 }
                 self.emit(Opcode::ReturnValue);
             }
-            Stmt::FunctionDef { name, params, vararg, kwarg, body } => {
+            Stmt::FunctionDef { name, params, vararg, kwarg, body, decorators } => {
+                // Compile decorators first so they are on the stack
+                for decorator in decorators {
+                    self.compile_expr(decorator)?;
+                }
+
                 let mut child_compiler = Compiler::new(name.clone());
                 child_compiler.code.arg_count = params.len();
                 child_compiler.code.vararg = vararg.clone();
@@ -250,6 +265,11 @@ impl Compiler {
 
                 self.emit(Opcode::LoadConst(code_idx));
                 self.emit(Opcode::MakeFunction);
+
+                // Apply decorators
+                for _ in 0..decorators.len() {
+                    self.emit(Opcode::CallFunction(1));
+                }
 
                 let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::StoreName(name_idx));

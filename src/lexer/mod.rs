@@ -420,6 +420,17 @@ impl<'a> Lexer<'a> {
             }
             ('.', _) => (TokenKind::Dot, 1),
             (';', _) => (TokenKind::Semicolon, 1),
+            ('@', Some('=')) => (TokenKind::AtEqual, 2),
+            ('@', _) => (TokenKind::At, 1),
+            ('%', Some('=')) => (TokenKind::PercentEqual, 2),
+            ('%', _) => (TokenKind::Percent, 1),
+            ('&', Some('=')) => (TokenKind::AmpersandEqual, 2),
+            ('&', _) => (TokenKind::Ampersand, 1),
+            ('|', Some('=')) => (TokenKind::PipeEqual, 2),
+            ('|', _) => (TokenKind::Pipe, 1),
+            ('^', Some('=')) => (TokenKind::CaretEqual, 2),
+            ('^', _) => (TokenKind::Caret, 1),
+            ('~', _) => (TokenKind::Tilde, 1),
             _ => {
                 return Err(LexerError::new(
                     LexerErrorKind::UnexpectedCharacter(c),

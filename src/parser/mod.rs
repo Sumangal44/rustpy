@@ -80,21 +80,50 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
+        let mut decorators = Vec::new();
+        while self.check(&TokenKind::At) {
+            self.advance()?;
+            decorators.push(self.parse_expression(0)?);
+            self.consume(TokenKind::Newline)?;
+        }
+
         match &self.current_token.kind {
-            TokenKind::Def => self.parse_function_def(),
-            TokenKind::Class => self.parse_class_def(),
-            TokenKind::Try => self.parse_try(),
-            TokenKind::Raise => self.parse_raise(),
-            TokenKind::Return => self.parse_return(),
-            TokenKind::If => self.parse_if(),
-            TokenKind::While => self.parse_while(),
-            TokenKind::For => self.parse_for(),
+            TokenKind::Def => self.parse_function_def(decorators),
+            TokenKind::Class => self.parse_class_def(decorators),
+            TokenKind::Try => {
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone()));
+                }
+                self.parse_try()
+            },
+            TokenKind::Raise => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_raise()
+            },
+            TokenKind::Return => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_return()
+            },
+            TokenKind::If => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_if()
+            },
+            TokenKind::While => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_while()
+            },
+            TokenKind::For => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_for()
+            },
             TokenKind::Pass => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
                 self.consume(TokenKind::Newline)?;
                 Ok(Stmt::Pass)
             }
             TokenKind::Yield => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
                 let mut value = None;
                 if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::EOF) {
@@ -103,11 +132,14 @@ impl<'a> Parser<'a> {
                 self.consume(TokenKind::Newline)?;
                 Ok(Stmt::YieldStmt(Expr::Yield(value)))
             }
-            _ => self.parse_assign_or_expr(),
+            _ => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_assign_or_expr()
+            }
         }
     }
 
-    fn parse_function_def(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_function_def(&mut self, decorators: Vec<Expr>) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Def)?;
 
         let name = match &self.current_token.kind {
@@ -184,10 +216,11 @@ impl<'a> Parser<'a> {
             vararg,
             kwarg,
             body,
+            decorators,
         })
     }
 
-    fn parse_class_def(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_class_def(&mut self, decorators: Vec<Expr>) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Class)?;
 
         let name = match &self.current_token.kind {
@@ -216,13 +249,12 @@ impl<'a> Parser<'a> {
             }
             self.consume(TokenKind::RParen)?;
         }
-
         self.consume(TokenKind::Colon)?;
         self.consume(TokenKind::Newline)?;
 
         let body = self.parse_block()?;
 
-        Ok(Stmt::ClassDef { name, bases, body })
+        Ok(Stmt::ClassDef { name, bases, body, decorators })
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {

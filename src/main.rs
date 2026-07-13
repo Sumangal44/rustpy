@@ -240,4 +240,28 @@ mod tests {
         let result = env.borrow().get("result").unwrap();
         assert_eq!(result.repr(), "'Base and Derived'");
     }
+
+    #[test]
+    fn test_function_decorator() {
+        let source = "def make_pretty(func):\n    def inner():\n        return \"***\" + func() + \"***\"\n    return inner\n\n@make_pretty\ndef ordinary():\n    return \"Hello\"\n\nres = ordinary()\n";
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'***Hello***'");
+    }
+
+    #[test]
+    fn test_class_decorator() {
+        let source = "def class_dec(cls):\n    cls.added = 42\n    return cls\n\n@class_dec\nclass Foo:\n    pass\n\nres = Foo.added\n";
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "42");
+    }
+
+    #[test]
+    fn test_multiple_decorators() {
+        let source = "def a(func):\n    def inner():\n        return \"A\" + func()\n    return inner\n\ndef b(func):\n    def inner():\n        return \"B\" + func()\n    return inner\n\n@a\n@b\ndef ordinary():\n    return \"Hello\"\n\nres = ordinary()\n";
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'ABHello'");
+    }
 }

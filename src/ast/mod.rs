@@ -67,11 +67,13 @@ pub enum Stmt {
         vararg: Option<String>,
         kwarg: Option<String>,
         body: Vec<Stmt>,
+        decorators: Vec<Expr>,
     },
     ClassDef {
         name: String,
         bases: Vec<Expr>,
         body: Vec<Stmt>,
+        decorators: Vec<Expr>,
     },
     Try {
         body: Vec<Stmt>,
