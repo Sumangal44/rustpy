@@ -10,6 +10,11 @@ pub enum Block {
         handler_ip: usize,
         stack_size: usize,
     },
+    SetupWith {
+        handler_ip: usize,
+        stack_size: usize,
+        exit_func: Rc<dyn PyObject>,
+    },
 }
 
 pub struct Frame {

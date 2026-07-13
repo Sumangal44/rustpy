@@ -264,4 +264,174 @@ mod tests {
         let res = env.borrow().get("res").unwrap();
         assert_eq!(res.repr(), "'ABHello'");
     }
+
+    #[test]
+    fn test_with_statement() {
+        let source = "class ContextManager:\n    def __enter__(self):\n        return 42\n    def __exit__(self, exc_type, exc_value, traceback):\n        pass\n\nwith ContextManager() as x:\n    res = x\n";
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "42");
+    }
+
+    #[test]
+    fn test_with_statement_suppress_exception() {
+        let source = "class ContextManager:\n    def __enter__(self):\n        return 42\n    def __exit__(self, exc_type, exc_value, traceback):\n        return True\n\nres = 0\nwith ContextManager():\n    res = 1\n    raise Exception(\"test error\")\n    res = 2\n";
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "1");
+    }
+
+    #[test]
+    fn test_float_literal() {
+        let source = "x = 3.14\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.get_type(), "float");
+    }
+
+    #[test]
+    fn test_true_division() {
+        let source = "x = 7 / 2\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "3.5");
+    }
+
+    #[test]
+    fn test_floor_division() {
+        let source = "x = 7 // 2\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "3");
+    }
+
+    #[test]
+    fn test_modulo() {
+        let source = "x = 10 % 3\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "1");
+    }
+
+    #[test]
+    fn test_power() {
+        let source = "x = 2 ** 10\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "1024");
+    }
+
+    #[test]
+    fn test_unary_minus() {
+        let source = "x = -5\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "-5");
+    }
+
+    #[test]
+    fn test_unary_plus() {
+        let source = "x = +5\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "5");
+    }
+
+    #[test]
+    fn test_unary_not() {
+        let source = "x = not True\ny = not False\nz = not 0\nw = not 42\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "False");
+        let y = env.borrow().get("y").unwrap();
+        assert_eq!(y.repr(), "True");
+        let z = env.borrow().get("z").unwrap();
+        assert_eq!(z.repr(), "True");
+        let w = env.borrow().get("w").unwrap();
+        assert_eq!(w.repr(), "False");
+    }
+
+    #[test]
+    fn test_compare_eq() {
+        let source = "x = 5 == 5\ny = 5 == 6\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "True");
+        let y = env.borrow().get("y").unwrap();
+        assert_eq!(y.repr(), "False");
+    }
+
+    #[test]
+    fn test_compare_not_eq() {
+        let source = "x = 5 != 6\ny = 5 != 5\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "True");
+        let y = env.borrow().get("y").unwrap();
+        assert_eq!(y.repr(), "False");
+    }
+
+    #[test]
+    fn test_compare_lt_gt() {
+        let source = "x = 3 < 5\ny = 5 < 3\nz = 5 > 3\nw = 3 > 5\n";
+        let env = execute_source(source);
+        let x = env.borrow().get("x").unwrap();
+        assert_eq!(x.repr(), "True");
+        let y = env.borrow().get("y").unwrap();
+        assert_eq!(y.repr(), "False");
+        let z = env.borrow().get("z").unwrap();
+        assert_eq!(z.repr(), "True");
+        let w = env.borrow().get("w").unwrap();
+        assert_eq!(w.repr(), "False");
+    }
+
+    #[test]
+    fn test_compare_le_ge() {
+        let source = "x = 3 <= 5\ny = 5 <= 3\nz = 5 <= 5\nw = 5 >= 3\nu = 3 >= 5\nv = 5 >= 5\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("w").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("u").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("v").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_float_arithmetic() {
+        let source = "x = 2.5 + 3.5\ny = 10.0 - 4.5\nz = 3.0 * 1.5\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "6.0");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "5.5");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "4.5");
+    }
+
+    #[test]
+    fn test_mixed_int_float() {
+        let source = "x = 1 + 2.5\ny = 5.5 - 2\nz = 3 * 1.5\nw = 7 / 2\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "3.5");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "3.5");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "4.5");
+        assert_eq!(env.borrow().get("w").unwrap().repr(), "3.5");
+    }
+
+    #[test]
+    fn test_string_compare() {
+        let source = "x = \"abc\" == \"abc\"\ny = \"abc\" != \"xyz\"\nz = \"abc\" < \"xyz\"\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_bool_compare() {
+        let source = "x = True == True\ny = True != False\nz = True == 1\nw = True == 1.0\n";
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("w").unwrap().repr(), "True");
+    }
 }

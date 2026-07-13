@@ -99,6 +99,11 @@ pub enum Stmt {
         iter: Expr,
         body: Vec<Stmt>,
     },
+    With {
+        context_expr: Expr,
+        optional_vars: Option<Expr>,
+        body: Vec<Stmt>,
+    },
     Assign {
         targets: Vec<Expr>,
         value: Expr,

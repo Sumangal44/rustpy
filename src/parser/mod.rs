@@ -116,6 +116,10 @@ impl<'a> Parser<'a> {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.parse_for()
             },
+            TokenKind::With => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_with()
+            },
             TokenKind::Pass => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
@@ -336,6 +340,28 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
 
         Ok(Stmt::For { target, iter, body })
+    }
+
+    fn parse_with(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::With)?;
+        let context_expr = self.parse_expression(0)?;
+        let mut optional_vars = None;
+
+        if self.check(&TokenKind::As) {
+            self.advance()?;
+            optional_vars = Some(self.parse_expression(0)?);
+        }
+
+        self.consume(TokenKind::Colon)?;
+        self.consume(TokenKind::Newline)?;
+
+        let body = self.parse_block()?;
+
+        Ok(Stmt::With {
+            context_expr,
+            optional_vars,
+            body,
+        })
     }
 
     fn parse_try(&mut self) -> Result<Stmt, ParseError> {

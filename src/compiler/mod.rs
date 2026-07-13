@@ -1,7 +1,7 @@
 pub mod code;
 pub mod opcodes;
 
-use crate::ast::{BinOpKind, Expr, Module, Stmt, UnaryOpKind};
+use crate::ast::{BinOpKind, Expr, Module, Stmt};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
@@ -215,6 +215,34 @@ impl Compiler {
                 self.code.instructions[jump_forward_idx] =
                     Opcode::JumpAbsolute(self.code.instructions.len());
             }
+            Stmt::With {
+                context_expr,
+                optional_vars,
+                body,
+            } => {
+                self.compile_expr(context_expr)?;
+                let setup_with_idx = self.emit(Opcode::SetupWith(0));
+
+                if let Some(var) = optional_vars {
+                    if let Expr::Identifier(name) = var {
+                        let name_idx = self.get_or_add_name(&name);
+                        self.emit(Opcode::StoreName(name_idx));
+                    } else {
+                        self.emit(Opcode::PopTop);
+                    }
+                } else {
+                    self.emit(Opcode::PopTop);
+                }
+
+                for s in body {
+                    self.compile_stmt(s)?;
+                }
+
+                self.emit(Opcode::WithCleanup);
+
+                let except_target = self.code.instructions.len();
+                self.code.instructions[setup_with_idx] = Opcode::SetupWith(except_target);
+            }
             Stmt::Raise { exc } => {
                 self.compile_expr(exc)?;
                 self.emit(Opcode::Raise);
@@ -284,8 +312,9 @@ impl Compiler {
                 let idx = self.add_constant(Rc::new(PyInt::new(*val)));
                 self.emit(Opcode::LoadConst(idx));
             }
-            Expr::FloatLiteral(_) => {
-                return Err("Float literals not yet implemented in compiler".to_string());
+            Expr::FloatLiteral(val) => {
+                let idx = self.add_constant(Rc::new(crate::objects::float::PyFloat::new(*val)));
+                self.emit(Opcode::LoadConst(idx));
             }
             Expr::StringLiteral(val) => {
                 let idx = self.add_constant(Rc::new(PyString::new(val.clone())));
@@ -335,8 +364,14 @@ impl Compiler {
 
                 self.emit(opcode);
             }
-            Expr::UnaryOp { .. } => {
-                return Err("Unary ops not yet implemented in compiler".to_string());
+            Expr::UnaryOp { op, operand } => {
+                self.compile_expr(operand)?;
+                let opcode = match op {
+                    crate::ast::UnaryOpKind::Minus => Opcode::UnaryNegative,
+                    crate::ast::UnaryOpKind::Plus => Opcode::UnaryPositive,
+                    crate::ast::UnaryOpKind::Not => Opcode::UnaryNot,
+                };
+                self.emit(opcode);
             }
             Expr::Call { func, args, kwargs, starargs, kwargs_unpack } => {
                 // Compile function to call

@@ -30,24 +30,44 @@ impl VirtualMachine {
                 Ok(Some(ret)) => return Ok(Some(ret)),
                 Ok(None) => {} // continue
                 Err(e) => {
-                    if let Some(crate::vm::frame::Block::SetupExcept {
-                        handler_ip,
-                        stack_size,
-                    }) = frame.block_stack.pop()
-                    {
-                        frame.stack.truncate(stack_size);
+                    let exc_obj = self.last_exception.take().unwrap_or_else(|| {
+                        Rc::new(crate::objects::exception::PyException::new(
+                            "RuntimeError".to_string(),
+                            Some(e.clone()),
+                        ))
+                    });
+                    self.last_exception = Some(exc_obj.clone());
 
-                        let exc_obj = self.last_exception.take().unwrap_or_else(|| {
-                            // If there's no exception object, create a generic one
-                            Rc::new(crate::objects::exception::PyException::new(
-                                "RuntimeError".to_string(),
-                                Some(e.clone()),
-                            ))
-                        });
+                    let mut handled = false;
+                    while let Some(block) = frame.block_stack.pop() {
+                        match block {
+                            crate::vm::frame::Block::SetupExcept { handler_ip, stack_size } => {
+                                frame.stack.truncate(stack_size);
+                                frame.push(exc_obj.clone());
+                                frame.ip = handler_ip;
+                                handled = true;
+                                break;
+                            }
+                            crate::vm::frame::Block::SetupWith { handler_ip, stack_size, exit_func } => {
+                                frame.stack.truncate(stack_size);
+                                let none = Rc::new(crate::objects::none::PyNone) as Rc<dyn PyObject>;
+                                let exc_type = Rc::new(crate::objects::string::PyString::new("Exception".to_string())) as Rc<dyn PyObject>;
+                                let exc_val = exc_obj.clone();
+                                
+                                let exit_res = self.invoke(exit_func, vec![exc_type, exc_val, none], std::collections::HashMap::new());
+                                if let Ok(res) = exit_res {
+                                    if res.is_truthy() {
+                                        self.last_exception = None;
+                                        frame.ip = handler_ip;
+                                        handled = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
 
-                        frame.push(exc_obj);
-                        frame.ip = handler_ip;
-                    } else {
+                    if !handled {
                         return Err(e);
                     }
                 }
@@ -360,11 +380,201 @@ impl VirtualMachine {
                     .pop()
                     .ok_or_else(|| "CompilerError: PopExcept on empty block stack".to_string())?;
             }
+            Opcode::BinaryTrueDivide => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.truediv(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: unsupported operand type(s) for /: '{}' and '{}'",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::BinaryFloorDivide => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.floordiv(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: unsupported operand type(s) for //: '{}' and '{}'",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::BinaryModulo => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.modulo(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: unsupported operand type(s) for %: '{}' and '{}'",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::BinaryPower => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.pow(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: unsupported operand type(s) for **: '{}' and '{}'",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::UnaryNegative => {
+                let obj = frame.pop()?;
+                if let Some(result) = obj.neg() {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: bad operand type for unary -: '{}'",
+                        obj.get_type()
+                    ));
+                }
+            }
+            Opcode::UnaryPositive => {
+                let obj = frame.pop()?;
+                if let Some(result) = obj.pos() {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: bad operand type for unary +: '{}'",
+                        obj.get_type()
+                    ));
+                }
+            }
+            Opcode::UnaryNot => {
+                let obj = frame.pop()?;
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(!obj.is_truthy())));
+            }
+            Opcode::CompareEq => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.eq(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: '{}' and '{}' are not comparable with ==",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::CompareNotEq => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.ne(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: '{}' and '{}' are not comparable with !=",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::CompareLt => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.lt(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: '{}' and '{}' are not comparable with <",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::CompareLtEq => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.le(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: '{}' and '{}' are not comparable with <=",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::CompareGt => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.gt(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: '{}' and '{}' are not comparable with >",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::CompareGtEq => {
+                let right = frame.pop()?;
+                let left = frame.pop()?;
+                if let Some(result) = left.ge(Rc::clone(&right)) {
+                    frame.push(result);
+                } else {
+                    return Err(format!(
+                        "TypeError: '{}' and '{}' are not comparable with >=",
+                        left.get_type(),
+                        right.get_type()
+                    ));
+                }
+            }
+            Opcode::JumpForward(offset) => {
+                frame.ip += offset;
+            }
+            Opcode::PopJumpIfTrue(target) => {
+                let cond = frame.pop()?;
+                if cond.is_truthy() {
+                    frame.ip = *target;
+                }
+            }
             Opcode::Raise => {
                 let exc = frame.pop()?;
                 self.last_exception = Some(exc.clone());
                 // We expect exc to be an Exception object
                 return Err(exc.repr());
+            }
+            Opcode::SetupWith(target) => {
+                let context_manager = frame.pop()?;
+                let enter_func = context_manager.get_attr("__enter__")?;
+                let exit_func = context_manager.get_attr("__exit__")?;
+
+                let enter_result = self.invoke(enter_func, vec![], std::collections::HashMap::new())?;
+                
+                let stack_size = frame.stack.len();
+                frame.block_stack.push(crate::vm::frame::Block::SetupWith {
+                    handler_ip: *target,
+                    stack_size,
+                    exit_func,
+                });
+
+                frame.push(enter_result);
+            }
+            Opcode::WithCleanup => {
+                let block = frame.block_stack.pop();
+                if let Some(crate::vm::frame::Block::SetupWith { exit_func, .. }) = block {
+                    let none = Rc::new(crate::objects::none::PyNone) as Rc<dyn PyObject>;
+                    self.invoke(exit_func, vec![none.clone(), none.clone(), none], std::collections::HashMap::new())?;
+                } else {
+                    return Err("CompilerError: WithCleanup expected SetupWith block".to_string());
+                }
             }
             _ => return Err(format!("Opcode {:?} not yet implemented in VM", opcode)),
         }

@@ -16,6 +16,9 @@ pub enum Opcode {
     BinaryFloorDivide,
     BinaryModulo,
     BinaryPower,
+    UnaryNegative,
+    UnaryPositive,
+    UnaryNot,
 
     // Comparisons
     CompareEq,
@@ -59,4 +62,8 @@ pub enum Opcode {
     SetupExcept(usize), // pushes a block onto block stack, with target
     PopExcept,          // pops a block from block stack
     Raise,              // pops an object, raises it as an exception
+
+    // Context Managers
+    SetupWith(usize), // pushes block, calls __enter__, pushes result
+    WithCleanup,      // pops block, calls __exit__
 }

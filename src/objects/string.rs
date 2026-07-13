@@ -44,4 +44,52 @@ impl PyObject for PyString {
             None // NotImplemented
         }
     }
+
+    fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(s) = other.as_any().downcast_ref::<PyString>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value == s.value)))
+        } else {
+            None
+        }
+    }
+
+    fn ne(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(s) = other.as_any().downcast_ref::<PyString>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value != s.value)))
+        } else {
+            None
+        }
+    }
+
+    fn lt(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(s) = other.as_any().downcast_ref::<PyString>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value < s.value)))
+        } else {
+            None
+        }
+    }
+
+    fn le(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(s) = other.as_any().downcast_ref::<PyString>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value <= s.value)))
+        } else {
+            None
+        }
+    }
+
+    fn gt(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(s) = other.as_any().downcast_ref::<PyString>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value > s.value)))
+        } else {
+            None
+        }
+    }
+
+    fn ge(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(s) = other.as_any().downcast_ref::<PyString>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= s.value)))
+        } else {
+            None
+        }
+    }
 }

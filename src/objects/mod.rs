@@ -28,6 +28,44 @@ pub trait PyObject: Debug + Any {
     fn mul(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         None
     }
+    fn truediv(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn floordiv(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn modulo(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn pow(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+
+    fn neg(&self) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn pos(&self) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+
+    fn eq(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn ne(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn lt(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn le(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn gt(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+    fn ge(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        None
+    }
 
     fn get_iter(&self) -> Result<Rc<dyn PyObject>, String> {
         Err(format!(
@@ -77,6 +115,7 @@ pub mod class;
 pub mod constants;
 pub mod dict;
 pub mod exception;
+pub mod float;
 pub mod function;
 pub mod generator;
 pub mod instance;
