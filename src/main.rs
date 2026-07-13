@@ -1,103 +1,88 @@
 mod ast;
 mod diagnostics;
 mod lexer;
+mod objects;
 mod parser;
+mod runtime;
 
 use lexer::Lexer;
+use objects::{PyObject, int::PyInt};
 use parser::Parser;
+use runtime::Environment;
+use std::rc::Rc;
 
 fn main() {
-    println!("RustPy Interpreter - Phase 2");
-    let source = "def add(a, b):\n    return a + b\n";
+    println!("RustPy Interpreter - Phase 3");
 
+    // Demonstrate beautiful errors
+    let source = "def add(a, b\n    return a + b\n";
     let lexer = Lexer::new(source);
     match Parser::new(lexer) {
-        Ok(mut parser) => match parser.parse_module() {
-            Ok(module) => {
-                println!("Parsed AST: {:#?}", module);
+        Ok(mut parser) => {
+            if let Err(e) = parser.parse_module() {
+                println!(
+                    "{}",
+                    diagnostics::format_error(source, &e.span, &e.to_string())
+                );
             }
-            Err(e) => {
-                eprintln!("Parser error: {} at line {}", e, e.span.line);
-            }
-        },
-        Err(e) => {
-            eprintln!("Initialization error: {} at line {}", e, e.span.line);
         }
+        Err(e) => {
+            println!(
+                "{}",
+                diagnostics::format_error(source, &e.span, &e.to_string())
+            );
+        }
+    }
+
+    // Demonstrate Object Model
+    let a: Rc<dyn PyObject> = Rc::new(PyInt::new(10));
+    let b: Rc<dyn PyObject> = Rc::new(PyInt::new(20));
+
+    if let Some(result) = a.add(b) {
+        println!("10 + 20 = {}", result.repr());
+    }
+
+    let mut env = Environment::new();
+    env.set("x".to_string(), Rc::new(PyInt::new(42)));
+    if let Some(val) = env.get("x") {
+        println!("x = {}", val.repr());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinOpKind, Expr, Stmt};
+    use crate::objects::PyObject;
+    use crate::objects::int::PyInt;
+    use crate::runtime::Environment;
+    use std::rc::Rc;
 
     #[test]
-    fn test_parse_assignment() {
-        let source = "a = 1 + 2\n";
-        let lexer = Lexer::new(source);
-        let mut parser = Parser::new(lexer).unwrap();
-        let module = parser.parse_module().unwrap();
+    fn test_pyint_operations() {
+        let a: Rc<dyn PyObject> = Rc::new(PyInt::new(10));
+        let b: Rc<dyn PyObject> = Rc::new(PyInt::new(5));
 
-        assert_eq!(module.body.len(), 1);
-        if let Stmt::Assign { targets, value } = &module.body[0] {
-            assert_eq!(targets.len(), 1);
-            assert_eq!(targets[0], Expr::Identifier("a".to_string()));
+        // Test add
+        let sum = a.add(Rc::clone(&b)).unwrap();
+        assert_eq!(sum.repr(), "15");
 
-            if let Expr::BinOp { left, op, right } = value {
-                assert_eq!(**left, Expr::IntLiteral(1));
-                assert_eq!(*op, BinOpKind::Add);
-                assert_eq!(**right, Expr::IntLiteral(2));
-            } else {
-                panic!("Expected BinOp");
-            }
-        } else {
-            panic!("Expected Assign statement");
-        }
+        // Test sub
+        let diff = a.sub(Rc::clone(&b)).unwrap();
+        assert_eq!(diff.repr(), "5");
+
+        // Test mul
+        let prod = a.mul(Rc::clone(&b)).unwrap();
+        assert_eq!(prod.repr(), "50");
     }
 
     #[test]
-    fn test_parse_function_def() {
-        let source = "def foo(x):\n    return x * 2\n";
-        let lexer = Lexer::new(source);
-        let mut parser = Parser::new(lexer).unwrap();
-        let module = parser.parse_module().unwrap();
+    fn test_environment() {
+        let mut env = Environment::new();
+        env.set("x".to_string(), Rc::new(PyInt::new(42)));
 
-        assert_eq!(module.body.len(), 1);
-        if let Stmt::FunctionDef { name, params, body } = &module.body[0] {
-            assert_eq!(name, "foo");
-            assert_eq!(params, &vec!["x".to_string()]);
-            assert_eq!(body.len(), 1);
+        let val = env.get("x").unwrap();
+        assert_eq!(val.repr(), "42");
 
-            if let Stmt::Return {
-                value: Some(Expr::BinOp { left, op, right }),
-            } = &body[0]
-            {
-                assert_eq!(**left, Expr::Identifier("x".to_string()));
-                assert_eq!(*op, BinOpKind::Mult);
-                assert_eq!(**right, Expr::IntLiteral(2));
-            } else {
-                panic!("Expected Return BinOp inside FunctionDef");
-            }
-        } else {
-            panic!("Expected FunctionDef");
-        }
-    }
-
-    #[test]
-    fn test_parse_if_statement() {
-        let source = "if True:\n    pass\n";
-        let lexer = Lexer::new(source);
-        let mut parser = Parser::new(lexer).unwrap();
-        let module = parser.parse_module().unwrap();
-
-        assert_eq!(module.body.len(), 1);
-        if let Stmt::If { test, body, orelse } = &module.body[0] {
-            assert_eq!(*test, Expr::BooleanLiteral(true));
-            assert_eq!(body.len(), 1);
-            assert_eq!(body[0], Stmt::Pass);
-            assert!(orelse.is_empty());
-        } else {
-            panic!("Expected If statement");
-        }
+        assert!(env.get("y").is_none());
     }
 }

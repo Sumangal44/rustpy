@@ -1,5 +1,20 @@
 use crate::lexer::tokens::Span;
 
+pub fn format_error(source: &str, span: &Span, message: &str) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    if span.line > 0 && span.line <= lines.len() {
+        let line_content = lines[span.line - 1];
+        let marker = format!("{:>width$}", "^", width = span.column + 1);
+
+        format!(
+            "Error: {}\n --> line {}:{}\n  |\n{} | {}\n  | {}",
+            message, span.line, span.column, span.line, line_content, marker
+        )
+    } else {
+        format!("Error: {} at line {}:{}", message, span.line, span.column)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum LexerErrorKind {
     UnexpectedCharacter(char),
@@ -22,12 +37,13 @@ impl LexerError {
 
 impl std::fmt::Display for LexerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.kind {
-            LexerErrorKind::UnexpectedCharacter(c) => write!(f, "Unexpected character: '{}'", c),
-            LexerErrorKind::UnterminatedString => write!(f, "Unterminated string literal"),
-            LexerErrorKind::InvalidNumber => write!(f, "Invalid number literal"),
-            LexerErrorKind::IndentationError => write!(f, "Indentation error"),
-        }
+        let msg = match &self.kind {
+            LexerErrorKind::UnexpectedCharacter(c) => format!("Unexpected character: '{}'", c),
+            LexerErrorKind::UnterminatedString => "Unterminated string literal".to_string(),
+            LexerErrorKind::InvalidNumber => "Invalid number literal".to_string(),
+            LexerErrorKind::IndentationError => "Indentation error".to_string(),
+        };
+        write!(f, "{}", msg)
     }
 }
 
@@ -55,12 +71,13 @@ impl ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.kind {
-            ParseErrorKind::UnexpectedToken(t) => write!(f, "Unexpected token: {}", t),
-            ParseErrorKind::UnexpectedEOF => write!(f, "Unexpected EOF"),
-            ParseErrorKind::InvalidSyntax(m) => write!(f, "Invalid syntax: {}", m),
-            ParseErrorKind::LexerError(e) => write!(f, "Lexer error: {:?}", e),
-        }
+        let msg = match &self.kind {
+            ParseErrorKind::UnexpectedToken(t) => format!("Unexpected token: {}", t),
+            ParseErrorKind::UnexpectedEOF => "Unexpected EOF".to_string(),
+            ParseErrorKind::InvalidSyntax(m) => format!("Invalid syntax: {}", m),
+            ParseErrorKind::LexerError(e) => format!("Lexer error: {:?}", e),
+        };
+        write!(f, "{}", msg)
     }
 }
 
