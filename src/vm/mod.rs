@@ -177,12 +177,19 @@ impl VirtualMachine {
                         }
                     }
 
-                    // Create a new frame and execute it!
+                    // Create a new frame and execute it (or wrap it in a generator)!
                     let mut new_frame = Frame::new(func.code.clone(), new_env);
-                    if let Some(result) = self.run(&mut new_frame)? {
-                        frame.push(result);
+
+                    if func.code.is_generator {
+                        let generator =
+                            Rc::new(crate::objects::generator::PyGenerator::new(new_frame));
+                        frame.push(generator);
                     } else {
-                        return Err("Function returned without a value".to_string());
+                        if let Some(result) = self.run(&mut new_frame)? {
+                            frame.push(result);
+                        } else {
+                            return Err("Function returned without a value".to_string());
+                        }
                     }
                 } else if let Some(native_func) = func_obj
                     .as_any()
@@ -377,6 +384,12 @@ impl VirtualMachine {
                     return Ok(Some(Rc::new(crate::objects::none::PyNone)));
                 }
                 return Ok(Some(frame.pop()?));
+            }
+            Opcode::YieldValue => {
+                let ret = frame.pop()?;
+                // When generator resumes, it evaluates to None (or sent value)
+                frame.push(Rc::new(crate::objects::none::PyNone));
+                return Ok(Some(ret)); // Returns from run loop, but frame.ip is advanced so it can be resumed
             }
             Opcode::SetupExcept(target) => {
                 let stack_size = frame.stack.len();

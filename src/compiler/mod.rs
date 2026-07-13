@@ -80,6 +80,10 @@ impl Compiler {
                 self.compile_expr(value)?;
                 self.emit(Opcode::PopTop);
             }
+            Stmt::YieldStmt(expr) => {
+                self.compile_expr(expr)?;
+                self.emit(Opcode::PopTop);
+            }
             Stmt::If { test, body, orelse } => {
                 self.compile_expr(test)?;
                 let jump_if_false_idx = self.emit(Opcode::PopJumpIfFalse(0));
@@ -268,6 +272,16 @@ impl Compiler {
             Expr::NoneLiteral => {
                 let idx = self.add_constant(Rc::new(PyNone::new()));
                 self.emit(Opcode::LoadConst(idx));
+            }
+            Expr::Yield(value_opt) => {
+                self.code.is_generator = true;
+                if let Some(val) = value_opt {
+                    self.compile_expr(val)?;
+                } else {
+                    let idx = self.add_constant(Rc::new(PyNone::new()));
+                    self.emit(Opcode::LoadConst(idx));
+                }
+                self.emit(Opcode::YieldValue);
             }
             Expr::Identifier(name) => {
                 let idx = self.get_or_add_name(name);

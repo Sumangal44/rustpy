@@ -94,6 +94,15 @@ impl<'a> Parser<'a> {
                 self.consume(TokenKind::Newline)?;
                 Ok(Stmt::Pass)
             }
+            TokenKind::Yield => {
+                self.advance()?;
+                let mut value = None;
+                if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::EOF) {
+                    value = Some(Box::new(self.parse_expression(0)?));
+                }
+                self.consume(TokenKind::Newline)?;
+                Ok(Stmt::YieldStmt(Expr::Yield(value)))
+            }
             _ => self.parse_assign_or_expr(),
         }
     }
@@ -368,6 +377,18 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expression(0)?;
                 self.consume(TokenKind::RParen)?;
                 Ok(expr)
+            }
+            TokenKind::Yield => {
+                self.advance()?;
+                let mut value = None;
+                // If it's not a closing paren or newline, try parsing the yielded expression
+                if !self.check(&TokenKind::RParen)
+                    && !self.check(&TokenKind::Newline)
+                    && !self.check(&TokenKind::EOF)
+                {
+                    value = Some(Box::new(self.parse_expression(0)?));
+                }
+                Ok(Expr::Yield(value))
             }
             TokenKind::LBracket => {
                 self.advance()?;

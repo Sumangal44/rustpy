@@ -206,4 +206,12 @@ mod tests {
         let handled = env.borrow().get("handled").unwrap();
         assert_eq!(handled.repr(), "1");
     }
+
+    #[test]
+    fn test_generators() {
+        let source = "def gen():\n    yield 1\n    yield 2\n    yield 3\n\ntotal = 0\nfor x in gen():\n    total = total + x\n";
+        let env = execute_source(source);
+        let total = env.borrow().get("total").unwrap();
+        assert_eq!(total.repr(), "6");
+    }
 }

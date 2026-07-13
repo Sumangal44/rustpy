@@ -78,6 +78,7 @@ pub mod constants;
 pub mod dict;
 pub mod exception;
 pub mod function;
+pub mod generator;
 pub mod instance;
 pub mod int;
 pub mod list;

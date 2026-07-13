@@ -29,6 +29,7 @@ pub enum Expr {
         func: Box<Expr>,
         args: Vec<Expr>,
     },
+    Yield(Option<Box<Expr>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +98,7 @@ pub enum Stmt {
     ExprStmt {
         value: Expr,
     },
+    YieldStmt(Expr),
     Pass,
 }
 
