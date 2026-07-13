@@ -30,4 +30,8 @@ impl PyObject for PyNone {
     fn is_truthy(&self) -> bool {
         false
     }
+
+    fn hash(&self) -> Result<i64, String> {
+        Ok(0)
+    }
 }

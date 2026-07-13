@@ -54,6 +54,13 @@ impl PyObject for PyString {
         }
     }
 
+    fn hash(&self) -> Result<i64, String> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.value.hash(&mut hasher);
+        Ok(hasher.finish() as i64)
+    }
+
     fn ne(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(s) = other.as_any().downcast_ref::<PyString>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value != s.value)))

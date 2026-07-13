@@ -100,6 +100,10 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 Ok(Rc::new(PyInt::new(l.elements.borrow().len() as i64)))
             } else if let Some(d) = obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                 Ok(Rc::new(PyInt::new(d.entries.borrow().len() as i64)))
+            } else if let Some(s) = obj.as_any().downcast_ref::<crate::objects::set::PySet>() {
+                Ok(Rc::new(PyInt::new(s.elements.borrow().len() as i64)))
+            } else if let Some(fs) = obj.as_any().downcast_ref::<crate::objects::set::PyFrozenSet>() {
+                Ok(Rc::new(PyInt::new(fs.elements.borrow().len() as i64)))
             } else if let Some(r) = obj.as_any().downcast_ref::<crate::objects::range::PyRange>() {
                 Ok(Rc::new(PyInt::new(r.len() as i64)))
             } else if let Some(inst) = obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
@@ -940,6 +944,44 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 }
                 result.push(Rc::new(crate::objects::list::PyList::new(group)) as Rc<dyn PyObject>);
             }
+        })),
+    );
+
+    // set(iterable) -> set
+    env_mut.set(
+        "set".to_string(),
+        Rc::new(PyNativeFunction::new("set".to_string(), |args| {
+            if args.is_empty() {
+                return Ok(Rc::new(crate::objects::set::PySet::new(Vec::new())));
+            }
+            if args.len() != 1 {
+                return Err("TypeError: set() takes at most 1 argument".to_string());
+            }
+            let iter = args[0].get_iter()?;
+            let mut items = Vec::new();
+            while let Some(item) = iter.get_next()? {
+                items.push(item);
+            }
+            Ok(Rc::new(crate::objects::set::PySet::new(items)))
+        })),
+    );
+
+    // frozenset(iterable) -> frozenset
+    env_mut.set(
+        "frozenset".to_string(),
+        Rc::new(PyNativeFunction::new("frozenset".to_string(), |args| {
+            if args.is_empty() {
+                return Ok(Rc::new(crate::objects::set::PyFrozenSet::new(Vec::new())));
+            }
+            if args.len() != 1 {
+                return Err("TypeError: frozenset() takes at most 1 argument".to_string());
+            }
+            let iter = args[0].get_iter()?;
+            let mut items = Vec::new();
+            while let Some(item) = iter.get_next()? {
+                items.push(item);
+            }
+            Ok(Rc::new(crate::objects::set::PyFrozenSet::new(items)))
         })),
     );
 }

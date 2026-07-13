@@ -720,24 +720,37 @@ impl<'a> Parser<'a> {
                         self.current_token.span.clone(),
                     ));
                 }
-                self.consume(TokenKind::Colon)?;
-                let second = self.parse_expression(0)?;
-                if self.check(&TokenKind::For) {
-                    return self.parse_dict_comp(first, second);
-                }
-                let mut pairs = vec![(first, second)];
-                while self.check(&TokenKind::Comma) {
+                if self.check(&TokenKind::Colon) {
                     self.advance()?;
-                    if self.check(&TokenKind::RBrace) {
-                        break;
+                    let second = self.parse_expression(0)?;
+                    if self.check(&TokenKind::For) {
+                        return self.parse_dict_comp(first, second);
                     }
-                    let key = self.parse_expression(0)?;
-                    self.consume(TokenKind::Colon)?;
-                    let value = self.parse_expression(0)?;
-                    pairs.push((key, value));
+                    let mut pairs = vec![(first, second)];
+                    while self.check(&TokenKind::Comma) {
+                        self.advance()?;
+                        if self.check(&TokenKind::RBrace) {
+                            break;
+                        }
+                        let key = self.parse_expression(0)?;
+                        self.consume(TokenKind::Colon)?;
+                        let value = self.parse_expression(0)?;
+                        pairs.push((key, value));
+                    }
+                    self.consume(TokenKind::RBrace)?;
+                    Ok(Expr::Dict(pairs))
+                } else {
+                    let mut elements = vec![first];
+                    while self.check(&TokenKind::Comma) {
+                        self.advance()?;
+                        if self.check(&TokenKind::RBrace) {
+                            break;
+                        }
+                        elements.push(self.parse_expression(0)?);
+                    }
+                    self.consume(TokenKind::RBrace)?;
+                    Ok(Expr::Set(elements))
                 }
-                self.consume(TokenKind::RBrace)?;
-                Ok(Expr::Dict(pairs))
             }
             TokenKind::Lambda => {
                 self.advance()?;

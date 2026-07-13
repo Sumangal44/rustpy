@@ -63,6 +63,7 @@ pub enum Expr {
         target: Box<Expr>,
         value: Box<Expr>,
     },
+    Set(Vec<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

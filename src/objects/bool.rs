@@ -108,6 +108,10 @@ impl PyObject for PyBool {
         }
     }
 
+    fn hash(&self) -> Result<i64, String> {
+        Ok(if self.value { 1 } else { 0 })
+    }
+
     fn ge(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(b) = other.as_any().downcast_ref::<PyBool>() {
             Some(Rc::new(PyBool::new(self.value >= b.value)))

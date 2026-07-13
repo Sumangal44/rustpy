@@ -247,6 +247,10 @@ impl PyObject for PyInt {
         }
     }
 
+    fn hash(&self) -> Result<i64, String> {
+        Ok(self.value)
+    }
+
     fn ge(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= i.value)))

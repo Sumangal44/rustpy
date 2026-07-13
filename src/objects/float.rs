@@ -173,6 +173,10 @@ impl PyObject for PyFloat {
         }
     }
 
+    fn hash(&self) -> Result<i64, String> {
+        Ok(self.value.to_bits() as i64)
+    }
+
     fn ge(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= f.value)))

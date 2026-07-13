@@ -1129,4 +1129,150 @@ match x:
         let env = execute_source("g = (x*2 for x in [1, 2, 3])\nresult = list(g)\n");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "[2, 4, 6]");
     }
+
+    #[test]
+    fn test_set_create() {
+        let env = execute_source("s = {1, 2, 3}\n");
+        let s = env.borrow().get("s").unwrap();
+        assert_eq!(s.get_type(), "set");
+        assert_eq!(s.repr(), "{1, 2, 3}");
+    }
+
+    #[test]
+    fn test_set_len() {
+        let env = execute_source("s = {1, 2, 3}\nresult = len(s)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "3");
+    }
+
+    #[test]
+    fn test_set_contains() {
+        let env = execute_source("s = {1, 2, 3}\nr1 = 2 in s\nr2 = 5 in s\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_set_union() {
+        let env = execute_source("a = {1, 2}\nb = {2, 3}\nresult = a | b\n");
+        let result = env.borrow().get("result").unwrap();
+        assert_eq!(result.get_type(), "set");
+        assert!(result.repr() == "{1, 2, 3}" || result.repr() == "{2, 1, 3}" || result.repr() == "{2, 3, 1}");
+    }
+
+    #[test]
+    fn test_set_intersection() {
+        let env = execute_source("a = {1, 2, 3}\nb = {2, 3, 4}\nresult = a & b\n");
+        let result = env.borrow().get("result").unwrap();
+        assert_eq!(result.get_type(), "set");
+        assert!(result.repr() == "{2, 3}" || result.repr() == "{3, 2}");
+    }
+
+    #[test]
+    fn test_set_difference() {
+        let env = execute_source("a = {1, 2, 3}\nb = {2, 3}\nresult = a - b\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "{1}");
+    }
+
+    #[test]
+    fn test_set_symmetric_difference() {
+        let env = execute_source("a = {1, 2}\nb = {2, 3}\nresult = a ^ b\n");
+        assert_eq!(env.borrow().get("result").unwrap().get_type(), "set");
+    }
+
+    #[test]
+    fn test_set_add_remove() {
+        let env = execute_source("s = {1, 2}\ns.add(3)\ns.remove(1)\n");
+        assert_eq!(env.borrow().get("s").unwrap().repr(), "{2, 3}");
+    }
+
+    #[test]
+    fn test_set_discard() {
+        let env = execute_source("s = {1, 2}\ns.discard(1)\ns.discard(99)\n");
+        assert_eq!(env.borrow().get("s").unwrap().repr(), "{2}");
+    }
+
+    #[test]
+    fn test_set_isdisjoint() {
+        let env = execute_source("a = {1, 2}\nb = {3, 4}\nc = {2, 3}\nr1 = a.isdisjoint(b)\nr2 = a.isdisjoint(c)\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_set_issubset() {
+        let env = execute_source("a = {1, 2}\nb = {1, 2, 3}\nc = {1, 3}\nr1 = a.issubset(b)\nr2 = a.issubset(c)\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_set_issuperset() {
+        let env = execute_source("a = {1, 2, 3}\nb = {1, 2}\nc = {1, 2, 4}\nr1 = a.issuperset(b)\nr2 = a.issuperset(c)\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_set_subset_operators() {
+        let env = execute_source("a = {1, 2}\nb = {1, 2, 3}\nr1 = a <= b\nr2 = a < b\nr3 = b > a\nr4 = b >= a\nr5 = a == a\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r3").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r4").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r5").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_set_builtin() {
+        let env = execute_source("s = set([1, 2, 2, 3])\n");
+        assert_eq!(env.borrow().get("s").unwrap().repr(), "{1, 2, 3}");
+    }
+
+    #[test]
+    fn test_frozenset_builtin() {
+        let env = execute_source("fs = frozenset([1, 2, 3])\n");
+        let fs = env.borrow().get("fs").unwrap();
+        assert_eq!(fs.get_type(), "frozenset");
+    }
+
+    #[test]
+    fn test_frozenset_operations() {
+        let env = execute_source("
+a = frozenset([1, 2])
+b = frozenset([2, 3])
+r1 = a | b
+r2 = a & b
+r3 = a - b
+r4 = a ^ b
+");
+        assert_eq!(env.borrow().get("r1").unwrap().get_type(), "frozenset");
+        assert_eq!(env.borrow().get("r2").unwrap().get_type(), "frozenset");
+        assert_eq!(env.borrow().get("r3").unwrap().get_type(), "frozenset");
+        assert_eq!(env.borrow().get("r4").unwrap().get_type(), "frozenset");
+    }
+
+    #[test]
+    fn test_set_pop() {
+        let env = execute_source("s = {42}\nresult = s.pop()\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_set_clear() {
+        let env = execute_source("s = {1, 2, 3}\ns.clear()\nresult = len(s)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "0");
+    }
+
+    #[test]
+    fn test_set_copy() {
+        let env = execute_source("s = {1, 2, 3}\nc = s.copy()\ns.add(4)\nr1 = len(s)\nr2 = len(c)\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "4");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "3");
+    }
+
+    #[test]
+    fn test_set_update() {
+        let env = execute_source("a = {1, 2}\na.update({2, 3, 4})\nresult = len(a)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "4");
+    }
 }

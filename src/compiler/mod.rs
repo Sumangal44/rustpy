@@ -736,6 +736,15 @@ impl Compiler {
                 self.emit(Opcode::BuildSlice);
                 self.emit(Opcode::BinarySubscript);
             }
+            Expr::Set(elements) => {
+                let set_name = self.get_or_add_name("set");
+                self.emit(Opcode::LoadName(set_name));
+                for elem in elements {
+                    self.compile_expr(elem)?;
+                }
+                self.emit(Opcode::BuildList(elements.len()));
+                self.emit(Opcode::CallFunction(1));
+            }
             Expr::Attribute { value, attr } => {
                 self.compile_expr(value)?;
                 self.emit(Opcode::LoadAttr(attr.clone()));

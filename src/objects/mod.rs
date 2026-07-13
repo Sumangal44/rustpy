@@ -163,6 +163,7 @@ pub mod native_function;
 pub mod none;
 pub mod property;
 pub mod range;
+pub mod set;
 pub mod slice;
 pub mod staticmethod;
 pub mod string;
