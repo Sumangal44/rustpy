@@ -2,11 +2,9 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::rc::Rc;
 
-// The base trait that all Python objects must implement
 pub trait PyObject: Debug + Any {
     fn get_type(&self) -> &'static str;
 
-    // Default implementations for standard magic methods
     fn as_any(&self) -> &dyn Any;
 
     fn repr(&self) -> String {
@@ -21,7 +19,6 @@ pub trait PyObject: Debug + Any {
         true
     }
 
-    // Mathematical operations (default to NotImplemented error behavior via None)
     fn add(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         None
     }
@@ -33,4 +30,8 @@ pub trait PyObject: Debug + Any {
     }
 }
 
+pub mod bool;
+pub mod function;
 pub mod int;
+pub mod none;
+pub mod string;

@@ -4,7 +4,7 @@ pub mod opcodes;
 use crate::ast::{BinOpKind, Expr, Module, Stmt, UnaryOpKind};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
-use crate::objects::{PyObject, int::PyInt};
+use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
 use std::rc::Rc;
 
 pub struct Compiler {
@@ -12,9 +12,9 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         Self {
-            code: CodeObject::new(),
+            code: CodeObject::new(name),
         }
     }
 
@@ -23,9 +23,9 @@ impl Compiler {
             self.compile_stmt(stmt)?;
         }
 
-        // Modules implicitly return None if they reach the end
-        // But for now, we'll just emit a ReturnValue for safety
-        self.code.instructions.push(Opcode::ReturnValue);
+        let idx = self.add_constant(Rc::new(PyNone::new()));
+        self.emit(Opcode::LoadConst(idx));
+        self.emit(Opcode::ReturnValue);
 
         Ok(self.code)
     }
@@ -55,8 +55,6 @@ impl Compiler {
             Stmt::Assign { targets, value } => {
                 self.compile_expr(value)?;
 
-                // For multiple targets (a = b = 1), we would need to DUP the top of the stack.
-                // For simplicity right now, we assume 1 target.
                 if targets.len() != 1 {
                     return Err("Multiple assignment targets not yet supported".to_string());
                 }
@@ -70,21 +68,18 @@ impl Compiler {
             }
             Stmt::ExprStmt { value } => {
                 self.compile_expr(value)?;
-                self.emit(Opcode::PopTop); // Discard the result of the expression
+                self.emit(Opcode::PopTop);
             }
             Stmt::If { test, body, orelse } => {
                 self.compile_expr(test)?;
-
-                let jump_if_false_idx = self.emit(Opcode::PopJumpIfFalse(0)); // Placeholder
+                let jump_if_false_idx = self.emit(Opcode::PopJumpIfFalse(0));
 
                 for s in body {
                     self.compile_stmt(s)?;
                 }
 
                 if !orelse.is_empty() {
-                    let jump_forward_idx = self.emit(Opcode::JumpAbsolute(0)); // Placeholder
-
-                    // Backpatch jump_if_false to jump past the if block to the else block
+                    let jump_forward_idx = self.emit(Opcode::JumpAbsolute(0));
                     self.code.instructions[jump_if_false_idx] =
                         Opcode::PopJumpIfFalse(self.code.instructions.len());
 
@@ -92,11 +87,9 @@ impl Compiler {
                         self.compile_stmt(s)?;
                     }
 
-                    // Backpatch jump_forward to jump past the else block
                     self.code.instructions[jump_forward_idx] =
                         Opcode::JumpAbsolute(self.code.instructions.len());
                 } else {
-                    // Backpatch jump_if_false to jump past the if block
                     self.code.instructions[jump_if_false_idx] =
                         Opcode::PopJumpIfFalse(self.code.instructions.len());
                 }
@@ -105,36 +98,51 @@ impl Compiler {
                 let loop_start = self.code.instructions.len();
 
                 self.compile_expr(test)?;
-                let jump_if_false_idx = self.emit(Opcode::PopJumpIfFalse(0)); // Placeholder
+                let jump_if_false_idx = self.emit(Opcode::PopJumpIfFalse(0));
 
                 for s in body {
                     self.compile_stmt(s)?;
                 }
 
                 self.emit(Opcode::JumpAbsolute(loop_start));
-
-                // Backpatch exit jump
                 self.code.instructions[jump_if_false_idx] =
                     Opcode::PopJumpIfFalse(self.code.instructions.len());
             }
-            Stmt::Pass => {
-                // Do nothing
-            }
+            Stmt::Pass => {}
             Stmt::Return { value } => {
                 if let Some(expr) = value {
                     self.compile_expr(expr)?;
                 } else {
-                    // If no value, we should load None, but we lack a PyNone type right now.
-                    // For now, load a dummy int or just emit ReturnValue assuming it handles empty stack.
-                    // We'll fix this when PyNone is implemented.
-                    // Temporary hack: load a 0.
-                    let idx = self.add_constant(Rc::new(PyInt::new(0)));
+                    let idx = self.add_constant(Rc::new(PyNone::new()));
                     self.emit(Opcode::LoadConst(idx));
                 }
                 self.emit(Opcode::ReturnValue);
             }
-            Stmt::FunctionDef { .. } => {
-                return Err("Function compilation not yet supported in this phase".to_string());
+            Stmt::FunctionDef { name, params, body } => {
+                let mut child_compiler = Compiler::new(name.clone());
+                // Add parameter names to the child code object's names list implicitly
+                // The VM will bind arguments to these names when creating the frame
+                for param in params {
+                    child_compiler.get_or_add_name(param);
+                }
+
+                for s in body {
+                    child_compiler.compile_stmt(s)?;
+                }
+
+                // Ensure the function returns None if it doesn't have an explicit return
+                let none_idx = child_compiler.add_constant(Rc::new(PyNone::new()));
+                child_compiler.emit(Opcode::LoadConst(none_idx));
+                child_compiler.emit(Opcode::ReturnValue);
+
+                let code_obj = Rc::new(child_compiler.code);
+                let code_idx = self.add_constant(code_obj);
+
+                self.emit(Opcode::LoadConst(code_idx));
+                self.emit(Opcode::MakeFunction);
+
+                let name_idx = self.get_or_add_name(name);
+                self.emit(Opcode::StoreName(name_idx));
             }
         }
         Ok(())
@@ -143,8 +151,22 @@ impl Compiler {
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), String> {
         match expr {
             Expr::IntLiteral(val) => {
-                let obj = Rc::new(PyInt::new(*val));
-                let idx = self.add_constant(obj);
+                let idx = self.add_constant(Rc::new(PyInt::new(*val)));
+                self.emit(Opcode::LoadConst(idx));
+            }
+            Expr::FloatLiteral(_) => {
+                return Err("Float literals not yet implemented in compiler".to_string());
+            }
+            Expr::StringLiteral(val) => {
+                let idx = self.add_constant(Rc::new(PyString::new(val.clone())));
+                self.emit(Opcode::LoadConst(idx));
+            }
+            Expr::BooleanLiteral(val) => {
+                let idx = self.add_constant(Rc::new(PyBool::new(*val)));
+                self.emit(Opcode::LoadConst(idx));
+            }
+            Expr::NoneLiteral => {
+                let idx = self.add_constant(Rc::new(PyNone::new()));
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::Identifier(name) => {
@@ -173,23 +195,19 @@ impl Compiler {
 
                 self.emit(opcode);
             }
-            Expr::BooleanLiteral(_) => {
-                return Err("Boolean literals not yet implemented in compiler".to_string());
-            }
-            Expr::StringLiteral(_) => {
-                return Err("String literals not yet implemented in compiler".to_string());
-            }
-            Expr::FloatLiteral(_) => {
-                return Err("Float literals not yet implemented in compiler".to_string());
-            }
-            Expr::NoneLiteral => {
-                return Err("None literal not yet implemented in compiler".to_string());
-            }
             Expr::UnaryOp { .. } => {
                 return Err("Unary ops not yet implemented in compiler".to_string());
             }
-            Expr::Call { .. } => {
-                return Err("Function calls not yet implemented in compiler".to_string());
+            Expr::Call { func, args } => {
+                // Compile function to call
+                self.compile_expr(func)?;
+
+                // Compile arguments
+                for arg in args {
+                    self.compile_expr(arg)?;
+                }
+
+                self.emit(Opcode::CallFunction(args.len()));
             }
         }
         Ok(())

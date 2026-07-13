@@ -1,17 +1,18 @@
 use crate::compiler::code::CodeObject;
 use crate::objects::PyObject;
 use crate::runtime::Environment;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Frame {
     pub code: CodeObject,
     pub ip: usize,
     pub stack: Vec<Rc<dyn PyObject>>,
-    pub env: Environment,
+    pub env: Rc<RefCell<Environment>>,
 }
 
 impl Frame {
-    pub fn new(code: CodeObject, env: Environment) -> Self {
+    pub fn new(code: CodeObject, env: Rc<RefCell<Environment>>) -> Self {
         Self {
             code,
             ip: 0,

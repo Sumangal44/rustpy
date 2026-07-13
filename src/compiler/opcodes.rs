@@ -32,6 +32,7 @@ pub enum Opcode {
     JumpAbsolute(usize),   // absolute target
 
     // Functions
+    MakeFunction,        // Pops a code object and creates a function object
     CallFunction(usize), // number of arguments
     ReturnValue,
 }

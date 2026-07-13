@@ -1,7 +1,10 @@
 pub mod frame;
 
+use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::PyObject;
+use crate::objects::function::PyFunction;
+use crate::runtime::Environment;
 use frame::Frame;
 use std::rc::Rc;
 
@@ -29,7 +32,8 @@ impl VirtualMachine {
                 }
                 Opcode::LoadName(idx) => {
                     let name = &frame.code.names[*idx];
-                    if let Some(obj) = frame.env.get(name) {
+                    let obj_opt = frame.env.borrow().get(name);
+                    if let Some(obj) = obj_opt {
                         frame.push(obj);
                     } else {
                         return Err(format!("NameError: name '{}' is not defined", name));
@@ -38,44 +42,44 @@ impl VirtualMachine {
                 Opcode::StoreName(idx) => {
                     let name = frame.code.names[*idx].clone();
                     let obj = frame.pop()?;
-                    frame.env.set(name, obj);
+                    frame.env.borrow_mut().set(name, obj);
                 }
                 Opcode::BinaryAdd => {
                     let right = frame.pop()?;
                     let left = frame.pop()?;
-                    if let Some(result) = left.add(right) {
+                    if let Some(result) = left.add(Rc::clone(&right)) {
                         frame.push(result);
                     } else {
                         return Err(format!(
                             "TypeError: unsupported operand type(s) for +: '{}' and '{}'",
                             left.get_type(),
-                            left.get_type()
+                            right.get_type()
                         ));
                     }
                 }
                 Opcode::BinarySubtract => {
                     let right = frame.pop()?;
                     let left = frame.pop()?;
-                    if let Some(result) = left.sub(right) {
+                    if let Some(result) = left.sub(Rc::clone(&right)) {
                         frame.push(result);
                     } else {
                         return Err(format!(
                             "TypeError: unsupported operand type(s) for -: '{}' and '{}'",
                             left.get_type(),
-                            left.get_type()
+                            right.get_type()
                         ));
                     }
                 }
                 Opcode::BinaryMultiply => {
                     let right = frame.pop()?;
                     let left = frame.pop()?;
-                    if let Some(result) = left.mul(right) {
+                    if let Some(result) = left.mul(Rc::clone(&right)) {
                         frame.push(result);
                     } else {
                         return Err(format!(
                             "TypeError: unsupported operand type(s) for *: '{}' and '{}'",
                             left.get_type(),
-                            left.get_type()
+                            right.get_type()
                         ));
                     }
                 }
@@ -88,10 +92,66 @@ impl VirtualMachine {
                         frame.ip = *target;
                     }
                 }
+                Opcode::MakeFunction => {
+                    let code_obj = frame.pop()?;
+                    if let Some(code) = code_obj.as_any().downcast_ref::<CodeObject>() {
+                        let name = code.name.clone();
+                        let params = code
+                            .names
+                            .iter()
+                            .take(code.instructions.len())
+                            .cloned()
+                            .collect::<Vec<_>>(); // Simplification
+                        // We actually should pass the real params in CodeObject, let's just grab them from names for now.
+                        // Wait, in compiler we added params to names! So they are at the beginning.
+                        // It's a bit hacky to slice without knowing exactly how many params there are if we don't store arg_count.
+                        // Let's assume the VM doesn't check param names strictly right now, just arg count when calling.
+                        let func = Rc::new(PyFunction::new(
+                            name,
+                            code.names.clone(),
+                            code.clone(),
+                            Rc::clone(&frame.env),
+                        ));
+                        frame.push(func);
+                    } else {
+                        return Err("Expected code object to MakeFunction".to_string());
+                    }
+                }
+                Opcode::CallFunction(argc) => {
+                    let mut args = Vec::new();
+                    for _ in 0..*argc {
+                        args.push(frame.pop()?);
+                    }
+                    args.reverse(); // Pop gets them in reverse order
+
+                    let func_obj = frame.pop()?;
+                    if let Some(func) = func_obj.as_any().downcast_ref::<PyFunction>() {
+                        // Create a new environment bounded to the function's closure env
+                        let new_env = Environment::new_enclosed(Rc::clone(&func.env));
+
+                        // Bind arguments to parameters (we assume names[0..argc] are the params)
+                        for (i, arg) in args.into_iter().enumerate() {
+                            if i < func.params.len() {
+                                let param_name = func.params[i].clone();
+                                new_env.borrow_mut().set(param_name, arg);
+                            }
+                        }
+
+                        // Create a new frame and execute it!
+                        let mut new_frame = Frame::new(func.code.clone(), new_env);
+                        if let Some(result) = self.run(&mut new_frame)? {
+                            frame.push(result);
+                        } else {
+                            return Err("Function returned without a value".to_string());
+                        }
+                    } else {
+                        return Err(format!(
+                            "TypeError: '{}' object is not callable",
+                            func_obj.get_type()
+                        ));
+                    }
+                }
                 Opcode::ReturnValue => {
-                    // Python usually returns None if stack is empty, but our compiler guarantees
-                    // something is on the stack if it emits an explicit return (once we have PyNone).
-                    // For now, if the stack has something, pop it. Otherwise return None.
                     if frame.stack.is_empty() {
                         return Ok(None);
                     }

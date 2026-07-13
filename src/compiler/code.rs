@@ -1,20 +1,37 @@
+use super::PyObject;
 use crate::compiler::opcodes::Opcode;
-use crate::objects::PyObject;
+use std::any::Any;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct CodeObject {
+    pub name: String,
     pub instructions: Vec<Opcode>,
     pub constants: Vec<Rc<dyn PyObject>>,
     pub names: Vec<String>,
 }
 
 impl CodeObject {
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         Self {
+            name,
             instructions: Vec::new(),
             constants: Vec::new(),
             names: Vec::new(),
         }
+    }
+}
+
+impl PyObject for CodeObject {
+    fn get_type(&self) -> &'static str {
+        "code"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn repr(&self) -> String {
+        format!("<code object {} at {:p}>", self.name, self)
     }
 }

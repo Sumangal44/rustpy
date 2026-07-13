@@ -1,25 +1,26 @@
 use crate::objects::PyObject;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 pub struct Environment {
     variables: HashMap<String, Rc<dyn PyObject>>,
-    parent: Option<Box<Environment>>,
+    parent: Option<Rc<RefCell<Environment>>>,
 }
 
 impl Environment {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
             variables: HashMap::new(),
             parent: None,
-        }
+        }))
     }
 
-    pub fn new_enclosed(parent: Environment) -> Self {
-        Self {
+    pub fn new_enclosed(parent: Rc<RefCell<Environment>>) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
             variables: HashMap::new(),
-            parent: Some(Box::new(parent)),
-        }
+            parent: Some(parent),
+        }))
     }
 
     pub fn set(&mut self, name: String, value: Rc<dyn PyObject>) {
@@ -30,7 +31,7 @@ impl Environment {
         if let Some(val) = self.variables.get(name) {
             Some(Rc::clone(val))
         } else if let Some(parent) = &self.parent {
-            parent.get(name)
+            parent.borrow().get(name)
         } else {
             None
         }
