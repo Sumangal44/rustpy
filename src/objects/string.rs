@@ -46,6 +46,22 @@ impl PyObject for PyString {
         }
     }
 
+    fn mul(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(n) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+            let count = n.as_i64().unwrap_or(0);
+            if count <= 0 {
+                return Some(Rc::new(PyString::new(String::new())));
+            }
+            let mut result = String::new();
+            for _ in 0..count {
+                result.push_str(&self.value);
+            }
+            Some(Rc::new(PyString::new(result)))
+        } else {
+            None
+        }
+    }
+
     fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(s) = other.as_any().downcast_ref::<PyString>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value == s.value)))
@@ -421,6 +437,384 @@ impl PyObject for PyString {
                 Ok(Rc::new(PyNativeFunction::new_pos_only("swapcase".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: swapcase() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(PyString::new(val.chars().map(|c| if c.is_uppercase() { c.to_lowercase().to_string() } else { c.to_uppercase().to_string() }).collect::<String>())))
+                })))
+            }
+            "casefold" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("casefold".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: casefold() takes no arguments (1 given)".to_string()); }
+                    Ok(Rc::new(PyString::new(val.to_lowercase())))
+                })))
+            }
+            "encode" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("encode".to_string(), move |args| {
+                    if args.len() > 2 { return Err("TypeError: encode() takes at most 2 arguments ({} given)".to_string()); }
+                    let encoding = if args.is_empty() { "utf-8".to_string() } else { args[0].str() };
+                    if encoding != "utf-8" && encoding != "utf8" {
+                        return Err(format!("LookupError: unknown encoding: '{}'", encoding));
+                    }
+                    Ok(Rc::new(crate::objects::bytes::PyBytes::new(val.as_bytes().to_vec())))
+                })))
+            }
+            "expandtabs" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("expandtabs".to_string(), move |args| {
+                    if args.len() > 1 { return Err("TypeError: expandtabs() takes at most 1 argument ({} given)".to_string()); }
+                    let tabsize = if args.is_empty() {
+                        8usize
+                    } else {
+                        match args[0].str().parse::<usize>() {
+                            Ok(t) => t,
+                            Err(_) => return Err("TypeError: integer argument expected".to_string()),
+                        }
+                    };
+                    let mut result = String::new();
+                    let mut col = 0usize;
+                    for c in val.chars() {
+                        if c == '\t' {
+                            let spaces = tabsize - (col % tabsize);
+                            result.push_str(&" ".repeat(spaces));
+                            col += spaces;
+                        } else {
+                            result.push(c);
+                            col += 1;
+                            if c == '\n' || c == '\r' {
+                                col = 0;
+                            }
+                        }
+                    }
+                    Ok(Rc::new(PyString::new(result)))
+                })))
+            }
+            "isdecimal" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isdecimal".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: isdecimal() takes no arguments (1 given)".to_string()); }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(!val.is_empty() && val.chars().all(|c| c.is_ascii_digit()))))
+                })))
+            }
+            "isidentifier" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isidentifier".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: isidentifier() takes no arguments (1 given)".to_string()); }
+                    if val.is_empty() { return Ok(Rc::new(crate::objects::bool::PyBool::new(false))); }
+                    let mut chars = val.chars();
+                    let first = chars.next().unwrap();
+                    let valid = (first == '_' || first.is_alphabetic()) && chars.all(|c| c == '_' || c.is_alphanumeric());
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(valid)))
+                })))
+            }
+            "islower" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("islower".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: islower() takes no arguments (1 given)".to_string()); }
+                    let mut has_lower = false;
+                    for c in val.chars() {
+                        if c.is_uppercase() { return Ok(Rc::new(crate::objects::bool::PyBool::new(false))); }
+                        if c.is_lowercase() { has_lower = true; }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(has_lower)))
+                })))
+            }
+            "isnumeric" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isnumeric".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: isnumeric() takes no arguments (1 given)".to_string()); }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(!val.is_empty() && val.chars().all(|c| c.is_numeric()))))
+                })))
+            }
+            "isprintable" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isprintable".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: isprintable() takes no arguments (1 given)".to_string()); }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(!val.is_empty() && val.chars().all(|c| c.is_ascii_graphic() || c == ' '))))
+                })))
+            }
+            "istitle" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("istitle".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: istitle() takes no arguments (1 given)".to_string()); }
+                    if val.is_empty() { return Ok(Rc::new(crate::objects::bool::PyBool::new(false))); }
+                    let mut cased = false;
+                    let mut prev_cased = false;
+                    for c in val.chars() {
+                        if c.is_uppercase() {
+                            if prev_cased { return Ok(Rc::new(crate::objects::bool::PyBool::new(false))); }
+                            cased = true;
+                            prev_cased = true;
+                        } else if c.is_lowercase() {
+                            if !prev_cased { return Ok(Rc::new(crate::objects::bool::PyBool::new(false))); }
+                            cased = true;
+                            prev_cased = true;
+                        } else {
+                            prev_cased = false;
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(cased)))
+                })))
+            }
+            "isupper" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isupper".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: isupper() takes no arguments (1 given)".to_string()); }
+                    let mut has_upper = false;
+                    for c in val.chars() {
+                        if c.is_lowercase() { return Ok(Rc::new(crate::objects::bool::PyBool::new(false))); }
+                        if c.is_uppercase() { has_upper = true; }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(has_upper)))
+                })))
+            }
+            "partition" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("partition".to_string(), move |args| {
+                    if args.len() != 1 { return Err("TypeError: partition() takes exactly one argument ({} given)".to_string()); }
+                    let sep = args[0].str();
+                    if sep.is_empty() { return Err("ValueError: empty separator".to_string()); }
+                    match val.find(&sep) {
+                        Some(pos) => {
+                            let sep_str = sep.clone();
+                            let head = Rc::new(PyString::new(val[..pos].to_string())) as Rc<dyn PyObject>;
+                            let sep_obj = Rc::new(PyString::new(sep)) as Rc<dyn PyObject>;
+                            let tail = Rc::new(PyString::new(val[pos + sep_str.len()..].to_string())) as Rc<dyn PyObject>;
+                            Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![head, sep_obj, tail])))
+                        }
+                        None => {
+                            let empty = Rc::new(PyString::new(String::new())) as Rc<dyn PyObject>;
+                            let head = Rc::new(PyString::new(val.clone())) as Rc<dyn PyObject>;
+                            Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![head, empty.clone(), empty])))
+                        }
+                    }
+                })))
+            }
+            "removeprefix" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("removeprefix".to_string(), move |args| {
+                    if args.len() != 1 { return Err("TypeError: removeprefix() takes exactly one argument ({} given)".to_string()); }
+                    let prefix = args[0].str();
+                    if val.starts_with(&prefix) {
+                        Ok(Rc::new(PyString::new(val[prefix.len()..].to_string())))
+                    } else {
+                        Ok(Rc::new(PyString::new(val.clone())))
+                    }
+                })))
+            }
+            "removesuffix" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("removesuffix".to_string(), move |args| {
+                    if args.len() != 1 { return Err("TypeError: removesuffix() takes exactly one argument ({} given)".to_string()); }
+                    let suffix = args[0].str();
+                    if val.ends_with(&suffix) {
+                        Ok(Rc::new(PyString::new(val[..val.len() - suffix.len()].to_string())))
+                    } else {
+                        Ok(Rc::new(PyString::new(val.clone())))
+                    }
+                })))
+            }
+            "rfind" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("rfind".to_string(), move |args| {
+                    if args.len() < 1 || args.len() > 3 { return Err("TypeError: rfind() takes 1-3 arguments ({} given)".to_string()); }
+                    let sub = args[0].str();
+                    let len = val.len();
+                    let start = if args.len() > 1 {
+                        let s = match args[1].str().parse::<i64>() {
+                            Ok(i) => i,
+                            Err(_) => return Err("TypeError: integer argument expected".to_string()),
+                        };
+                        if s < 0 { (len as i64 + s).max(0) as usize } else { (s as usize).min(len) }
+                    } else { 0 };
+                    let end = if args.len() > 2 {
+                        let e = match args[2].str().parse::<i64>() {
+                            Ok(i) => i,
+                            Err(_) => return Err("TypeError: integer argument expected".to_string()),
+                        };
+                        if e < 0 { (len as i64 + e).max(0) as usize } else { (e as usize).min(len) }
+                    } else { len };
+                    let slice = &val[start..end];
+                    if sub.is_empty() { return Ok(Rc::new(crate::objects::int::PyInt::from_i64((start + slice.len()) as i64))); }
+                    match slice.rfind(&sub) {
+                        Some(pos) => Ok(Rc::new(crate::objects::int::PyInt::from_i64((start + pos) as i64))),
+                        None => Ok(Rc::new(crate::objects::int::PyInt::from_i64(-1))),
+                    }
+                })))
+            }
+            "rindex" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("rindex".to_string(), move |args| {
+                    if args.len() < 1 || args.len() > 3 { return Err("TypeError: rindex() takes 1-3 arguments ({} given)".to_string()); }
+                    let sub = args[0].str();
+                    let len = val.len();
+                    let start = if args.len() > 1 {
+                        let s = match args[1].str().parse::<i64>() {
+                            Ok(i) => i,
+                            Err(_) => return Err("TypeError: integer argument expected".to_string()),
+                        };
+                        if s < 0 { (len as i64 + s).max(0) as usize } else { (s as usize).min(len) }
+                    } else { 0 };
+                    let end = if args.len() > 2 {
+                        let e = match args[2].str().parse::<i64>() {
+                            Ok(i) => i,
+                            Err(_) => return Err("TypeError: integer argument expected".to_string()),
+                        };
+                        if e < 0 { (len as i64 + e).max(0) as usize } else { (e as usize).min(len) }
+                    } else { len };
+                    let slice = &val[start..end];
+                    if sub.is_empty() { return Ok(Rc::new(crate::objects::int::PyInt::from_i64((start + slice.len()) as i64))); }
+                    match slice.rfind(&sub) {
+                        Some(pos) => Ok(Rc::new(crate::objects::int::PyInt::from_i64((start + pos) as i64))),
+                        None => Err("ValueError: substring not found".to_string()),
+                    }
+                })))
+            }
+            "rpartition" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("rpartition".to_string(), move |args| {
+                    if args.len() != 1 { return Err("TypeError: rpartition() takes exactly one argument ({} given)".to_string()); }
+                    let sep = args[0].str();
+                    if sep.is_empty() { return Err("ValueError: empty separator".to_string()); }
+                    match val.rfind(&sep) {
+                        Some(pos) => {
+                            let sep_str = sep.clone();
+                            let head = Rc::new(PyString::new(val[..pos].to_string())) as Rc<dyn PyObject>;
+                            let sep_obj = Rc::new(PyString::new(sep)) as Rc<dyn PyObject>;
+                            let tail = Rc::new(PyString::new(val[pos + sep_str.len()..].to_string())) as Rc<dyn PyObject>;
+                            Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![head, sep_obj, tail])))
+                        }
+                        None => {
+                            let empty = Rc::new(PyString::new(String::new())) as Rc<dyn PyObject>;
+                            let tail = Rc::new(PyString::new(val.clone())) as Rc<dyn PyObject>;
+                            Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![empty.clone(), empty, tail])))
+                        }
+                    }
+                })))
+            }
+            "rsplit" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("rsplit".to_string(), move |args| {
+                    if args.len() > 2 { return Err("TypeError: rsplit() takes at most 2 arguments ({} given)".to_string()); }
+                    let sep = if args.is_empty() { None } else { Some(args[0].str()) };
+                    let maxsplit = if args.len() > 1 {
+                        match args[1].str().parse::<i64>() {
+                            Ok(i) => i,
+                            Err(_) => return Err("TypeError: integer argument expected".to_string()),
+                        }
+                    } else { -1 };
+                    let parts: Vec<Rc<dyn PyObject>> = match sep {
+                        None => {
+                            let mut result: Vec<String> = Vec::new();
+                            let limit = if maxsplit < 0 { usize::MAX } else { maxsplit as usize };
+                            let mut i = val.len();
+                            while i > 0 {
+                                while i > 0 && val.as_bytes()[i - 1].is_ascii_whitespace() { i -= 1; }
+                                if i == 0 { break; }
+                                let end = i;
+                                while i > 0 && !val.as_bytes()[i - 1].is_ascii_whitespace() { i -= 1; }
+                                result.push(val[i..end].to_string());
+                                if result.len() >= limit { break; }
+                            }
+                            result.reverse();
+                            if result.is_empty() && !val.is_empty() { }
+                            if result.is_empty() && val.is_empty() { result.push(String::new()); }
+                            result.into_iter().map(|s| Rc::new(PyString::new(s)) as Rc<dyn PyObject>).collect()
+                        }
+                        Some(ref sep_str) => {
+                            if sep_str.is_empty() { return Err("ValueError: empty separator".to_string()); }
+                            let mut result: Vec<String> = Vec::new();
+                            let mut remaining = val.clone();
+                            let limit = if maxsplit < 0 { usize::MAX } else { maxsplit as usize };
+                            for _ in 0..limit {
+                                match remaining.rfind(sep_str) {
+                                    Some(pos) => {
+                                        result.push(remaining[pos + sep_str.len()..].to_string());
+                                        remaining = remaining[..pos].to_string();
+                                    }
+                                    None => break,
+                                }
+                            }
+                            result.push(remaining);
+                            result.reverse();
+                            result.into_iter().map(|s| Rc::new(PyString::new(s)) as Rc<dyn PyObject>).collect()
+                        }
+                    };
+                    Ok(Rc::new(crate::objects::list::PyList::new(parts)))
+                })))
+            }
+            "splitlines" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("splitlines".to_string(), move |args| {
+                    if args.len() > 1 { return Err("TypeError: splitlines() takes at most 1 argument ({} given)".to_string()); }
+                    let keepends = if args.is_empty() { false } else { args[0].is_truthy() };
+                    let mut result: Vec<String> = Vec::new();
+                    let mut i = 0;
+                    let chars: Vec<char> = val.chars().collect();
+                    while i < chars.len() {
+                        let start = i;
+                        while i < chars.len() && chars[i] != '\n' && chars[i] != '\r' {
+                            i += 1;
+                        }
+                        if i >= chars.len() {
+                            result.push(chars[start..].iter().collect());
+                            break;
+                        }
+                        if chars[i] == '\r' && i + 1 < chars.len() && chars[i + 1] == '\n' {
+                            if keepends {
+                                result.push(chars[start..i + 2].iter().collect());
+                            } else {
+                                result.push(chars[start..i].iter().collect());
+                            }
+                            i += 2;
+                        } else {
+                            if keepends {
+                                result.push(chars[start..i + 1].iter().collect());
+                            } else {
+                                result.push(chars[start..i].iter().collect());
+                            }
+                            i += 1;
+                        }
+                    }
+                    let list_items: Vec<Rc<dyn PyObject>> = result.into_iter()
+                        .map(|s| Rc::new(PyString::new(s)) as Rc<dyn PyObject>)
+                        .collect();
+                    Ok(Rc::new(crate::objects::list::PyList::new(list_items)))
+                })))
+            }
+            "translate" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("translate".to_string(), move |args| {
+                    if args.len() != 1 { return Err("TypeError: translate() takes exactly one argument ({} given)".to_string()); }
+                    let table = &args[0];
+                    let mut result = String::new();
+                    if let Some(d) = table.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                        for c in val.chars() {
+                            let key = Rc::new(crate::objects::int::PyInt::from_i64(c as i64)) as Rc<dyn PyObject>;
+                            let found = match d.get_item(key) {
+                                Ok(val_obj) => {
+                                    if val_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
+                                        true
+                                    } else if let Some(int_obj) = val_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                                        if let Some(code) = int_obj.as_i64() {
+                                            if let Some(ch) = char::from_u32(code as u32) {
+                                                result.push(ch);
+                                            }
+                                        }
+                                        true
+                                    } else {
+                                        result.push_str(&val_obj.str());
+                                        true
+                                    }
+                                }
+                                Err(_) => false,
+                            };
+                            if !found {
+                                result.push(c);
+                            }
+                        }
+                    } else {
+                        result = val.clone();
+                    }
+                    Ok(Rc::new(PyString::new(result)))
                 })))
             }
             "__format__" => {

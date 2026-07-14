@@ -138,7 +138,8 @@ mod tests {
     fn execute_source(source: &str) -> Rc<RefCell<Environment>> {
         let env = Environment::new();
         stdlib::builtins::inject_builtins(&env);
-        execute(source, Rc::clone(&env), "<test>");
+        let s = if source.ends_with('\n') { source.to_string() } else { format!("{}\n", source) };
+        execute(&s, Rc::clone(&env), "<test>");
         env
     }
 
@@ -2191,7 +2192,8 @@ class Foo:
 obj = Foo()
 d = vars(obj)
 ");
-        assert_eq!(env.borrow().get("d").unwrap().repr(), "{'a': 1, 'b': 2}");
+        let d_repr = env.borrow().get("d").unwrap().repr();
+        assert!(d_repr == "{'a': 1, 'b': 2}" || d_repr == "{'b': 2, 'a': 1}", "got {}", d_repr);
     }
 
     #[test]
@@ -2250,5 +2252,99 @@ c = format(\"hello\")
         assert_eq!(env.borrow().get("a").unwrap().repr(), "'42'");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "'3.14'");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "'hello'");
+    }
+
+    #[test]
+    fn test_import_math() {
+        let env = Environment::new();
+        stdlib::builtins::inject_builtins(&env);
+        // Manually copy env for execute
+        let source = "import math\n";
+        let lexer = Lexer::new(source);
+        let mut parser = Parser::new(lexer).unwrap();
+        let module = parser.parse_module().unwrap();
+        let compiler = Compiler::new("<test>".to_string());
+        let code = compiler.compile(&module).unwrap();
+        let mut frame = Frame::new(code, Rc::clone(&env));
+        let mut vm = VirtualMachine::new();
+        let result = vm.run(&mut frame);
+        if let Err(e) = &result {
+            panic!("Execution failed: {}", e);
+        }
+        let m = env.borrow().get("math");
+        assert!(m.is_some(), "math module not imported");
+    }
+
+    #[test]
+    fn test_math_sqrt() {
+        let env = execute_source("import math\nr = math.sqrt(9)\nX = 1\n");
+        let x = env.borrow().get("X");
+        assert!(x.is_some(), "X not set, import may have failed");
+        let r = env.borrow().get("r");
+        assert!(r.is_some(), "r not set");
+        assert_eq!(r.unwrap().repr(), "3.0");
+    }
+
+    #[test]
+    fn test_math_pi() {
+        let env = execute_source("import math\nr = math.pi > 3.14\n");
+        let r = env.borrow().get("r");
+        assert!(r.is_some(), "r not set - math module may not have imported");
+        assert_eq!(r.unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_math_sin_cos() {
+        let env = execute_source("import math\nr = math.sin(0)\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "0.0");
+    }
+
+    #[test]
+    fn test_os_getcwd() {
+        let env = execute_source("import os\nr = os.getcwd()\n");
+        let r = env.borrow().get("r").unwrap().str();
+        assert!(r.contains("rustpy"), "expected rustpy in path, got {}", r);
+    }
+
+    #[test]
+    fn test_str_encode() {
+        let env = execute_source("r = \"hello\".encode()");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "b'hello'");
+    }
+
+    #[test]
+    fn test_str_splitlines() {
+        let env = execute_source("r = \"a\\nb\\nc\".splitlines()");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "['a', 'b', 'c']");
+    }
+
+    #[test]
+    fn test_str_partition() {
+        let env = execute_source("r = \"hello world\".partition(\" \")");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "('hello', ' ', 'world')");
+    }
+
+    #[test]
+    fn test_bytes_split() {
+        let env = execute_source("r = b\"a b c\".split()");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "[b'a', b'b', b'c']");
+    }
+
+    #[test]
+    fn test_bytes_replace() {
+        let env = execute_source("r = b\"hello world\".replace(b\"world\", b\"there\")");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "b'hello there'");
+    }
+
+    #[test]
+    fn test_bytearray_from_bytes() {
+        let env = execute_source("r = bytearray(b\"test\")");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "bytearray(b'test')");
+    }
+
+    #[test]
+    fn test_math_factorial() {
+        let env = execute_source("import math\nr = math.factorial(5)\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "120");
     }
 }

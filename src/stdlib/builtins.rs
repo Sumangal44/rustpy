@@ -1516,6 +1516,14 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     );
     import_system.register_native_module("asyncio", Rc::clone(&asyncio_module));
 
+    // Create math module
+    let math_module = crate::stdlib::math::create_math_module();
+    import_system.register_native_module("math", Rc::clone(&math_module));
+
+    // Create os module
+    let os_module = crate::stdlib::os::create_os_module();
+    import_system.register_native_module("os", Rc::clone(&os_module));
+
     // builtins module
     let builtins_module = Rc::new(PyModule::new("builtins".to_string()));
     {
