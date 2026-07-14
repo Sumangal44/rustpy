@@ -13,6 +13,7 @@ use crate::vm::VirtualMachine;
 use crate::vm::frame::Frame;
 use crate::stdlib::import::ImportSystem;
 use std::cell::RefCell;
+use std::io::Write;
 use std::rc::Rc;
 
 pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
@@ -1371,23 +1372,281 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         Rc::new(PyNativeFunction::new_pos_only(
             "__import__".to_string(),
             move |args| {
-                // __import__(name, globals=None, locals=None, fromlist=(), level=0)
                 if args.is_empty() {
-                    return Err(
-                        "TypeError: __import__() missing required argument: name".to_string()
-                    );
+                    return Err("TypeError: __import__() missing required argument: name".to_string());
                 }
-                let name = args[0]
-                    .as_any()
-                    .downcast_ref::<PyString>()
+                let name = args[0].as_any().downcast_ref::<PyString>()
                     .map(|s| s.value.clone())
-                    .ok_or_else(|| {
-                        "TypeError: __import__() argument 1 must be str".to_string()
-                    })?;
-
+                    .ok_or_else(|| "TypeError: __import__() argument 1 must be str".to_string())?;
                 let result = import_system_for_import.import_module(&name)?;
                 Ok(result)
             },
         )),
+    );
+
+    // float(x=0.0) -> float
+    env_mut2.set(
+        "float".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("float".to_string(), |args| {
+            let val = if args.is_empty() {
+                0.0
+            } else if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                use num_traits::ToPrimitive;
+                i.value.to_f64().unwrap_or(0.0)
+            } else if let Some(f) = args[0].as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                f.value
+            } else if let Some(s) = args[0].as_any().downcast_ref::<PyString>() {
+                s.value.parse::<f64>().map_err(|_| format!("ValueError: could not convert string to float: '{}'", s.value))?
+            } else {
+                return Err(format!("TypeError: float() argument must be a string or a number, not '{}'", args[0].get_type()));
+            };
+            Ok(Rc::new(crate::objects::float::PyFloat::new(val)) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // oct(x) -> str
+    env_mut2.set(
+        "oct".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("oct".to_string(), |args| {
+            if args.len() != 1 {
+                return Err("TypeError: oct() takes exactly one argument".to_string());
+            }
+            let val = if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                i.repr()
+            } else {
+                let i: i64 = args[0].str().parse().map_err(|_| format!("TypeError: oct() argument must be an int"))?;
+                format!("{}", i)
+            };
+            // Convert to oct - use the int's oct representation
+            let s = args[0].str();
+            let n: i64 = s.parse().unwrap_or(0);
+            Ok(Rc::new(PyString::new(format!("0o{:o}", n))) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // ascii(obj) -> str
+    env_mut2.set(
+        "ascii".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("ascii".to_string(), |args| {
+            if args.len() != 1 {
+                return Err("TypeError: ascii() takes exactly one argument".to_string());
+            }
+            let r = args[0].repr();
+            let mut ascii_out = String::new();
+            for c in r.chars() {
+                if c.is_ascii() {
+                    ascii_out.push(c);
+                } else {
+                    let code = c as u32;
+                    if code < 0x10000 {
+                        ascii_out.push_str(&format!("\\u{:04x}", code));
+                    } else {
+                        ascii_out.push_str(&format!("\\U{:08x}", code));
+                    }
+                }
+            }
+            Ok(Rc::new(PyString::new(ascii_out)) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // divmod(a, b) -> (a // b, a % b)
+    env_mut2.set(
+        "divmod".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("divmod".to_string(), |args| {
+            if args.len() != 2 {
+                return Err("TypeError: divmod() takes exactly 2 arguments".to_string());
+            }
+            let a = Rc::clone(&args[0]);
+            let b = Rc::clone(&args[1]);
+            let div = a.floordiv(b.clone()).ok_or_else(|| "TypeError: unsupported operand type(s) for divmod()".to_string())?;
+            let rem = a.modulo(b).ok_or_else(|| "TypeError: unsupported operand type(s) for divmod()".to_string())?;
+            Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![div, rem])) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // delattr(obj, name) -> None
+    env_mut2.set(
+        "delattr".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("delattr".to_string(), |args| {
+            if args.len() != 2 {
+                return Err("TypeError: delattr() takes exactly 2 arguments".to_string());
+            }
+            let name = if let Some(s) = args[1].as_any().downcast_ref::<PyString>() {
+                s.value.clone()
+            } else {
+                return Err("TypeError: delattr() argument 2 must be str".to_string());
+            };
+            args[0].set_attr(&name, Rc::new(PyNone::new()))?;
+            Ok(Rc::new(PyNone::new()))
+        })),
+    );
+
+    // dir(obj) -> list
+    env_mut2.set(
+        "dir".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("dir".to_string(), |args| {
+            let obj = if args.is_empty() {
+                return Err("TypeError: dir() expected at least 1 argument, got 0".to_string());
+            } else {
+                Rc::clone(&args[0])
+            };
+            let mut names = Vec::new();
+            // Try to list from __dict__
+            if let Ok(d) = obj.get_attr("__dict__") {
+                if let Some(dict) = d.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                    for bucket in dict.entries.borrow().values() {
+                        for (k, _) in bucket {
+                            names.push(Rc::clone(k));
+                        }
+                    }
+                }
+            }
+            // Sort names
+            names.sort_by(|a, b| a.str().cmp(&b.str()));
+            Ok(Rc::new(crate::objects::list::PyList::new(names)) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // vars(obj) -> dict
+    env_mut2.set(
+        "vars".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("vars".to_string(), |args| {
+            let obj = if args.is_empty() {
+                return Err("TypeError: vars() expected at least 1 argument, got 0".to_string());
+            } else {
+                Rc::clone(&args[0])
+            };
+            obj.get_attr("__dict__")
+        })),
+    );
+
+    // slice(stop) or slice(start, stop, step) -> slice object
+    env_mut2.set(
+        "slice".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("slice".to_string(), |args| {
+            let (start, stop, step): (Option<i64>, Option<i64>, Option<i64>) = match args.len() {
+                1 => {
+                    let stop = args[0].str().parse::<i64>().map_err(|_| "TypeError: slice indices must be integers".to_string())?;
+                    (None, Some(stop), None)
+                }
+                2 => {
+                    let start = args[0].str().parse::<i64>().map_err(|_| "TypeError: slice indices must be integers".to_string())?;
+                    let stop = args[1].str().parse::<i64>().map_err(|_| "TypeError: slice indices must be integers".to_string())?;
+                    (Some(start), Some(stop), None)
+                }
+                3 => {
+                    let start = args[0].str().parse::<i64>().map_err(|_| "TypeError: slice indices must be integers".to_string())?;
+                    let stop = args[1].str().parse::<i64>().map_err(|_| "TypeError: slice indices must be integers".to_string())?;
+                    let step = args[2].str().parse::<i64>().map_err(|_| "TypeError: slice indices must be integers".to_string())?;
+                    (Some(start), Some(stop), Some(step))
+                }
+                _ => return Err("TypeError: slice() takes at most 3 arguments".to_string()),
+            };
+            let s = crate::objects::slice::PySlice::new(start, stop, step);
+            Ok(Rc::new(s) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // input(prompt='') -> str
+    env_mut2.set(
+        "input".to_string(),
+        Rc::new(PyNativeFunction::new("input".to_string(), |args, kwargs| {
+            let prompt = if let Some(v) = kwargs.get("prompt") {
+                v.str()
+            } else if !args.is_empty() {
+                args[0].str()
+            } else {
+                String::new()
+            };
+            if !prompt.is_empty() {
+                print!("{}", prompt);
+                std::io::stdout().flush().ok();
+            }
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line).map_err(|e| format!("OSError: {}", e))?;
+            if line.ends_with('\n') {
+                line.pop();
+                if line.ends_with('\r') { line.pop(); }
+            }
+            Ok(Rc::new(PyString::new(line)) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // issubclass(cls, classinfo) -> bool
+    env_mut2.set(
+        "issubclass".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("issubclass".to_string(), |args| {
+            if args.len() != 2 {
+                return Err("TypeError: issubclass() takes exactly 2 arguments".to_string());
+            }
+            let cls = Rc::clone(&args[0]);
+            let classinfo = Rc::clone(&args[1]);
+            // Check if cls is a subclass of classinfo
+            let cls_name = cls.get_type();
+            let info_name = classinfo.get_type();
+            Ok(Rc::new(crate::objects::bool::PyBool::new(cls_name == info_name)) as Rc<dyn PyObject>)
+        })),
+    );
+
+    // format(value, format_spec='') -> str
+    env_mut2.set(
+        "format".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("format".to_string(), |args| {
+            if args.is_empty() {
+                return Err("TypeError: format() takes at least 1 argument".to_string());
+            }
+            let format_spec = if args.len() >= 2 { args[1].str() } else { String::new() };
+            if format_spec.is_empty() {
+                Ok(Rc::new(PyString::new(args[0].str())) as Rc<dyn PyObject>)
+            } else {
+                // Try __format__ method
+                if let Ok(fmt_fn) = args[0].get_attr("__format__") {
+                    let formatted = if let Some(native) = fmt_fn.as_any().downcast_ref::<PyNativeFunction>() {
+                        (native.func)(vec![Rc::new(PyString::new(format_spec))], std::collections::HashMap::new())?
+                    } else {
+                        return Err("TypeError: unsupported format string".to_string());
+                    };
+                    Ok(formatted)
+                } else {
+                    Err("TypeError: unsupported format string".to_string())
+                }
+            }
+        })),
+    );
+
+    // help(obj) -> prints help
+    env_mut2.set(
+        "help".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("help".to_string(), |args| {
+            if args.is_empty() {
+                return Err("TypeError: help() takes at least 1 argument".to_string());
+            }
+            let obj = &args[0];
+            let type_name = obj.get_type();
+            let mut doc = String::new();
+            if let Ok(d) = obj.get_attr("__doc__") {
+                let s = d.str();
+                if !s.is_empty() && s != "None" {
+                    doc = s;
+                }
+            }
+            let doc_str = if doc.is_empty() { String::new() } else { format!("\n    {}", doc) };
+            let help_text = format!("Help on {} object:\n\nclass {}\n |{}{}\n", type_name, type_name, doc_str, "\n\n");
+            print!("{}", help_text);
+            std::io::stdout().flush().ok();
+            Ok(Rc::new(PyNone::new()))
+        })),
+    );
+
+    // memoryview(obj) -> memoryview
+    env_mut2.set(
+        "memoryview".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("memoryview".to_string(), |args| {
+            if args.len() != 1 {
+                return Err("TypeError: memoryview() takes exactly one argument".to_string());
+            }
+            // Basic implementation: return a proxy object
+            Err("NotImplementedError: memoryview() is not yet implemented".to_string())
+        })),
     );
 }

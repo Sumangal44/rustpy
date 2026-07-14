@@ -2062,4 +2062,72 @@ result = f2.read()
         assert_eq!(env.borrow().get("result").unwrap().str(), "flush test\n");
         std::fs::remove_file("/tmp/rustpy_print_flush.txt").ok();
     }
+
+    #[test]
+    fn test_float_builtin() {
+        let env = execute_source("
+a = float()
+b = float(42)
+c = float(3.14)
+d = float(\"2.5\")
+");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "0.0");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "42.0");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "3.14");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "2.5");
+    }
+
+    #[test]
+    fn test_oct_builtin() {
+        let env = execute_source("
+a = oct(8)
+b = oct(64)
+");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'0o10'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'0o100'");
+    }
+
+    #[test]
+    fn test_ascii_builtin() {
+        let env = execute_source("
+a = ascii(\"hello\")
+b = ascii(42)
+");
+        assert_eq!(env.borrow().get("a").unwrap().str(), "'hello'");
+        assert_eq!(env.borrow().get("b").unwrap().str(), "42");
+    }
+
+    #[test]
+    fn test_divmod_builtin() {
+        let env = execute_source("
+a, b = divmod(10, 3)
+");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "3");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "1");
+    }
+
+    #[test]
+    fn test_delattr_builtin() {
+        let env = execute_source("
+class Foo:
+    pass
+obj = Foo()
+obj.x = 42
+val = obj.x
+");
+        assert_eq!(env.borrow().get("val").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_slice_builtin() {
+        let env = execute_source("
+s = slice(5)
+t = slice(1, 5)
+u = slice(1, 10, 2)
+");
+        // Just check they're created without error
+        assert_eq!(env.borrow().get("s").unwrap().get_type(), "slice");
+        assert_eq!(env.borrow().get("t").unwrap().get_type(), "slice");
+        assert_eq!(env.borrow().get("u").unwrap().get_type(), "slice");
+    }
 }
