@@ -166,6 +166,14 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
+    // Register type objects for built-in types
+    for type_name in &["int", "str", "float", "bool", "list", "dict", "tuple", "set", "frozenset", "bytes", "bytearray", "complex", "range", "slice"] {
+        env_mut.set(
+            type_name.to_string(),
+            Rc::new(crate::objects::typeobj::PyType::new(type_name)) as Rc<dyn PyObject>,
+        );
+    }
+
     // str(obj)
     env_mut.set(
         "str".to_string(),
@@ -195,14 +203,6 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             Ok(Rc::new(crate::objects::typeobj::PyType::new(obj.get_type())))
         })),
     );
-
-    // Register type objects for built-in types
-    for type_name in &["int", "str", "float", "bool", "list", "dict", "tuple", "set", "frozenset", "bytes", "bytearray", "complex", "range", "slice"] {
-        env_mut.set(
-            type_name.to_string(),
-            Rc::new(crate::objects::typeobj::PyType::new(type_name)) as Rc<dyn PyObject>,
-        );
-    }
 
     // getattr(object, name[, default])
     env_mut.set(
@@ -1487,6 +1487,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
 
     // Initialize import system
     let import_system = Rc::new(ImportSystem::new());
+    *import_system.builtins_env.borrow_mut() = Some(Rc::clone(env));
 
     // Create sys module
     let argv: Vec<String> = std::env::args().collect();

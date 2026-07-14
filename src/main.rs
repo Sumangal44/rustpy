@@ -157,13 +157,13 @@ mod tests {
         let env = execute_source(source);
 
         let t1 = env.borrow().get("t1").unwrap();
-        assert_eq!(t1.repr(), "'<class 'str'>'");
+        assert_eq!(t1.repr(), "<class 'str'>");
 
         let t2 = env.borrow().get("t2").unwrap();
-        assert_eq!(t2.repr(), "'<class 'int'>'");
+        assert_eq!(t2.repr(), "<class 'int'>");
 
         let t3 = env.borrow().get("t3").unwrap();
-        assert_eq!(t3.repr(), "'<class 'bool'>'");
+        assert_eq!(t3.repr(), "<class 'bool'>");
     }
 
     #[test]
@@ -719,9 +719,9 @@ mod tests {
         // popitem removes one item; dict should still have 1 entry
         let d = env.borrow().get("d").unwrap();
         assert!(d.is_truthy());
-        // popitem returns a 2-element list
+        // popitem returns a 2-element tuple
         let item = env.borrow().get("item").unwrap();
-        assert_eq!(item.get_type(), "list");
+        assert_eq!(item.get_type(), "tuple");
         // popitem on single-item dict empties it
         let source2 = "d = {\"x\": 100}\nitem = d.popitem()\n";
         let env2 = execute_source(source2);
@@ -1699,7 +1699,7 @@ result
     #[test]
     fn test_sys_modules() {
         let env = execute_source("import sys\nresult = type(sys.modules)\n");
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "'<class 'dict'>'");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "<class 'dict'>");
     }
 
     #[test]
@@ -2346,5 +2346,42 @@ c = format(\"hello\")
     fn test_math_factorial() {
         let env = execute_source("import math\nr = math.factorial(5)\n");
         assert_eq!(env.borrow().get("r").unwrap().repr(), "120");
+    }
+
+    #[test]
+    fn test_filesystem_import_basic() {
+        let filename = "test_module_123.py";
+        std::fs::write(filename, "x = 42\ndef hello():\n    return 'world'\n").unwrap();
+        
+        let env = execute_source("import test_module_123\nresult_x = test_module_123.x\nresult_fn = test_module_123.hello()\n");
+        std::fs::remove_file(filename).unwrap();
+        
+        assert_eq!(env.borrow().get("result_x").unwrap().repr(), "42");
+        assert_eq!(env.borrow().get("result_fn").unwrap().repr(), "'world'");
+    }
+
+    #[test]
+    fn test_filesystem_import_from() {
+        let filename = "test_module_456.py";
+        std::fs::write(filename, "y = 99\n").unwrap();
+        
+        let env = execute_source("from test_module_456 import y\n");
+        std::fs::remove_file(filename).unwrap();
+        
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "99");
+    }
+
+    #[test]
+    fn test_circular_import() {
+        let file_a = "circ_a.py";
+        let file_b = "circ_b.py";
+        std::fs::write(file_a, "import circ_b\nx = 1\n").unwrap();
+        std::fs::write(file_b, "import circ_a\ny = 2\n").unwrap();
+        
+        let env = execute_source("import circ_a\nresult = circ_a.x + circ_a.circ_b.y\n");
+        std::fs::remove_file(file_a).unwrap();
+        std::fs::remove_file(file_b).unwrap();
+        
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "3");
     }
 }
