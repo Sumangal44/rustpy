@@ -172,6 +172,10 @@ impl PyObject for PyInt {
         Some(Rc::new(PyInt::new(self.value.clone())))
     }
 
+    fn abs_op(&self) -> Option<Rc<dyn PyObject>> {
+        Some(Rc::new(PyInt::new(self.value.abs())))
+    }
+
     fn bitand(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
             Some(Rc::new(PyInt::new(&self.value & &i.value)))

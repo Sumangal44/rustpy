@@ -192,12 +192,17 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 ));
             }
             let obj = &args[0];
-            Ok(Rc::new(PyString::new(format!(
-                "<class '{}'>",
-                obj.get_type()
-            ))))
+            Ok(Rc::new(crate::objects::typeobj::PyType::new(obj.get_type())))
         })),
     );
+
+    // Register type objects for built-in types
+    for type_name in &["int", "str", "float", "bool", "list", "dict", "tuple", "set", "frozenset", "bytes", "bytearray", "complex", "range", "slice"] {
+        env_mut.set(
+            type_name.to_string(),
+            Rc::new(crate::objects::typeobj::PyType::new(type_name)) as Rc<dyn PyObject>,
+        );
+    }
 
     // getattr(object, name[, default])
     env_mut.set(
@@ -300,6 +305,11 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 .downcast_ref::<crate::objects::class::PyClass>()
             {
                 cls.name.clone()
+            } else if let Some(tp) = classinfo
+                .as_any()
+                .downcast_ref::<crate::objects::typeobj::PyType>()
+            {
+                tp.name.clone()
             } else if classinfo.get_type() == "str" {
                 classinfo
                     .as_any()
@@ -458,14 +468,35 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // dict()
+    // dict(iterable)
     env_mut.set(
         "dict".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("dict".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::dict::PyDict::new()));
             }
-            Err("TypeError: dict() kwargs/iterables not fully implemented yet".to_string())
+            if args.len() != 1 {
+                return Err("TypeError: dict() takes at most 1 argument".to_string());
+            }
+            let iter = args[0].get_iter()?;
+            let mut pairs = Vec::new();
+            while let Some(item) = iter.get_next()? {
+                if let Some(t) = item.as_any().downcast_ref::<crate::objects::tuple::PyTuple>() {
+                    if t.elements.len() != 2 {
+                        return Err("TypeError: dict() item must have length 2".to_string());
+                    }
+                    pairs.push((Rc::clone(&t.elements[0]), Rc::clone(&t.elements[1])));
+                } else if let Some(l) = item.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    let elems = l.elements.borrow();
+                    if elems.len() != 2 {
+                        return Err("TypeError: dict() item must have length 2".to_string());
+                    }
+                    pairs.push((Rc::clone(&elems[0]), Rc::clone(&elems[1])));
+                } else {
+                    return Err("TypeError: dict() item must be a pair".to_string());
+                }
+            }
+            Ok(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs)))
         })),
     );
     // callable(object)
@@ -476,10 +507,14 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 return Err("TypeError: callable() takes exactly one argument".to_string());
             }
             let obj = &args[0];
-            let is_call = obj.get_type() == "function"
-                || obj.get_type() == "native_function"
-                || obj.get_type() == "class"
-                || obj.get_type() == "bound_method";
+            let type_str = obj.get_type();
+            let is_call = type_str == "function"
+                || type_str == "native_function"
+                || type_str == "class"
+                || type_str == "bound_method"
+                || type_str == "type"
+                || type_str == "builtin_function_or_method"
+                || type_str == "method";
             Ok(Rc::new(crate::objects::bool::PyBool::new(is_call)))
         })),
     );
@@ -586,13 +621,9 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             if args.len() != 1 {
                 return Err("TypeError: abs() takes exactly one argument".to_string());
             }
-            if let Some(i) = args[0]
-                .as_any()
-                .downcast_ref::<crate::objects::int::PyInt>()
-            {
-                Ok(Rc::new(crate::objects::int::PyInt::from_i64(i.as_i64().unwrap_or(0).abs())))
-            } else {
-                Err("TypeError: bad operand type for abs()".to_string())
+            match args[0].abs_op() {
+                Some(result) => Ok(result),
+                None => Err(format!("TypeError: bad operand type for abs(): '{}'", args[0].get_type())),
             }
         })),
     );
@@ -697,23 +728,24 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // sum(iterable)
+    // sum(iterable, start=0)
     env_mut.set(
         "sum".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("sum".to_string(), |args| {
-            if args.len() != 1 {
-                return Err("TypeError: sum expected 1 argument".to_string());
+            if args.len() < 1 || args.len() > 2 {
+                return Err("TypeError: sum expected at most 2 arguments".to_string());
             }
+            let start = if args.len() >= 2 { Rc::clone(&args[1]) } else { Rc::new(crate::objects::int::PyInt::from_i64(0)) as Rc<dyn PyObject> };
             let iter = args[0].get_iter()?;
-            let mut total = 0;
+            let mut total = start;
             while let Some(item) = iter.get_next()? {
-                if let Some(i) = item.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    total += i.as_i64().unwrap_or(0);
-                } else {
-                    return Err("TypeError: unsupported operand type(s) for + in sum()".to_string());
+                let new_total = total.add(Rc::clone(&item));
+                match new_total {
+                    Some(result) => total = result,
+                    None => return Err("TypeError: unsupported operand type(s) for + in sum()".to_string()),
                 }
             }
-            Ok(Rc::new(crate::objects::int::PyInt::from_i64(total)))
+            Ok(total)
         })),
     );
 
@@ -1069,13 +1101,26 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // round(x) -> int
+    // round(x, ndigits=None) -> int or float
     env_mut.set(
         "round".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("round".to_string(), |args| {
-            if args.len() != 1 { return Err("TypeError: round() takes exactly one argument".to_string()); }
+            if args.len() < 1 || args.len() > 2 { return Err("TypeError: round() takes 1-2 arguments".to_string()); }
+            let ndigits = if args.len() >= 2 {
+                if let Some(i) = args[1].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    Some(i.as_i64().unwrap_or(0))
+                } else {
+                    return Err("TypeError: 'int' object expected".to_string());
+                }
+            } else { None };
             if let Some(f) = args[0].as_any().downcast_ref::<crate::objects::float::PyFloat>() {
-                Ok(Rc::new(crate::objects::int::PyInt::from_i64(f.value.round() as i64)))
+                match ndigits {
+                    Some(n) => {
+                        let factor = 10f64.powi(n as i32);
+                        Ok(Rc::new(crate::objects::float::PyFloat::new((f.value * factor).round() / factor)))
+                    }
+                    None => Ok(Rc::new(crate::objects::int::PyInt::from_i64(f.value.round() as i64))),
+                }
             } else if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
                 Ok(Rc::new(crate::objects::int::PyInt::from_i64(i.as_i64().unwrap_or(0))))
             } else {
@@ -1143,7 +1188,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // enumerate(iterable, start=0) -> list of [index, value] pairs
+    // enumerate(iterable, start=0) -> list of (index, value) tuples
     env_mut.set(
         "enumerate".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("enumerate".to_string(), |args| {
@@ -1159,7 +1204,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                     Rc::new(crate::objects::int::PyInt::from_i64(idx)) as Rc<dyn PyObject>,
                     item,
                 ];
-                result.push(Rc::new(crate::objects::list::PyList::new(pair)) as Rc<dyn PyObject>);
+                result.push(Rc::new(crate::objects::tuple::PyTuple::new(pair)) as Rc<dyn PyObject>);
                 idx += 1;
             }
             Ok(Rc::new(crate::objects::list::PyList::new(result)))
@@ -1225,7 +1270,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                         }
                     }
                 }
-                result.push(Rc::new(crate::objects::list::PyList::new(group)) as Rc<dyn PyObject>);
+                result.push(Rc::new(crate::objects::tuple::PyTuple::new(group)) as Rc<dyn PyObject>);
             }
         })),
     );
@@ -1660,28 +1705,55 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             } else {
                 Rc::clone(&args[0])
             };
-            let mut names = Vec::new();
+            let mut names: Vec<String> = Vec::new();
+            // Common attributes for all objects
+            let common_attrs = vec!["__class__", "__doc__", "__init__", "__repr__", "__str__", "__dict__", "__module__", "__new__", "__delattr__", "__format__", "__getattribute__", "__hash__", "__setattr__", "__sizeof__", "__subclasshook__"];
+            for attr in &common_attrs {
+                if obj.get_attr(attr).is_ok() {
+                    names.push(attr.to_string());
+                }
+            }
             // Try to list from __dict__
             if let Ok(d) = obj.get_attr("__dict__") {
                 if let Some(dict) = d.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                     for bucket in dict.entries.borrow().values() {
                         for (k, _) in bucket {
-                            names.push(Rc::clone(k));
+                            let name = k.str();
+                            if !names.contains(&name) {
+                                names.push(name);
+                            }
                         }
                     }
                 }
-            } else {
-                // Fallback: try common attributes
-                let common_attrs = vec!["__class__", "__doc__", "__module__", "__init__", "__repr__", "__str__"];
-                for attr in common_attrs {
-                    if obj.get_attr(attr).is_ok() {
-                        names.push(Rc::new(PyString::new(attr.to_string())) as Rc<dyn PyObject>);
-                    }
+            }
+            // Type-specific attributes
+            let type_attrs: &[&str] = match obj.get_type() {
+                "list" => &["append", "clear", "copy", "count", "extend", "index", "insert", "pop", "remove", "reverse", "sort", "__add__", "__iadd__", "__imul__", "__mul__", "__reversed__"],
+                "str" => &["capitalize", "casefold", "center", "count", "encode", "endswith", "expandtabs", "find", "format", "index", "isalnum", "isalpha", "isascii", "isdecimal", "isdigit", "isidentifier", "islower", "isnumeric", "isprintable", "isspace", "istitle", "isupper", "join", "ljust", "lower", "lstrip", "maketrans", "partition", "removeprefix", "removesuffix", "replace", "rfind", "rindex", "rjust", "rpartition", "rsplit", "rstrip", "split", "splitlines", "startswith", "strip", "swapcase", "title", "translate", "upper", "zfill", "__add__", "__contains__", "__eq__", "__ge__", "__getitem__", "__gt__", "__hash__", "__iter__", "__le__", "__len__", "__lt__", "__mod__", "__mul__", "__ne__", "__rmod__", "__rmul__"],
+                "int" => &["as_integer_ratio", "bit_count", "bit_length", "conjugate", "denominator", "from_bytes", "imag", "numerator", "real", "to_bytes", "__abs__", "__add__", "__and__", "__bool__", "__ceil__", "__divmod__", "__eq__", "__float__", "__floor__", "__floordiv__", "__ge__", "__gt__", "__index__", "__int__", "__invert__", "__le__", "__lshift__", "__lt__", "__mod__", "__mul__", "__ne__", "__neg__", "__or__", "__pos__", "__pow__", "__radd__", "__rand__", "__rfloordiv__", "__rlshift__", "__rmod__", "__rmul__", "__ror__", "__round__", "__rpow__", "__rrshift__", "__rshift__", "__rsub__", "__rtruediv__", "__rxor__", "__sub__", "__truediv__", "__trunc__", "__xor__"],
+                "float" => &["as_integer_ratio", "conjugate", "fromhex", "hex", "imag", "is_integer", "real", "__abs__", "__add__", "__bool__", "__ceil__", "__divmod__", "__eq__", "__float__", "__floor__", "__floordiv__", "__ge__", "__gt__", "__int__", "__le__", "__lt__", "__mod__", "__mul__", "__ne__", "__neg__", "__pos__", "__pow__", "__radd__", "__rdivmod__", "__rfloordiv__", "__rmod__", "__rmul__", "__round__", "__rpow__", "__rsub__", "__rtruediv__", "__sub__", "__truediv__", "__trunc__"],
+                "dict" => &["clear", "copy", "fromkeys", "get", "items", "keys", "pop", "popitem", "setdefault", "update", "values", "__contains__", "__delitem__", "__eq__", "__ge__", "__getitem__", "__gt__", "__iter__", "__le__", "__len__", "__lt__", "__ne__", "__or__", "__ror__", "__reversed__", "__setitem__", "__sizeof__"],
+                "tuple" => &["count", "index", "__add__", "__contains__", "__eq__", "__ge__", "__getitem__", "__gt__", "__hash__", "__iter__", "__le__", "__len__", "__lt__", "__mul__", "__ne__", "__rmul__"],
+                "set" => &["add", "clear", "copy", "difference", "difference_update", "discard", "intersection", "intersection_update", "isdisjoint", "issubset", "issuperset", "pop", "remove", "symmetric_difference", "symmetric_difference_update", "union", "update", "__and__", "__contains__", "__eq__", "__ge__", "__gt__", "__iand__", "__ior__", "__isub__", "__ixor__", "__le__", "__len__", "__lt__", "__ne__", "__or__", "__rand__", "__ror__", "__rsub__", "__rxor__", "__sub__", "__xor__"],
+                "frozenset" => &["copy", "difference", "intersection", "isdisjoint", "issubset", "issuperset", "symmetric_difference", "union", "__and__", "__contains__", "__eq__", "__ge__", "__gt__", "__hash__", "__le__", "__len__", "__lt__", "__ne__", "__or__", "__rand__", "__ror__", "__rsub__", "__rxor__", "__sub__", "__xor__"],
+                "bytes" => &["capitalize", "center", "count", "decode", "endswith", "expandtabs", "find", "fromhex", "hex", "index", "isalnum", "isalpha", "isascii", "isdigit", "islower", "isspace", "istitle", "isupper", "join", "ljust", "lower", "lstrip", "maketrans", "partition", "removeprefix", "removesuffix", "replace", "rfind", "rindex", "rjust", "rpartition", "rsplit", "rstrip", "split", "splitlines", "startswith", "strip", "swapcase", "title", "translate", "upper", "zfill"],
+                "bytearray" => &["append", "capitalize", "center", "clear", "copy", "count", "decode", "endswith", "expandtabs", "extend", "find", "fromhex", "hex", "index", "insert", "isalnum", "isalpha", "isascii", "isdigit", "islower", "isspace", "istitle", "isupper", "join", "ljust", "lower", "lstrip", "maketrans", "partition", "pop", "remove", "removeprefix", "removesuffix", "replace", "reverse", "rfind", "rindex", "rjust", "rpartition", "rsplit", "rstrip", "sort", "split", "splitlines", "startswith", "strip", "swapcase", "title", "translate", "upper", "zfill"],
+                "range" => &["count", "index", "start", "stop", "step", "__contains__", "__eq__", "__ge__", "__getitem__", "__gt__", "__hash__", "__iter__", "__le__", "__len__", "__lt__", "__ne__", "__reversed__"],
+                "bool" => &["__abs__", "__add__", "__and__", "__bool__", "__ceil__", "__divmod__", "__eq__", "__float__", "__floor__", "__floordiv__", "__ge__", "__gt__", "__index__", "__int__", "__invert__", "__le__", "__lshift__", "__lt__", "__mod__", "__mul__", "__ne__", "__neg__", "__or__", "__pos__", "__pow__", "__radd__", "__rand__", "__rfloordiv__", "__rlshift__", "__rmod__", "__rmul__", "__ror__", "__round__", "__rpow__", "__rrshift__", "__rshift__", "__rsub__", "__rtruediv__", "__rxor__", "__sub__", "__truediv__", "__trunc__", "__xor__", "as_integer_ratio", "bit_count", "bit_length", "conjugate", "denominator", "from_bytes", "imag", "numerator", "real", "to_bytes"],
+                "complex" => &["conjugate", "imag", "real", "__abs__", "__add__", "__bool__", "__divmod__", "__eq__", "__float__", "__floordiv__", "__ge__", "__gt__", "__int__", "__le__", "__lt__", "__mod__", "__mul__", "__ne__", "__neg__", "__pos__", "__pow__", "__radd__", "__rdivmod__", "__rfloordiv__", "__rmod__", "__rmul__", "__rpow__", "__rsub__", "__rtruediv__", "__sub__", "__truediv__"],
+                "slice" => &["indices", "start", "stop", "step", "__eq__", "__ge__", "__gt__", "__hash__", "__le__", "__lt__", "__ne__", "__reduce__"],
+                _ => &[],
+            };
+            for attr in type_attrs {
+                let name = attr.to_string();
+                if !names.contains(&name) {
+                    names.push(name);
                 }
             }
             // Sort names
-            names.sort_by(|a, b| a.str().cmp(&b.str()));
-            Ok(Rc::new(crate::objects::list::PyList::new(names)) as Rc<dyn PyObject>)
+            let mut sorted: Vec<Rc<dyn PyObject>> = names.iter().map(|s| Rc::new(PyString::new(s.clone())) as Rc<dyn PyObject>).collect();
+            sorted.sort_by(|a, b| a.str().cmp(&b.str()));
+            Ok(Rc::new(crate::objects::list::PyList::new(sorted)) as Rc<dyn PyObject>)
         })),
     );
 

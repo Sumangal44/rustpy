@@ -14,6 +14,7 @@ pub enum Expr {
     BytesLiteral(Vec<u8>),
     BooleanLiteral(bool),
     NoneLiteral,
+    Ellipsis,
     List(Vec<Expr>),
     Dict(Vec<(Expr, Expr)>),
     Subscript {
@@ -135,6 +136,7 @@ pub enum Stmt {
     Try {
         body: Vec<Stmt>,
         handlers: Vec<(Option<String>, Vec<Stmt>)>,
+        else_body: Option<Vec<Stmt>>,
         finally_body: Option<Vec<Stmt>>,
     },
     Raise {
@@ -151,11 +153,13 @@ pub enum Stmt {
     While {
         test: Expr,
         body: Vec<Stmt>,
+        orelse: Vec<Stmt>,
     },
     For {
         target: Expr,
         iter: Expr,
         body: Vec<Stmt>,
+        orelse: Vec<Stmt>,
     },
     With {
         context_expr: Expr,

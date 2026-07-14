@@ -245,6 +245,25 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_number(&mut self, start_pos: usize, start_col: usize) -> Result<Token, LexerError> {
+        // Check for non-decimal integer prefixes (0x, 0o, 0b)
+        if self.current == Some('0') {
+            match self.peek() {
+                Some('x') | Some('X') => {
+                    self.advance();
+                    return self.lex_non_decimal_int(start_pos, start_col, 16);
+                }
+                Some('o') | Some('O') => {
+                    self.advance();
+                    return self.lex_non_decimal_int(start_pos, start_col, 8);
+                }
+                Some('b') | Some('B') => {
+                    self.advance();
+                    return self.lex_non_decimal_int(start_pos, start_col, 2);
+                }
+                _ => {}
+            }
+        }
+
         let mut value = String::new();
         let mut is_float = false;
 
@@ -261,6 +280,37 @@ impl<'a> Lexer<'a> {
                 self.advance();
             } else {
                 break;
+            }
+        }
+
+        // Handle scientific notation (e/E with optional sign and digits)
+        if let Some('e') | Some('E') = self.current {
+            let is_scientific = match self.peek() {
+                Some('+') | Some('-') => {
+                    let mut iter = self.chars.clone();
+                    iter.next();
+                    iter.next().map_or(false, |c| c.is_ascii_digit())
+                }
+                Some(c) => c.is_ascii_digit(),
+                None => false,
+            };
+
+            if is_scientific {
+                is_float = true;
+                value.push(self.current.unwrap());
+                self.advance();
+                if self.current == Some('+') || self.current == Some('-') {
+                    value.push(self.current.unwrap());
+                    self.advance();
+                }
+                while let Some(c) = self.current {
+                    if c.is_ascii_digit() {
+                        value.push(c);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
             }
         }
 
@@ -293,6 +343,42 @@ impl<'a> Lexer<'a> {
         }
 
         Ok(self.make_token(kind, start_pos, start_col))
+    }
+
+    fn lex_non_decimal_int(
+        &mut self,
+        start_pos: usize,
+        start_col: usize,
+        radix: u32,
+    ) -> Result<Token, LexerError> {
+        let mut value = String::from("0");
+        let prefix = self.current.unwrap();
+        value.push(prefix);
+        self.advance();
+
+        while let Some(c) = self.current {
+            let valid = match radix {
+                16 => c.is_ascii_hexdigit(),
+                8 => c.is_ascii_digit() && c <= '7',
+                2 => c == '0' || c == '1',
+                _ => false,
+            };
+            if valid {
+                value.push(c);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if value.len() <= 2 {
+            return Err(LexerError::new(
+                LexerErrorKind::InvalidNumber,
+                self.span(start_pos, start_col),
+            ));
+        }
+
+        Ok(self.make_token(TokenKind::IntLiteral(value), start_pos, start_col))
     }
 
     fn lex_fstring(

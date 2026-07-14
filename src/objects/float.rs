@@ -138,6 +138,10 @@ impl PyObject for PyFloat {
         Some(Rc::new(PyFloat::new(self.value)))
     }
 
+    fn abs_op(&self) -> Option<Rc<dyn PyObject>> {
+        Some(Rc::new(PyFloat::new(self.value.abs())))
+    }
+
     fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value == f.value)))

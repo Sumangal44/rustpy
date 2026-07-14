@@ -73,6 +73,10 @@ pub trait PyObject: Debug + Any {
         None
     }
 
+    fn abs_op(&self) -> Option<Rc<dyn PyObject>> {
+        None
+    }
+
     fn eq(&self, _other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         None
     }
@@ -182,3 +186,4 @@ pub mod slice;
 pub mod staticmethod;
 pub mod string;
 pub mod tuple;
+pub mod typeobj;

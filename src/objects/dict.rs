@@ -191,7 +191,7 @@ impl PyObject for PyDict {
                             Rc::clone(k),
                             Rc::clone(v),
                         ];
-                        items.push(Rc::new(crate::objects::list::PyList::new(pair)) as Rc<dyn PyObject>);
+                        items.push(Rc::new(crate::objects::tuple::PyTuple::new(pair)) as Rc<dyn PyObject>);
                     }
                 }
                 Ok(Rc::new(crate::objects::list::PyList::new(items)))
@@ -251,7 +251,7 @@ impl PyObject for PyDict {
                             map.remove(&hash);
                         }
                         let pair = vec![k, v];
-                        Ok(Rc::new(crate::objects::list::PyList::new(pair)) as Rc<dyn PyObject>)
+                        Ok(Rc::new(crate::objects::tuple::PyTuple::new(pair)) as Rc<dyn PyObject>)
                     }
                     None => Err("KeyError: 'popitem(): dictionary is empty'".to_string()),
                 }

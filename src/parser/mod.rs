@@ -266,9 +266,8 @@ impl<'a> Parser<'a> {
         }
         self.consume(TokenKind::RParen)?;
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
 
         Ok(Stmt::FunctionDef {
             name,
@@ -311,9 +310,8 @@ impl<'a> Parser<'a> {
             self.consume(TokenKind::RParen)?;
         }
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
 
         Ok(Stmt::ClassDef { name, bases, body, decorators })
     }
@@ -332,6 +330,26 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenKind::Dedent)?;
         Ok(body)
+    }
+
+    fn parse_suite(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        if self.check(&TokenKind::Newline) {
+            self.advance()?;
+            self.consume(TokenKind::Indent)?;
+            let mut body = Vec::new();
+            while !self.check(&TokenKind::Dedent) && !self.check(&TokenKind::EOF) {
+                self.consume_newlines()?;
+                if self.check(&TokenKind::Dedent) {
+                    break;
+                }
+                body.push(self.parse_statement()?);
+            }
+            self.consume(TokenKind::Dedent)?;
+            Ok(body)
+        } else {
+            let stmt = self.parse_statement()?;
+            Ok(vec![stmt])
+        }
     }
 
     fn parse_return(&mut self) -> Result<Stmt, ParseError> {
@@ -354,16 +372,14 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::If)?;
         let test = self.parse_expression(0)?;
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
         let mut orelse = Vec::new();
 
         if self.check(&TokenKind::Else) {
             self.advance()?;
             self.consume(TokenKind::Colon)?;
-            self.consume(TokenKind::Newline)?;
-            orelse = self.parse_block()?;
+            orelse = self.parse_suite()?;
         } else if self.check(&TokenKind::Elif) {
             // Transform elif into an else with a nested if
             // For now, let's just parse it as if
@@ -379,11 +395,16 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::While)?;
         let test = self.parse_expression(0)?;
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
+        let mut orelse = Vec::new();
+        if self.check(&TokenKind::Else) {
+            self.advance()?;
+            self.consume(TokenKind::Colon)?;
+            orelse = self.parse_suite()?;
+        }
 
-        Ok(Stmt::While { test, body })
+        Ok(Stmt::While { test, body, orelse })
     }
 
     fn parse_for_target(&mut self) -> Result<Expr, ParseError> {
@@ -451,11 +472,16 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::In)?;
         let iter = self.parse_expression(0)?;
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
+        let mut orelse = Vec::new();
+        if self.check(&TokenKind::Else) {
+            self.advance()?;
+            self.consume(TokenKind::Colon)?;
+            orelse = self.parse_suite()?;
+        }
 
-        Ok(Stmt::For { target, iter, body })
+        Ok(Stmt::For { target, iter, body, orelse })
     }
 
     fn parse_with(&mut self) -> Result<Stmt, ParseError> {
@@ -469,9 +495,8 @@ impl<'a> Parser<'a> {
         }
 
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
 
         Ok(Stmt::With {
             context_expr,
@@ -483,9 +508,8 @@ impl<'a> Parser<'a> {
     fn parse_try(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Try)?;
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_suite()?;
 
         let mut handlers = Vec::new();
         while self.check(&TokenKind::Except) {
@@ -494,13 +518,11 @@ impl<'a> Parser<'a> {
             let mut exc_type_name = None;
             if !self.check(&TokenKind::Colon) {
                 let exc_expr = self.parse_expression(0)?;
-                // Extract the type name if it's an identifier
                 if let Expr::Identifier(name) = &exc_expr {
                     exc_type_name = Some(name.clone());
                 }
                 if self.check(&TokenKind::As) {
                     self.advance()?;
-                    // Bind the exception to a variable - consume the identifier
                     if let TokenKind::Identifier(_) = &self.current_token.kind {
                         self.advance()?;
                     }
@@ -508,21 +530,26 @@ impl<'a> Parser<'a> {
             }
 
             self.consume(TokenKind::Colon)?;
-            self.consume(TokenKind::Newline)?;
 
-            let handler_body = self.parse_block()?;
+            let handler_body = self.parse_suite()?;
             handlers.push((exc_type_name, handler_body));
+        }
+
+        let mut else_body = None;
+        if self.check(&TokenKind::Else) {
+            self.advance()?;
+            self.consume(TokenKind::Colon)?;
+            else_body = Some(self.parse_suite()?);
         }
 
         let mut finally_body = None;
         if self.check(&TokenKind::Finally) {
             self.advance()?;
             self.consume(TokenKind::Colon)?;
-            self.consume(TokenKind::Newline)?;
-            finally_body = Some(self.parse_block()?);
+            finally_body = Some(self.parse_suite()?);
         }
 
-        Ok(Stmt::Try { body, handlers, finally_body })
+        Ok(Stmt::Try { body, handlers, else_body, finally_body })
     }
 
     fn parse_raise(&mut self) -> Result<Stmt, ParseError> {
@@ -602,6 +629,11 @@ impl<'a> Parser<'a> {
             TokenKind::DoubleSlashEqual => Some(BinOpKind::FloorDiv),
             TokenKind::PercentEqual => Some(BinOpKind::Mod),
             TokenKind::DoubleStarEqual => Some(BinOpKind::Pow),
+            TokenKind::AmpersandEqual => Some(BinOpKind::BitAnd),
+            TokenKind::PipeEqual => Some(BinOpKind::BitOr),
+            TokenKind::CaretEqual => Some(BinOpKind::BitXor),
+            TokenKind::LeftShiftEqual => Some(BinOpKind::LShift),
+            TokenKind::RightShiftEqual => Some(BinOpKind::RShift),
             _ => None,
         }
     }
@@ -641,6 +673,9 @@ impl<'a> Parser<'a> {
             Ok(Stmt::Assign { targets, value })
         } else {
             if self.check(&TokenKind::Newline) {
+                self.advance()?;
+            }
+            while self.check(&TokenKind::Semicolon) {
                 self.advance()?;
             }
             if targets.len() > 1 {
@@ -728,6 +763,10 @@ impl<'a> Parser<'a> {
             TokenKind::None => {
                 self.advance()?;
                 Ok(Expr::NoneLiteral)
+            }
+            TokenKind::Ellipsis => {
+                self.advance()?;
+                Ok(Expr::Ellipsis)
             }
             TokenKind::LParen => {
                 self.advance()?;

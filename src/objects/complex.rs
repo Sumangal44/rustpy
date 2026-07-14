@@ -116,6 +116,10 @@ impl PyObject for PyComplex {
         Some(Rc::new(PyComplex::new(self.real, self.imag)))
     }
 
+    fn abs_op(&self) -> Option<Rc<dyn PyObject>> {
+        Some(Rc::new(crate::objects::float::PyFloat::new((self.real * self.real + self.imag * self.imag).sqrt())))
+    }
+
     fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(c) = other.as_any().downcast_ref::<PyComplex>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.real == c.real && self.imag == c.imag)))

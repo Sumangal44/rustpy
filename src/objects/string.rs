@@ -1,6 +1,7 @@
 use super::PyObject;
 use crate::objects::native_function::PyNativeFunction;
 use std::any::Any;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +116,11 @@ impl PyObject for PyString {
         } else {
             None
         }
+    }
+
+    fn get_iter(&self) -> Result<Rc<dyn PyObject>, String> {
+        let chars: Vec<Rc<dyn PyObject>> = self.value.chars().map(|c| Rc::new(PyString::new(c.to_string())) as Rc<dyn PyObject>).collect();
+        Ok(Rc::new(PyStringIterator::from_vec(chars)))
     }
 
     fn contains(&self, other: Rc<dyn PyObject>) -> Result<bool, String> {
@@ -444,6 +450,14 @@ impl PyObject for PyString {
                 Ok(Rc::new(PyNativeFunction::new_pos_only("casefold".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: casefold() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(PyString::new(val.to_lowercase())))
+                })))
+            }
+            "__iter__" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("__iter__".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: __iter__() takes no arguments".to_string()); }
+                    let chars: Vec<Rc<dyn PyObject>> = val.chars().map(|c| Rc::new(PyString::new(c.to_string())) as Rc<dyn PyObject>).collect();
+                    Ok(Rc::new(PyStringIterator::from_vec(chars)))
                 })))
             }
             "encode" => {
@@ -829,6 +843,56 @@ impl PyObject for PyString {
                 })))
             }
             _ => Err(format!("AttributeError: 'str' object has no attribute '{}'", attr)),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PyStringIterator {
+    chars: Rc<Vec<Rc<dyn PyObject>>>,
+    index: RefCell<usize>,
+}
+
+impl PyStringIterator {
+    pub fn from_vec(chars: Vec<Rc<dyn PyObject>>) -> Self {
+        Self {
+            chars: Rc::new(chars),
+            index: RefCell::new(0),
+        }
+    }
+}
+
+impl std::fmt::Debug for PyStringIterator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.repr())
+    }
+}
+
+impl PyObject for PyStringIterator {
+    fn get_type(&self) -> &'static str {
+        "str_iterator"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn repr(&self) -> String {
+        format!("<str_iterator object at {:p}>", self)
+    }
+
+    fn get_iter(&self) -> Result<Rc<dyn PyObject>, String> {
+        Ok(Rc::new(self.clone()))
+    }
+
+    fn get_next(&self) -> Result<Option<Rc<dyn PyObject>>, String> {
+        let mut idx = self.index.borrow_mut();
+        if *idx < self.chars.len() {
+            let item = Rc::clone(&self.chars[*idx]);
+            *idx += 1;
+            Ok(Some(item))
+        } else {
+            Ok(None)
         }
     }
 }

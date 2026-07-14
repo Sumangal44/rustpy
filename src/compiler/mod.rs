@@ -270,7 +270,7 @@ impl Compiler {
                         Opcode::PopJumpIfFalse(self.code.instructions.len());
                 }
             }
-            Stmt::While { test, body } => {
+            Stmt::While { test, body, orelse } => {
                 let loop_start = self.code.instructions.len();
                 self.loop_stack.push(LoopInfo {
                     start: loop_start,
@@ -286,16 +286,22 @@ impl Compiler {
 
                 self.emit(Opcode::JumpAbsolute(loop_start));
                 
-                let loop_end = self.code.instructions.len();
+                let condition_false_target = self.code.instructions.len();
                 self.code.instructions[jump_if_false_idx] =
-                    Opcode::PopJumpIfFalse(loop_end);
+                    Opcode::PopJumpIfFalse(condition_false_target);
 
                 let info = self.loop_stack.pop().unwrap();
+
+                for s in orelse {
+                    self.compile_stmt(s)?;
+                }
+
+                let after_orelse = self.code.instructions.len();
                 for idx in &info.break_targets {
-                    self.code.instructions[*idx] = Opcode::JumpAbsolute(loop_end);
+                    self.code.instructions[*idx] = Opcode::JumpAbsolute(after_orelse);
                 }
             }
-            Stmt::For { target, iter, body } => {
+            Stmt::For { target, iter, body, orelse } => {
                 self.compile_expr(iter)?;
                 self.emit(Opcode::GetIter);
                 let loop_start = self.code.instructions.len();
@@ -321,8 +327,14 @@ impl Compiler {
                 self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
                 
                 let info = self.loop_stack.pop().unwrap();
+
+                for s in orelse {
+                    self.compile_stmt(s)?;
+                }
+
+                let after_orelse = self.code.instructions.len();
                 for idx in &info.break_targets {
-                    self.code.instructions[*idx] = Opcode::JumpAbsolute(loop_end);
+                    self.code.instructions[*idx] = Opcode::JumpAbsolute(after_orelse);
                 }
             }
             Stmt::ClassDef { name, bases, body, decorators } => {
@@ -370,12 +382,14 @@ impl Compiler {
                 let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::StoreName(name_idx));
             }
-            Stmt::Try { body, handlers, finally_body } => {
+            Stmt::Try { body, handlers, else_body, finally_body } => {
                 let has_handlers = !handlers.is_empty();
+                let has_else = else_body.is_some();
                 let has_finally = finally_body.is_some();
 
                 let mut finally_jumps: Vec<usize> = Vec::new();
                 let mut end_jumps: Vec<usize> = Vec::new();
+                let mut else_jumps: Vec<usize> = Vec::new();
 
                 let setup_finally_idx = if has_finally {
                     Some(self.emit(Opcode::SetupFinally(0)))
@@ -393,21 +407,35 @@ impl Compiler {
                     self.compile_stmt(s)?;
                 }
 
-                match (has_handlers, has_finally) {
-                    (true, false) => {
+                match (has_handlers, has_else, has_finally) {
+                    (true, true, true) => {
+                        self.emit(Opcode::PopExcept);
+                        self.emit(Opcode::PopFinally);
+                        else_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                    (true, true, false) => {
+                        self.emit(Opcode::PopExcept);
+                        else_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                    (true, false, true) => {
+                        self.emit(Opcode::PopExcept);
+                        self.emit(Opcode::PopFinally);
+                        finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                    (true, false, false) => {
                         self.emit(Opcode::PopExcept);
                         end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
                     }
-                    (true, true) => {
-                        self.emit(Opcode::PopExcept);
+                    (false, true, true) => {
+                        self.emit(Opcode::PopFinally);
+                        else_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                    (false, true, false) => {}
+                    (false, false, true) => {
                         self.emit(Opcode::PopFinally);
                         finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
                     }
-                    (false, true) => {
-                        self.emit(Opcode::PopFinally);
-                        finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
-                    }
-                    (false, false) => {}
+                    (false, false, false) => {}
                 }
 
                 if let Some(except_idx) = setup_except_idx {
@@ -419,6 +447,24 @@ impl Compiler {
                         for s in handler_body {
                             self.compile_stmt(s)?;
                         }
+                    }
+
+                    if has_finally {
+                        self.emit(Opcode::PopFinally);
+                        finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    } else {
+                        end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                }
+
+                if let Some(else_body) = else_body {
+                    let else_start = self.code.instructions.len();
+                    for jmp_idx in &else_jumps {
+                        self.code.instructions[*jmp_idx] = Opcode::JumpAbsolute(else_start);
+                    }
+
+                    for s in else_body {
+                        self.compile_stmt(s)?;
                     }
 
                     if has_finally {
@@ -941,6 +987,10 @@ impl Compiler {
                 self.compile_expr(expr)?;
                 self.emit(Opcode::GetAwaitable);
                 self.emit(Opcode::YieldFrom);
+            }
+            Expr::Ellipsis => {
+                let idx = self.add_constant(Rc::new(PyNone::new())); // TODO: Replace with Ellipsis object
+                self.emit(Opcode::LoadConst(idx));
             }
             Expr::Comprehension { kind, elt, key, target, iter } => {
                 match kind {
