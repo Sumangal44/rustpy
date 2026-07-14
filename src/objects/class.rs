@@ -8,6 +8,7 @@ use std::rc::Rc;
 pub struct PyClass {
     pub name: String,
     pub attributes: Rc<RefCell<HashMap<String, Rc<dyn PyObject>>>>,
+    #[allow(dead_code)]
     pub bases: Vec<Rc<dyn PyObject>>,
     pub mro: Vec<Rc<dyn PyObject>>, // MRO excluding self
 }
@@ -161,16 +162,7 @@ impl PyObject for PySuper {
     }
 
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
-        let mro = &self.obj.class.mro;
-        
-        // Find index of type_obj in the obj.class's MRO
-        // Wait, MRO in PyClass only includes bases, not the class itself!
-        // We need the full MRO including the class itself.
-        // Let's create a full MRO on the fly or just check the class first.
-        let mut full_mro = vec![Rc::new(self.obj.class.as_ref().clone()) as Rc<dyn PyObject>]; // This is inefficient but works for now
-        // wait, obj.class is Rc<PyClass>. We can just cast it.
         let class_rc: Rc<dyn PyObject> = self.obj.class.clone();
-        
         let mut full_mro = vec![class_rc];
         full_mro.extend(self.obj.class.mro.iter().cloned());
 

@@ -60,6 +60,7 @@ pub enum Expr {
         kwarg: Option<String>,
         body: Box<Expr>,
     },
+    Await(Box<Expr>),
     FString(Vec<FStringSegment>),
     NamedExpr {
         target: Box<Expr>,
@@ -123,6 +124,7 @@ pub enum Stmt {
         kwarg: Option<String>,
         body: Vec<Stmt>,
         decorators: Vec<Expr>,
+        is_async: bool,
     },
     ClassDef {
         name: String,

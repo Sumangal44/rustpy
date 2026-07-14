@@ -134,10 +134,8 @@ impl VirtualMachine {
                 obj.set_attr(attr_name, Rc::new(crate::objects::none::PyNone))?;
             }
             Opcode::DeleteSubscript => {
-                let idx = frame.pop()?;
-                let collection = frame.pop()?;
-                // For simplicity, we set the item to None via the subscript
-                // Actually, we need a del_item method. Let's just error for now.
+                let _idx = frame.pop()?;
+                let _collection = frame.pop()?;
                 return Err("TypeError: '{}' object does not support item deletion".to_string());
             }
             Opcode::StoreSubscript => {
@@ -247,7 +245,7 @@ impl VirtualMachine {
                 frame.push(result);
             }
             Opcode::CallFunctionKw(argc) => {
-                let kwarg_names_obj = frame.pop()?;
+                let _kwarg_names_obj = frame.pop()?;
                 let mut args = Vec::new();
                 for _ in 0..*argc {
                     args.push(frame.pop()?);
@@ -256,9 +254,7 @@ impl VirtualMachine {
 
                 let func_obj = frame.pop()?;
 
-                let mut kwargs = std::collections::HashMap::new();
-                // This opcode isn't generated currently (we use BuildMap and CallFunctionEx instead), 
-                // but implemented just in case for parity.
+                let kwargs = std::collections::HashMap::new();
                 let result = self.invoke(func_obj, args, kwargs)?;
                 frame.push(result);
             }
@@ -532,10 +528,16 @@ impl VirtualMachine {
                 obj.set_attr(attr_name, val)?;
             }
             Opcode::ReturnValue => {
-                if frame.stack.is_empty() {
+                let val = if frame.stack.is_empty() {
+                    Rc::new(crate::objects::none::PyNone)
+                } else {
+                    frame.pop()?
+                };
+                if frame.code.is_async {
+                    frame.return_value = Some(val);
                     return Ok(Some(Rc::new(crate::objects::none::PyNone)));
                 }
-                return Ok(Some(frame.pop()?));
+                return Ok(Some(val));
             }
             Opcode::YieldValue => {
                 let ret = frame.pop()?;
@@ -933,7 +935,40 @@ impl VirtualMachine {
                     return Err("TypeError: module.__dict__ is not a dict".to_string());
                 }
             }
-            _ => return Err(format!("Opcode {:?} not yet implemented in VM", opcode)),
+            Opcode::GetAwaitable => {
+                let obj = frame.pop()?;
+                let await_method = obj.get_attr("__await__")?;
+                let iterator = self.invoke(await_method, vec![], std::collections::HashMap::new())?;
+                frame.push(iterator);
+            }
+            Opcode::YieldFrom => {
+                let iterator = frame.pop()?;
+                loop {
+                    match iterator.get_next()? {
+                        Some(val) => {
+                            // The inner coroutine yielded. Re-yield this value.
+                            frame.push(iterator);
+                            frame.push(val);
+                            // Decrement ip so we re-execute YieldFrom on resume
+                            frame.ip -= 1;
+                            return Ok(Some(frame.pop()?));
+                        }
+                        None => {
+                            // Inner coroutine completed. Check for return value.
+                            let ret_val = if let Some(coro) = iterator.as_any()
+                                .downcast_ref::<crate::objects::coroutine::PyCoroutine>()
+                            {
+                                let f = coro.frame.borrow();
+                                f.return_value.clone().unwrap_or_else(|| Rc::new(crate::objects::none::PyNone))
+                            } else {
+                                Rc::new(crate::objects::none::PyNone)
+                            };
+                            frame.push(ret_val);
+                            break;
+                        }
+                    }
+                }
+            }
         }
         Ok(None)
     }
@@ -1006,7 +1041,9 @@ impl VirtualMachine {
 
             let mut new_frame = Frame::new(func.code.clone(), new_env);
 
-            if func.code.is_generator {
+            if func.code.is_async {
+                Ok(Rc::new(crate::objects::coroutine::PyCoroutine::new(new_frame)))
+            } else if func.code.is_generator {
                 Ok(Rc::new(crate::objects::generator::PyGenerator::new(new_frame)))
             } else {
                 if let Some(result) = self.run(&mut new_frame)? {
@@ -1022,9 +1059,7 @@ impl VirtualMachine {
         } else if let Some(class_obj) = func_obj.as_any().downcast_ref::<crate::objects::class::PyClass>() {
             let instance = Rc::new(crate::objects::instance::PyInstance::new(Rc::new(class_obj.clone())));
             if let Ok(init_func) = instance.get_attr("__init__") {
-                if let Some(bound_method) = init_func.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
-                    // Call the underlying function but manually prepend 'self'.
-                    // Or we can just call self.invoke on the bound_method!
+                if let Some(_bound_method) = init_func.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
                     self.invoke(init_func, args, kwargs)?;
                 }
             }

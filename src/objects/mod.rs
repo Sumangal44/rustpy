@@ -153,6 +153,7 @@ pub mod class;
 pub mod classmethod;
 pub mod complex;
 pub mod constants;
+pub mod coroutine;
 pub mod dict;
 pub mod exception;
 pub mod file;

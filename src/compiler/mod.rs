@@ -414,7 +414,7 @@ impl Compiler {
                     let handler_start = self.code.instructions.len();
                     self.code.instructions[except_idx] = Opcode::SetupExcept(handler_start);
 
-                    for (exc_type, handler_body) in handlers {
+                    for (_exc_type, handler_body) in handlers {
                         self.emit(Opcode::PopTop);
                         for s in handler_body {
                             self.compile_stmt(s)?;
@@ -493,7 +493,7 @@ impl Compiler {
                 }
                 self.emit(Opcode::ReturnValue);
             }
-            Stmt::FunctionDef { name, params, vararg, kwarg, body, decorators } => {
+            Stmt::FunctionDef { name, params, vararg, kwarg, body, decorators, is_async } => {
                 // Compile decorators first so they are on the stack
                 for decorator in decorators {
                     self.compile_expr(decorator)?;
@@ -501,6 +501,7 @@ impl Compiler {
 
                 let mut child_compiler = Compiler::new(name.clone());
                 child_compiler.code.arg_count = params.len();
+                child_compiler.code.is_async = *is_async;
                 child_compiler.code.vararg = vararg.clone();
                 child_compiler.code.kwarg = kwarg.clone();
 
@@ -643,7 +644,7 @@ impl Compiler {
                     self.code.instructions[*jmp] = Opcode::JumpAbsolute(end);
                 }
             }
-            Pattern::Sequence(subpatterns) => {
+            Pattern::Sequence(_subpatterns) => {
                 // Simple sequence matching: compare each element
                 // For now, just check that subject is a list and compare elements
                 // This is a simplified version
@@ -932,6 +933,14 @@ impl Compiler {
                     let idx = self.add_constant(Rc::new(PyString::new(String::new())));
                     self.emit(Opcode::LoadConst(idx));
                 }
+            }
+            Expr::Await(expr) => {
+                // For async functions, we need to GET_AWAITABLE and YIELD_FROM
+                // But the code object should already be marked is_async by the function def
+                self.code.is_async = true;
+                self.compile_expr(expr)?;
+                self.emit(Opcode::GetAwaitable);
+                self.emit(Opcode::YieldFrom);
             }
             Expr::Comprehension { kind, elt, key, target, iter } => {
                 match kind {

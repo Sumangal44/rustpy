@@ -56,6 +56,7 @@ impl std::error::Error for LexerError {}
 #[derive(Debug, Clone)]
 pub enum ParseErrorKind {
     UnexpectedToken(String),
+    #[allow(dead_code)]
     UnexpectedEOF,
     InvalidSyntax(String),
     LexerError(LexerErrorKind),

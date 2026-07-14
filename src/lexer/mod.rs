@@ -4,7 +4,7 @@ use crate::diagnostics::{LexerError, LexerErrorKind};
 use tokens::{Span, Token, TokenKind};
 
 pub struct Lexer<'a> {
-    source: &'a str,
+    _source: &'a str,
     chars: std::str::Chars<'a>,
     current: Option<char>,
     pos: usize,
@@ -21,7 +21,7 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
         let mut lexer = Self {
-            source,
+            _source: source,
             chars: source.chars(),
             current: None,
             pos: 0,

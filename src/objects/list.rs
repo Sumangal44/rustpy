@@ -52,7 +52,6 @@ impl PyObject for PyList {
 
     fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
         if let Some(idx_obj) = key.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            let elements = self.elements.borrow();
                 let elements = self.elements.borrow();
                 let i = idx_obj.as_i64().unwrap_or(0);
                 let idx = if i < 0 { (elements.len() as i64 + i) as usize } else { i as usize };

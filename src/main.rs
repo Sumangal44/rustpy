@@ -1928,4 +1928,73 @@ c2 = f.closed
         assert_eq!(env.borrow().get("c2").unwrap().repr(), "True");
         fs::remove_file("/tmp/rustpy_test_attrs.txt").ok();
     }
+
+    // --- Async/Await tests ---
+
+    #[test]
+    fn test_async_def() {
+        let env = execute_source("
+import asyncio
+async def foo():
+    return 42
+result = asyncio.run(foo())
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_async_await() {
+        let env = execute_source("
+import asyncio
+async def bar():
+    return 10
+async def foo():
+    result = await bar()
+    return result + 5
+asyncio.run(foo())
+");
+        // foo returns 15, but asyncio.run captures the return value
+        // The test setup just needs to confirm result is 15
+        let env2 = execute_source("
+import asyncio
+async def bar():
+    return 10
+async def foo():
+    result = await bar()
+    return result + 5
+val = asyncio.run(foo())
+");
+        assert_eq!(env2.borrow().get("val").unwrap().repr(), "15");
+    }
+
+    #[test]
+    fn test_async_nested() {
+        let env = execute_source("
+import asyncio
+async def inner():
+    return \"inner\"
+async def outer():
+    result = await inner()
+    return result
+val = asyncio.run(outer())
+");
+        assert_eq!(env.borrow().get("val").unwrap().repr(), "'inner'");
+    }
+
+    #[test]
+    fn test_async_multiple_awaits() {
+        let env = execute_source("
+import asyncio
+async def a():
+    return 1
+async def b():
+    return 2
+async def main():
+    x = await a()
+    y = await b()
+    return x + y
+val = asyncio.run(main())
+");
+        assert_eq!(env.borrow().get("val").unwrap().repr(), "3");
+    }
 }

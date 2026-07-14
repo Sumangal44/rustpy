@@ -46,6 +46,7 @@ pub enum Opcode {
     CompareIsNot,
 
     // Control flow
+    #[allow(dead_code)]
     JumpForward(usize),    // offset
     PopJumpIfFalse(usize), // absolute target
     PopJumpIfTrue(usize),  // absolute target
@@ -54,6 +55,7 @@ pub enum Opcode {
     // Functions
     MakeFunction,        // Pops a code object and creates a function object
     CallFunction(usize), // number of positional arguments
+    #[allow(dead_code)]
     CallFunctionKw(usize), // number of total arguments. Top of stack is a tuple of kwarg names.
     CallFunctionEx(usize), // 0 if only *args on stack, 1 if both *args and **kwargs on stack.
     ReturnValue,
@@ -90,11 +92,16 @@ pub enum Opcode {
     PopFinally,          // pops a finally block from block stack
     EndFinally,          // end of finally block; re-raises pending exception if any
     Raise,              // pops an object, raises it as an exception
+    #[allow(dead_code)]
     TryEnd,             // marker for end of try structure
 
     // Context Managers
     SetupWith(usize), // pushes block, calls __enter__, pushes result
     WithCleanup,      // pops block, calls __exit__
+
+    // Async
+    GetAwaitable,  // pops coroutine, pushes __await__() iterator
+    YieldFrom,     // pops iterator, runs it, yields intermediate values, pushes final result
 
     // Import
     ImportName(usize), // index into names; pops fromlist, level; pushes module

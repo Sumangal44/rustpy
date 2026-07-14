@@ -6,7 +6,9 @@ use std::rc::Rc;
 #[derive(Clone)]
 pub struct PyProperty {
     pub fget: Option<Rc<dyn PyObject>>,
+    #[allow(dead_code)]
     pub fset: Option<Rc<dyn PyObject>>,
+    #[allow(dead_code)]
     pub fdel: Option<Rc<dyn PyObject>>,
 }
 

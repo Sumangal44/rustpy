@@ -1279,6 +1279,42 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     );
     import_system.register_native_module("math_native", Rc::clone(&math_module));
 
+    // Create asyncio module
+    let asyncio_module = Rc::new(PyModule::new("asyncio".to_string()));
+    asyncio_module.set_attr_inner(
+        "run",
+        Rc::new(PyNativeFunction::new("run".to_string(), move |args| {
+            if args.len() != 1 {
+                return Err("TypeError: run() takes exactly one argument (the coroutine)".to_string());
+            }
+            let coro = &args[0];
+            // Get the __await__ iterator and run to completion
+            let await_method = coro.get_attr("__await__")?;
+            let mut vm = crate::vm::VirtualMachine::new();
+            let iterator = vm.invoke(await_method, vec![], std::collections::HashMap::new())?;
+            loop {
+                match iterator.get_next()? {
+                    Some(_val) => {
+                        // The coroutine yielded (intermediate await), continue
+                    }
+                    None => {
+                        // Coroutine completed. Get the return value.
+                        if let Some(coro_obj) = coro.as_any()
+                            .downcast_ref::<crate::objects::coroutine::PyCoroutine>()
+                        {
+                            let f = coro_obj.frame.borrow();
+                            let result = f.return_value.clone()
+                                .unwrap_or_else(|| Rc::new(crate::objects::none::PyNone));
+                            return Ok(result);
+                        }
+                        return Ok(Rc::new(crate::objects::none::PyNone));
+                    }
+                }
+            }
+        })) as Rc<dyn PyObject>,
+    );
+    import_system.register_native_module("asyncio", Rc::clone(&asyncio_module));
+
     // builtins module
     let builtins_module = Rc::new(PyModule::new("builtins".to_string()));
     {

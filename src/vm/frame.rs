@@ -28,6 +28,7 @@ pub struct Frame {
     pub env: Rc<RefCell<Environment>>,
     pub block_stack: Vec<Block>,
     pub pending_exception: Option<Rc<dyn PyObject>>,
+    pub return_value: Option<Rc<dyn PyObject>>,
 }
 
 impl Frame {
@@ -39,6 +40,7 @@ impl Frame {
             env,
             block_stack: Vec::new(),
             pending_exception: None,
+            return_value: None,
         }
     }
 

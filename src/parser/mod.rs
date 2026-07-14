@@ -87,8 +87,13 @@ impl<'a> Parser<'a> {
             self.consume(TokenKind::Newline)?;
         }
 
+        // Handle 'async' as a statement prefix
+        if self.check(&TokenKind::Async) {
+            return self.parse_async_statement(decorators);
+        }
+
         match &self.current_token.kind {
-            TokenKind::Def => self.parse_function_def(decorators),
+            TokenKind::Def => self.parse_function_def(decorators, false),
             TokenKind::Class => self.parse_class_def(decorators),
             TokenKind::Try => {
                 if !decorators.is_empty() {
@@ -183,7 +188,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_function_def(&mut self, decorators: Vec<Expr>) -> Result<Stmt, ParseError> {
+    fn parse_async_statement(&mut self, decorators: Vec<Expr>) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Async)?;
+        match &self.current_token.kind {
+            TokenKind::Def => self.parse_function_def(decorators, true),
+            _ => Err(ParseError::new(
+                ParseErrorKind::InvalidSyntax("expected 'def' after 'async'".to_string()),
+                self.current_token.span.clone(),
+            )),
+        }
+    }
+
+    fn parse_function_def(&mut self, decorators: Vec<Expr>, is_async: bool) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Def)?;
 
         let name = match &self.current_token.kind {
@@ -261,6 +277,7 @@ impl<'a> Parser<'a> {
             kwarg,
             body,
             decorators,
+            is_async,
         })
     }
 
@@ -737,6 +754,11 @@ impl<'a> Parser<'a> {
                 }
                 self.consume(TokenKind::RParen)?;
                 Ok(first)
+            }
+            TokenKind::Await => {
+                self.advance()?;
+                let expr = self.parse_expression(0)?;
+                Ok(Expr::Await(Box::new(expr)))
             }
             TokenKind::Yield => {
                 self.advance()?;

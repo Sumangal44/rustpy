@@ -63,6 +63,7 @@ impl PyDict {
         Err(format!("KeyError: {}", key.repr()))
     }
 
+    #[allow(dead_code)]
     pub fn del_item(&self, key: &Rc<dyn PyObject>) -> Result<(), String> {
         let h = get_hash(key)?;
         let mut entries = self.entries.borrow_mut();
