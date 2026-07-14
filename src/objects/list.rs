@@ -102,12 +102,12 @@ impl PyObject for PyList {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let elements = Rc::clone(&self.elements);
         match attr {
-            "append" => Ok(Rc::new(PyNativeFunction::new("append".to_string(), move |args| {
+            "append" => Ok(Rc::new(PyNativeFunction::new_pos_only("append".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: list.append() takes exactly one argument".to_string()); }
                 elements.borrow_mut().push(Rc::clone(&args[0]));
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "pop" => Ok(Rc::new(PyNativeFunction::new("pop".to_string(), move |args| {
+            "pop" => Ok(Rc::new(PyNativeFunction::new_pos_only("pop".to_string(), move |args| {
                 if args.len() > 1 { return Err("TypeError: pop() takes at most 1 argument (2 given)".to_string()); }
                 let mut arr = elements.borrow_mut();
                 let idx = if args.is_empty() {
@@ -129,7 +129,7 @@ impl PyObject for PyList {
                 };
                 Ok(arr.remove(idx))
             }))),
-            "insert" => Ok(Rc::new(PyNativeFunction::new("insert".to_string(), move |args| {
+            "insert" => Ok(Rc::new(PyNativeFunction::new_pos_only("insert".to_string(), move |args| {
                 if args.len() != 2 { return Err("TypeError: list.insert() takes exactly 2 arguments".to_string()); }
                 let i_val = match args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
                     Some(n) => n.as_i64().unwrap_or(0),
@@ -141,7 +141,7 @@ impl PyObject for PyList {
                 arr.insert(pos, Rc::clone(&args[1]));
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "remove" => Ok(Rc::new(PyNativeFunction::new("remove".to_string(), move |args| {
+            "remove" => Ok(Rc::new(PyNativeFunction::new_pos_only("remove".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: list.remove() takes exactly one argument".to_string()); }
                 let mut arr = elements.borrow_mut();
                 for i in 0..arr.len() {
@@ -155,7 +155,7 @@ impl PyObject for PyList {
                 }
                 Err("ValueError: list.remove(x): x not in list".to_string())
             }))),
-            "index" => Ok(Rc::new(PyNativeFunction::new("index".to_string(), move |args| {
+            "index" => Ok(Rc::new(PyNativeFunction::new_pos_only("index".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: list.index() takes exactly one argument".to_string()); }
                 let arr = elements.borrow();
                 for i in 0..arr.len() {
@@ -168,7 +168,7 @@ impl PyObject for PyList {
                 }
                 Err("ValueError: list.index(x): x not in list".to_string())
             }))),
-            "count" => Ok(Rc::new(PyNativeFunction::new("count".to_string(), move |args| {
+            "count" => Ok(Rc::new(PyNativeFunction::new_pos_only("count".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: list.count() takes exactly one argument".to_string()); }
                 let arr = elements.borrow();
                 let mut cnt = 0i64;
@@ -182,7 +182,7 @@ impl PyObject for PyList {
                 }
                 Ok(Rc::new(crate::objects::int::PyInt::from_i64(cnt)))
             }))),
-            "sort" => Ok(Rc::new(PyNativeFunction::new("sort".to_string(), move |args| {
+            "sort" => Ok(Rc::new(PyNativeFunction::new_pos_only("sort".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: list.sort() takes no arguments".to_string()); }
                 let mut arr = elements.borrow_mut();
                 let n = arr.len();
@@ -203,13 +203,13 @@ impl PyObject for PyList {
                 }
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "reverse" => Ok(Rc::new(PyNativeFunction::new("reverse".to_string(), move |args| {
+            "reverse" => Ok(Rc::new(PyNativeFunction::new_pos_only("reverse".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: list.reverse() takes no arguments".to_string()); }
                 let mut arr = elements.borrow_mut();
                 arr.reverse();
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "extend" => Ok(Rc::new(PyNativeFunction::new("extend".to_string(), move |args| {
+            "extend" => Ok(Rc::new(PyNativeFunction::new_pos_only("extend".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: list.extend() takes exactly one argument".to_string()); }
                 let iter = args[0].get_iter()?;
                 let mut arr = elements.borrow_mut();
@@ -218,12 +218,12 @@ impl PyObject for PyList {
                 }
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "clear" => Ok(Rc::new(PyNativeFunction::new("clear".to_string(), move |args| {
+            "clear" => Ok(Rc::new(PyNativeFunction::new_pos_only("clear".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: list.clear() takes no arguments".to_string()); }
                 elements.borrow_mut().clear();
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "copy" => Ok(Rc::new(PyNativeFunction::new("copy".to_string(), move |args| {
+            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only("copy".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: list.copy() takes no arguments".to_string()); }
                 let arr = elements.borrow();
                 let copied: Vec<Rc<dyn PyObject>> = arr.iter().map(|e| Rc::clone(e)).collect();

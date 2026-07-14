@@ -1053,9 +1053,7 @@ impl VirtualMachine {
                 }
             }
         } else if let Some(native_func) = func_obj.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
-            // We ignore kwargs for native functions for now to keep it simple, or pass them if we update NativeFunction signatures.
-            // Let's just pass positional args.
-            (native_func.func)(args)
+            (native_func.func)(args, kwargs)
         } else if let Some(class_obj) = func_obj.as_any().downcast_ref::<crate::objects::class::PyClass>() {
             let instance = Rc::new(crate::objects::instance::PyInstance::new(Rc::new(class_obj.clone())));
             if let Ok(init_func) = instance.get_attr("__init__") {

@@ -147,7 +147,7 @@ impl PyObject for PyBytes {
         let val = self.value.clone();
         match attr {
             "decode" => {
-                Ok(Rc::new(PyNativeFunction::new("decode".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("decode".to_string(), move |args| {
                     if args.len() != 0 {
                         return Err("TypeError: decode() takes no arguments ({} given)".to_string());
                     }
@@ -158,7 +158,7 @@ impl PyObject for PyBytes {
                 })))
             }
             "hex" => {
-                Ok(Rc::new(PyNativeFunction::new("hex".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("hex".to_string(), move |args| {
                     if args.len() != 0 {
                         return Err("TypeError: hex() takes no arguments ({} given)".to_string());
                     }
@@ -167,7 +167,7 @@ impl PyObject for PyBytes {
                 })))
             }
             "count" => {
-                Ok(Rc::new(PyNativeFunction::new("count".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("count".to_string(), move |args| {
                     if args.len() != 1 {
                         return Err("TypeError: count() takes exactly one argument ({} given)".to_string());
                     }
@@ -185,7 +185,7 @@ impl PyObject for PyBytes {
                 })))
             }
             "index" => {
-                Ok(Rc::new(PyNativeFunction::new("index".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("index".to_string(), move |args| {
                     if args.len() != 1 {
                         return Err("TypeError: index() takes exactly one argument ({} given)".to_string());
                     }
@@ -201,7 +201,7 @@ impl PyObject for PyBytes {
                 })))
             }
             "startswith" => {
-                Ok(Rc::new(PyNativeFunction::new("startswith".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("startswith".to_string(), move |args| {
                     if args.len() != 1 {
                         return Err("TypeError: startswith() takes exactly one argument ({} given)".to_string());
                     }
@@ -214,7 +214,7 @@ impl PyObject for PyBytes {
                 })))
             }
             "endswith" => {
-                Ok(Rc::new(PyNativeFunction::new("endswith".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("endswith".to_string(), move |args| {
                     if args.len() != 1 {
                         return Err("TypeError: endswith() takes exactly one argument ({} given)".to_string());
                     }
@@ -227,7 +227,7 @@ impl PyObject for PyBytes {
                 })))
             }
             "find" => {
-                Ok(Rc::new(PyNativeFunction::new("find".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("find".to_string(), move |args| {
                     if args.len() != 1 {
                         return Err("TypeError: find() takes exactly one argument ({} given)".to_string());
                     }

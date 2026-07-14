@@ -158,21 +158,21 @@ impl PyObject for PyString {
         match attr {
             "upper" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("upper".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("upper".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: upper() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(PyString::new(val.to_uppercase())))
                 })))
             }
             "lower" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("lower".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("lower".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: lower() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(PyString::new(val.to_lowercase())))
                 })))
             }
             "capitalize" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("capitalize".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("capitalize".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: capitalize() takes no arguments (1 given)".to_string()); }
                     let mut c = val.chars();
                     let result = match c.next() {
@@ -184,7 +184,7 @@ impl PyObject for PyString {
             }
             "strip" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("strip".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("strip".to_string(), move |args| {
                     if args.len() > 1 { return Err("TypeError: strip() takes at most 1 argument (2 given)".to_string()); }
                     let s = if args.is_empty() {
                         val.trim().to_string()
@@ -197,7 +197,7 @@ impl PyObject for PyString {
             }
             "lstrip" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("lstrip".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("lstrip".to_string(), move |args| {
                     if args.len() > 1 { return Err("TypeError: lstrip() takes at most 1 argument (2 given)".to_string()); }
                     let s = if args.is_empty() {
                         val.trim_start().to_string()
@@ -210,7 +210,7 @@ impl PyObject for PyString {
             }
             "rstrip" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("rstrip".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("rstrip".to_string(), move |args| {
                     if args.len() > 1 { return Err("TypeError: rstrip() takes at most 1 argument (2 given)".to_string()); }
                     let s = if args.is_empty() {
                         val.trim_end().to_string()
@@ -223,7 +223,7 @@ impl PyObject for PyString {
             }
             "split" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("split".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("split".to_string(), move |args| {
                     if args.len() > 1 { return Err("TypeError: split() takes at most 1 argument (2 given)".to_string()); }
                     let parts: Vec<Rc<dyn PyObject>> = if args.is_empty() {
                         val.split_whitespace().map(|s| Rc::new(PyString::new(s.to_string())) as Rc<dyn PyObject>).collect()
@@ -236,7 +236,7 @@ impl PyObject for PyString {
             }
             "join" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("join".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("join".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: join() takes exactly one argument ({} given)".to_string()); }
                     let iterable = &args[0];
                     let iter = iterable.get_iter()?;
@@ -252,7 +252,7 @@ impl PyObject for PyString {
             }
             "replace" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("replace".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("replace".to_string(), move |args| {
                     if args.len() != 2 { return Err("TypeError: replace() takes exactly 2 arguments ({} given)".to_string()); }
                     let old = args[0].str();
                     let new = args[1].str();
@@ -261,7 +261,7 @@ impl PyObject for PyString {
             }
             "startswith" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("startswith".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("startswith".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: startswith() takes exactly one argument ({} given)".to_string()); }
                     let prefix = args[0].str();
                     Ok(Rc::new(crate::objects::bool::PyBool::new(val.starts_with(&prefix))))
@@ -269,7 +269,7 @@ impl PyObject for PyString {
             }
             "endswith" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("endswith".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("endswith".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: endswith() takes exactly one argument ({} given)".to_string()); }
                     let suffix = args[0].str();
                     Ok(Rc::new(crate::objects::bool::PyBool::new(val.ends_with(&suffix))))
@@ -277,7 +277,7 @@ impl PyObject for PyString {
             }
             "find" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("find".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("find".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: find() takes exactly one argument ({} given)".to_string()); }
                     let sub = args[0].str();
                     match val.find(&sub) {
@@ -288,7 +288,7 @@ impl PyObject for PyString {
             }
             "index" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("index".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("index".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: index() takes exactly one argument ({} given)".to_string()); }
                     let sub = args[0].str();
                     match val.find(&sub) {
@@ -299,7 +299,7 @@ impl PyObject for PyString {
             }
             "count" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("count".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("count".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: count() takes exactly one argument ({} given)".to_string()); }
                     let sub = args[0].str();
                     Ok(Rc::new(crate::objects::int::PyInt::from_i64(val.matches(&sub).count() as i64)))
@@ -307,35 +307,35 @@ impl PyObject for PyString {
             }
             "isdigit" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("isdigit".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isdigit".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: isdigit() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(crate::objects::bool::PyBool::new(val.chars().all(|c| c.is_ascii_digit()))))
                 })))
             }
             "isalpha" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("isalpha".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isalpha".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: isalpha() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(crate::objects::bool::PyBool::new(!val.is_empty() && val.chars().all(|c| c.is_alphabetic()))))
                 })))
             }
             "isalnum" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("isalnum".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isalnum".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: isalnum() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(crate::objects::bool::PyBool::new(!val.is_empty() && val.chars().all(|c| c.is_alphanumeric()))))
                 })))
             }
             "isspace" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("isspace".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("isspace".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: isspace() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(crate::objects::bool::PyBool::new(!val.is_empty() && val.chars().all(|c| c.is_whitespace()))))
                 })))
             }
             "zfill" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("zfill".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("zfill".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: zfill() takes exactly one argument ({} given)".to_string()); }
                     let width = match args[0].str().parse::<i64>() {
                         Ok(w) => w as usize,
@@ -350,7 +350,7 @@ impl PyObject for PyString {
             }
             "ljust" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("ljust".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("ljust".to_string(), move |args| {
                     if args.len() < 1 || args.len() > 2 { return Err("TypeError: ljust() takes 1-2 arguments ({} given)".to_string()); }
                     let width = match args[0].str().parse::<i64>() {
                         Ok(w) => w as usize,
@@ -366,7 +366,7 @@ impl PyObject for PyString {
             }
             "rjust" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("rjust".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("rjust".to_string(), move |args| {
                     if args.len() < 1 || args.len() > 2 { return Err("TypeError: rjust() takes 1-2 arguments ({} given)".to_string()); }
                     let width = match args[0].str().parse::<i64>() {
                         Ok(w) => w as usize,
@@ -382,7 +382,7 @@ impl PyObject for PyString {
             }
             "center" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("center".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("center".to_string(), move |args| {
                     if args.len() < 1 || args.len() > 2 { return Err("TypeError: center() takes 1-2 arguments ({} given)".to_string()); }
                     let width = match args[0].str().parse::<i64>() {
                         Ok(w) => w as usize,
@@ -401,7 +401,7 @@ impl PyObject for PyString {
             }
             "title" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("title".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("title".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: title() takes no arguments (1 given)".to_string()); }
                     let mut result = String::new();
                     let mut at_start = true;
@@ -418,7 +418,7 @@ impl PyObject for PyString {
             }
             "swapcase" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new("swapcase".to_string(), move |args| {
+                Ok(Rc::new(PyNativeFunction::new_pos_only("swapcase".to_string(), move |args| {
                     if args.len() != 0 { return Err("TypeError: swapcase() takes no arguments (1 given)".to_string()); }
                     Ok(Rc::new(PyString::new(val.chars().map(|c| if c.is_uppercase() { c.to_lowercase().to_string() } else { c.to_uppercase().to_string() }).collect::<String>())))
                 })))

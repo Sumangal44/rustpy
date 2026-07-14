@@ -1997,4 +1997,69 @@ val = asyncio.run(main())
 ");
         assert_eq!(env.borrow().get("val").unwrap().repr(), "3");
     }
+
+    #[test]
+    fn test_print_to_file() {
+        let env = execute_source("
+f = open(\"/tmp/rustpy_print_test.txt\", \"w\")
+print(\"hello world\", file=f)
+f.close()
+f2 = open(\"/tmp/rustpy_print_test.txt\", \"r\")
+result = f2.read()
+");
+        assert_eq!(env.borrow().get("result").unwrap().str(), "hello world\n");
+        std::fs::remove_file("/tmp/rustpy_print_test.txt").ok();
+    }
+
+    #[test]
+    fn test_print_sep() {
+        let env = execute_source("
+f = open(\"/tmp/rustpy_print_sep.txt\", \"w\")
+print(\"a\", \"b\", \"c\", sep=\"-\", file=f)
+f.close()
+f2 = open(\"/tmp/rustpy_print_sep.txt\", \"r\")
+result = f2.read()
+");
+        assert_eq!(env.borrow().get("result").unwrap().str(), "a-b-c\n");
+        std::fs::remove_file("/tmp/rustpy_print_sep.txt").ok();
+    }
+
+    #[test]
+    fn test_print_end() {
+        let env = execute_source("
+f = open(\"/tmp/rustpy_print_end.txt\", \"w\")
+print(\"hello\", end=\"\", file=f)
+f.close()
+f2 = open(\"/tmp/rustpy_print_end.txt\", \"r\")
+result = f2.read()
+");
+        assert_eq!(env.borrow().get("result").unwrap().str(), "hello");
+        std::fs::remove_file("/tmp/rustpy_print_end.txt").ok();
+    }
+
+    #[test]
+    fn test_print_all_kwargs() {
+        let env = execute_source("
+f = open(\"/tmp/rustpy_print_all.txt\", \"w\")
+print(\"x\", \"y\", sep=\"|\", end=\"END\", file=f)
+f.close()
+f2 = open(\"/tmp/rustpy_print_all.txt\", \"r\")
+result = f2.read()
+");
+        assert_eq!(env.borrow().get("result").unwrap().str(), "x|yEND");
+        std::fs::remove_file("/tmp/rustpy_print_all.txt").ok();
+    }
+
+    #[test]
+    fn test_print_flush() {
+        let env = execute_source("
+f = open(\"/tmp/rustpy_print_flush.txt\", \"w\")
+print(\"flush test\", file=f, flush=True)
+f.close()
+f2 = open(\"/tmp/rustpy_print_flush.txt\", \"r\")
+result = f2.read()
+");
+        assert_eq!(env.borrow().get("result").unwrap().str(), "flush test\n");
+        std::fs::remove_file("/tmp/rustpy_print_flush.txt").ok();
+    }
 }

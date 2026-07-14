@@ -97,6 +97,14 @@ impl PyFile {
             })),
         }
     }
+
+    pub fn write(&self, data: String) -> Result<Rc<dyn PyObject>, String> {
+        write_impl(&self.inner, &data)
+    }
+
+    pub fn flush(&self) -> Result<Rc<dyn PyObject>, String> {
+        flush_impl(&self.inner)
+    }
 }
 
 fn check_closed(inner: &RefCell<PyFileInner>) -> Result<(), String> {
@@ -290,6 +298,24 @@ fn readlines_impl(inner: &RefCell<PyFileInner>) -> Result<Rc<dyn PyObject>, Stri
     Ok(Rc::new(crate::objects::list::PyList::new(lines)))
 }
 
+fn flush_impl(inner: &RefCell<PyFileInner>) -> Result<Rc<dyn PyObject>, String> {
+    check_closed(inner)?;
+    let mut inner_mut = inner.borrow_mut();
+    match &mut inner_mut.kind {
+        PyFileKind::File(f) => {
+            f.flush().map_err(|e| format!("OSError: {}", e))?;
+        }
+        PyFileKind::Stdout => {
+            io::stdout().flush().map_err(|e| format!("OSError: {}", e))?;
+        }
+        PyFileKind::Stderr => {
+            io::stderr().flush().map_err(|e| format!("OSError: {}", e))?;
+        }
+        _ => {}
+    }
+    Ok(Rc::new(PyNone::new()))
+}
+
 fn write_impl(inner: &RefCell<PyFileInner>, data: &str) -> Result<Rc<dyn PyObject>, String> {
     check_closed(inner)?;
     let mut inner_mut = inner.borrow_mut();
@@ -425,7 +451,7 @@ impl PyObject for PyFile {
         let is_binary = mode.contains('b');
 
         match attr {
-            "read" => Ok(Rc::new(PyNativeFunction::new(
+            "read" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "read".to_string(),
                 move |args| {
                     let size = if args.len() >= 1 {
@@ -448,7 +474,7 @@ impl PyObject for PyFile {
                     read_impl(&inner, size)
                 },
             ))),
-            "readline" => Ok(Rc::new(PyNativeFunction::new(
+            "readline" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "readline".to_string(),
                 move |args| {
                     let size = if args.len() >= 1 {
@@ -466,7 +492,7 @@ impl PyObject for PyFile {
                     readline_impl(&inner, size)
                 },
             ))),
-            "readlines" => Ok(Rc::new(PyNativeFunction::new(
+            "readlines" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "readlines".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -477,7 +503,7 @@ impl PyObject for PyFile {
             ))),
             "write" => {
                 if is_binary {
-                    Ok(Rc::new(PyNativeFunction::new(
+                    Ok(Rc::new(PyNativeFunction::new_pos_only(
                         "write".to_string(),
                         move |args| {
                             if args.is_empty() {
@@ -495,7 +521,7 @@ impl PyObject for PyFile {
                         },
                     )))
                 } else {
-                    Ok(Rc::new(PyNativeFunction::new(
+                    Ok(Rc::new(PyNativeFunction::new_pos_only(
                         "write".to_string(),
                         move |args| {
                             if args.is_empty() {
@@ -508,7 +534,7 @@ impl PyObject for PyFile {
                     )))
                 }
             }
-            "writelines" => Ok(Rc::new(PyNativeFunction::new(
+            "writelines" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "writelines".to_string(),
                 move |args| {
                     if args.is_empty() {
@@ -531,7 +557,7 @@ impl PyObject for PyFile {
                     Ok(Rc::new(PyNone::new()))
                 },
             ))),
-            "close" => Ok(Rc::new(PyNativeFunction::new(
+            "close" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "close".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -540,33 +566,16 @@ impl PyObject for PyFile {
                     close_impl(&inner)
                 },
             ))),
-            "flush" => Ok(Rc::new(PyNativeFunction::new(
+            "flush" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "flush".to_string(),
                 move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: flush() takes no arguments".to_string());
                     }
-                    let mut inner_mut = inner.borrow_mut();
-                    if inner_mut.closed {
-                        return Err("ValueError: I/O operation on closed file.".to_string());
-                    }
-                    match &mut inner_mut.kind {
-                        PyFileKind::File(f) => {
-                            f.flush().map_err(|e| format!("OSError: {}", e))?;
-                        }
-                        PyFileKind::Stdout => {
-                            io::stdout().flush().map_err(|e| format!("OSError: {}", e))?;
-                        }
-                        PyFileKind::Stderr => {
-                            io::stderr().flush().map_err(|e| format!("OSError: {}", e))?;
-                        }
-                        _ => {}
-                    }
-                    drop(inner_mut);
-                    Ok(Rc::new(PyNone::new()))
+                    flush_impl(&inner)
                 },
             ))),
-            "seek" => Ok(Rc::new(PyNativeFunction::new(
+            "seek" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "seek".to_string(),
                 move |args| {
                     if args.is_empty() || args.len() > 2 {
@@ -606,7 +615,7 @@ impl PyObject for PyFile {
                     }
                 },
             ))),
-            "tell" => Ok(Rc::new(PyNativeFunction::new(
+            "tell" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "tell".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -625,7 +634,7 @@ impl PyObject for PyFile {
                     }
                 },
             ))),
-            "fileno" => Ok(Rc::new(PyNativeFunction::new(
+            "fileno" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "fileno".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -650,7 +659,7 @@ impl PyObject for PyFile {
                     }
                 },
             ))),
-            "isatty" => Ok(Rc::new(PyNativeFunction::new(
+            "isatty" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "isatty".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -676,7 +685,7 @@ impl PyObject for PyFile {
                     }
                 },
             ))),
-            "readable" => Ok(Rc::new(PyNativeFunction::new(
+            "readable" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "readable".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -689,7 +698,7 @@ impl PyObject for PyFile {
                     Ok(Rc::new(PyBool::new(r)))
                 },
             ))),
-            "writable" => Ok(Rc::new(PyNativeFunction::new(
+            "writable" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "writable".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -701,7 +710,7 @@ impl PyObject for PyFile {
                     Ok(Rc::new(PyBool::new(w)))
                 },
             ))),
-            "seekable" => Ok(Rc::new(PyNativeFunction::new(
+            "seekable" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "seekable".to_string(),
                 move |args| {
                     if !args.is_empty() {
@@ -716,7 +725,7 @@ impl PyObject for PyFile {
             ))),
             "__enter__" => {
                 let inner_clone = Rc::clone(&self.inner);
-                Ok(Rc::new(PyNativeFunction::new(
+                Ok(Rc::new(PyNativeFunction::new_pos_only(
                     "__enter__".to_string(),
                     move |args| {
                         if !args.is_empty() {
@@ -729,7 +738,7 @@ impl PyObject for PyFile {
                     },
                 )))
             }
-            "__exit__" => Ok(Rc::new(PyNativeFunction::new(
+            "__exit__" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "__exit__".to_string(),
                 move |_args| {
                     close_impl(&inner)?;

@@ -61,7 +61,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         let exc_name = exc.to_string();
         env_mut.set(
             exc_name.clone(),
-            Rc::new(PyNativeFunction::new(exc_name.clone(), move |args| {
+            Rc::new(PyNativeFunction::new_pos_only(exc_name.clone(), move |args| {
                 let msg = if !args.is_empty() {
                     Some(args[0].str())
                 } else {
@@ -75,26 +75,62 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         );
     }
 
-    // print(*args)
-    env_mut.set(
-        "print".to_string(),
-        Rc::new(PyNativeFunction::new("print".to_string(), |args| {
+    // print(*objects, sep=' ', end='\n', file=sys.stdout, flush=False)
+    let print_func = {
+        let env = env.clone();
+        Rc::new(PyNativeFunction::new("print".to_string(), move |args, kwargs| {
+            let sep = kwargs.get("sep").map_or(" ".to_string(), |v| v.str());
+            let end = kwargs.get("end").map_or("\n".to_string(), |v| v.str());
+            let flush = kwargs.get("flush").map_or(false, |v| v.is_truthy());
+
             let mut out = String::new();
             for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    out.push(' ');
-                }
+                if i > 0 { out.push_str(&sep); }
                 out.push_str(&arg.str());
             }
-            println!("{}", out);
+            out.push_str(&end);
+
+            let file = if let Some(v) = kwargs.get("file") {
+                Rc::clone(v)
+            } else {
+                env.borrow().get("stdout")
+                    .unwrap_or_else(|| Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>)
+            };
+
+            if let Some(file_obj) = file.as_any().downcast_ref::<crate::objects::file::PyFile>() {
+                file_obj.write(out)?;
+                if flush { file_obj.flush()?; }
+            } else if let Some(bm) = file.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
+                let write_args = vec![Rc::new(crate::objects::string::PyString::new(out)) as Rc<dyn PyObject>];
+                let mut bound_args = vec![Rc::new(bm.instance.clone()) as Rc<dyn PyObject>];
+                bound_args.extend(write_args);
+                if let Some(native_fn) = bm.func.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                    (native_fn.func)(bound_args, std::collections::HashMap::new())?;
+                } else {
+                    return Err("TypeError: file.write is not callable".to_string());
+                }
+                if flush {
+                    let flush_func = file.get_attr("flush")?;
+                    if let Some(bm2) = flush_func.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
+                        let f_args = vec![Rc::new(bm2.instance.clone()) as Rc<dyn PyObject>];
+                        if let Some(nf) = bm2.func.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                            (nf.func)(f_args, std::collections::HashMap::new())?;
+                        }
+                    }
+                }
+            } else {
+                print!("{}", out);
+            }
+
             Ok(Rc::new(PyNone::new()))
-        })),
-    );
+        }))
+    };
+    env_mut.set("print".to_string(), print_func);
 
     // len(obj)
     env_mut.set(
         "len".to_string(),
-        Rc::new(PyNativeFunction::new("len".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("len".to_string(), |args| {
             if args.len() != 1 {
                 return Err(format!(
                     "TypeError: len() takes exactly one argument ({} given)",
@@ -132,7 +168,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // str(obj)
     env_mut.set(
         "str".to_string(),
-        Rc::new(PyNativeFunction::new("str".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("str".to_string(), |args| {
             if args.len() != 1 {
                 return Err(format!(
                     "TypeError: str() takes exactly one argument ({} given)",
@@ -147,7 +183,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // type(obj)
     env_mut.set(
         "type".to_string(),
-        Rc::new(PyNativeFunction::new("type".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("type".to_string(), |args| {
             if args.len() != 1 {
                 return Err(format!(
                     "TypeError: type() takes exactly one argument ({} given)",
@@ -165,7 +201,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // getattr(object, name[, default])
     env_mut.set(
         "getattr".to_string(),
-        Rc::new(PyNativeFunction::new("getattr".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("getattr".to_string(), |args| {
             if args.len() < 2 || args.len() > 3 {
                 return Err(format!(
                     "TypeError: getattr expected at least 2 arguments, got {}",
@@ -200,7 +236,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // setattr(object, name, value)
     env_mut.set(
         "setattr".to_string(),
-        Rc::new(PyNativeFunction::new("setattr".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("setattr".to_string(), |args| {
             if args.len() != 3 {
                 return Err("TypeError: setattr expected 3 arguments".to_string());
             }
@@ -225,7 +261,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // hasattr(object, name)
     env_mut.set(
         "hasattr".to_string(),
-        Rc::new(PyNativeFunction::new("hasattr".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("hasattr".to_string(), |args| {
             if args.len() != 2 {
                 return Err("TypeError: hasattr expected 2 arguments".to_string());
             }
@@ -251,7 +287,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // isinstance(object, classinfo)
     env_mut.set(
         "isinstance".to_string(),
-        Rc::new(PyNativeFunction::new("isinstance".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("isinstance".to_string(), |args| {
             if args.len() != 2 {
                 return Err("TypeError: isinstance expected 2 arguments".to_string());
             }
@@ -282,7 +318,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // id(object)
     env_mut.set(
         "id".to_string(),
-        Rc::new(PyNativeFunction::new("id".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("id".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: id() takes exactly one argument".to_string());
             }
@@ -295,7 +331,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // hash(object)
     env_mut.set(
         "hash".to_string(),
-        Rc::new(PyNativeFunction::new("hash".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("hash".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: hash() takes exactly one argument".to_string());
             }
@@ -310,7 +346,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // bool(object)
     env_mut.set(
         "bool".to_string(),
-        Rc::new(PyNativeFunction::new("bool".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("bool".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
             }
@@ -326,7 +362,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // int(object)
     env_mut.set(
         "int".to_string(),
-        Rc::new(PyNativeFunction::new("int".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("int".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::int::PyInt::from_i64(0)));
             }
@@ -354,7 +390,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // list(iterable)
     env_mut.set(
         "list".to_string(),
-        Rc::new(PyNativeFunction::new("list".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("list".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::list::PyList::new(vec![])));
             }
@@ -374,7 +410,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // tuple(iterable)
     env_mut.set(
         "tuple".to_string(),
-        Rc::new(PyNativeFunction::new("tuple".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("tuple".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![])));
             }
@@ -394,7 +430,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // dict()
     env_mut.set(
         "dict".to_string(),
-        Rc::new(PyNativeFunction::new("dict".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("dict".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::dict::PyDict::new()));
             }
@@ -404,7 +440,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // callable(object)
     env_mut.set(
         "callable".to_string(),
-        Rc::new(PyNativeFunction::new("callable".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("callable".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: callable() takes exactly one argument".to_string());
             }
@@ -420,7 +456,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // object()
     env_mut.set(
         "object".to_string(),
-        Rc::new(PyNativeFunction::new("object".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("object".to_string(), |args| {
             if !args.is_empty() {
                 return Err("TypeError: object() takes no arguments".to_string());
             }
@@ -430,7 +466,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // complex(real, imag)
     env_mut.set(
         "complex".to_string(),
-        Rc::new(PyNativeFunction::new("complex".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("complex".to_string(), |args| {
             if args.len() != 2 {
                 return Err(format!("TypeError: complex() takes exactly 2 arguments ({} given)", args.len()));
             }
@@ -455,7 +491,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // classmethod(function)
     env_mut.set(
         "classmethod".to_string(),
-        Rc::new(PyNativeFunction::new("classmethod".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("classmethod".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: classmethod() takes exactly one argument".to_string());
             }
@@ -466,7 +502,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // staticmethod(function)
     env_mut.set(
         "staticmethod".to_string(),
-        Rc::new(PyNativeFunction::new("staticmethod".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("staticmethod".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: staticmethod() takes exactly one argument".to_string());
             }
@@ -477,7 +513,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // property(fget, fset=None, fdel=None, doc=None)
     env_mut.set(
         "property".to_string(),
-        Rc::new(PyNativeFunction::new("property".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("property".to_string(), |args| {
             if args.is_empty() || args.len() > 4 {
                 return Err("TypeError: property() takes 1-4 arguments".to_string());
             }
@@ -491,7 +527,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // super()
     env_mut.set(
         "super".to_string(),
-        Rc::new(PyNativeFunction::new("super".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("super".to_string(), |args| {
             if args.len() != 2 {
                 return Err("TypeError: super() takes exactly 2 arguments (type, obj)".to_string());
             }
@@ -515,7 +551,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // abs(x)
     env_mut.set(
         "abs".to_string(),
-        Rc::new(PyNativeFunction::new("abs".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("abs".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: abs() takes exactly one argument".to_string());
             }
@@ -533,7 +569,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // max(*args)
     env_mut.set(
         "max".to_string(),
-        Rc::new(PyNativeFunction::new("max".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("max".to_string(), |args| {
             if args.is_empty() {
                 return Err("TypeError: max expected 1 argument, got 0".to_string());
             }
@@ -558,7 +594,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // min(*args)
     env_mut.set(
         "min".to_string(),
-        Rc::new(PyNativeFunction::new("min".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("min".to_string(), |args| {
             if args.is_empty() {
                 return Err("TypeError: min expected 1 argument, got 0".to_string());
             }
@@ -583,7 +619,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // sum(iterable)
     env_mut.set(
         "sum".to_string(),
-        Rc::new(PyNativeFunction::new("sum".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("sum".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: sum expected 1 argument".to_string());
             }
@@ -603,7 +639,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // repr(obj)
     env_mut.set(
         "repr".to_string(),
-        Rc::new(PyNativeFunction::new("repr".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("repr".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: repr() takes exactly one argument".to_string());
             }
@@ -616,7 +652,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // bin(x)
     env_mut.set(
         "bin".to_string(),
-        Rc::new(PyNativeFunction::new("bin".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("bin".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: bin() takes exactly one argument".to_string());
             }
@@ -637,7 +673,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // hex(x)
     env_mut.set(
         "hex".to_string(),
-        Rc::new(PyNativeFunction::new("hex".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("hex".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: hex() takes exactly one argument".to_string());
             }
@@ -657,7 +693,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // iter(object)
     env_mut.set(
         "iter".to_string(),
-        Rc::new(PyNativeFunction::new("iter".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("iter".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: iter() takes exactly one argument".to_string());
             }
@@ -668,7 +704,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // next(iterator[, default])
     env_mut.set(
         "next".to_string(),
-        Rc::new(PyNativeFunction::new("next".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("next".to_string(), |args| {
             if args.is_empty() || args.len() > 2 {
                 return Err("TypeError: next expected at most 2 arguments".to_string());
             }
@@ -688,7 +724,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // all(iterable)
     env_mut.set(
         "all".to_string(),
-        Rc::new(PyNativeFunction::new("all".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("all".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: all() takes exactly one argument".to_string());
             }
@@ -705,7 +741,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // any(iterable)
     env_mut.set(
         "any".to_string(),
-        Rc::new(PyNativeFunction::new("any".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("any".to_string(), |args| {
             if args.len() != 1 {
                 return Err("TypeError: any() takes exactly one argument".to_string());
             }
@@ -722,7 +758,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let env_clone = Rc::clone(env);
     env_mut.set(
         "globals".to_string(),
-        Rc::new(PyNativeFunction::new("globals".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new_pos_only("globals".to_string(), move |args| {
             if !args.is_empty() {
                 return Err("TypeError: globals() takes no arguments".to_string());
             }
@@ -738,7 +774,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let env_clone2 = Rc::clone(env);
     env_mut.set(
         "locals".to_string(),
-        Rc::new(PyNativeFunction::new("locals".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new_pos_only("locals".to_string(), move |args| {
             if !args.is_empty() {
                 return Err("TypeError: locals() takes no arguments".to_string());
             }
@@ -753,7 +789,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let env_for_eval = Rc::clone(env);
     env_mut.set(
         "eval".to_string(),
-        Rc::new(PyNativeFunction::new("eval".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new_pos_only("eval".to_string(), move |args| {
             if args.is_empty() || args.len() > 3 {
                 return Err("TypeError: eval() takes at most 3 arguments".to_string());
             }
@@ -782,7 +818,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // range(stop), range(start, stop), range(start, stop, step)
     env_mut.set(
         "range".to_string(),
-        Rc::new(PyNativeFunction::new("range".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("range".to_string(), |args| {
             if args.is_empty() || args.len() > 3 {
                 return Err(format!("TypeError: range() takes 1-3 arguments ({} given)", args.len()));
             }
@@ -810,7 +846,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let env_for_exec = Rc::clone(env);
     env_mut.set(
         "exec".to_string(),
-        Rc::new(PyNativeFunction::new("exec".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new_pos_only("exec".to_string(), move |args| {
             if args.is_empty() || args.len() > 3 {
                 return Err("TypeError: exec() takes at most 3 arguments".to_string());
             }
@@ -840,7 +876,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // compile(source, filename, mode, flags=0, dont_inherit=False, optimize=-1)
     env_mut.set(
         "compile".to_string(),
-        Rc::new(PyNativeFunction::new("compile".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("compile".to_string(), |args| {
             if args.len() < 3 {
                 return Err("TypeError: compile() requires at least 3 arguments".to_string());
             }
@@ -894,7 +930,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // chr(i) -> str
     env_mut.set(
         "chr".to_string(),
-        Rc::new(PyNativeFunction::new("chr".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("chr".to_string(), |args| {
             if args.len() != 1 { return Err("TypeError: chr() takes exactly one argument".to_string()); }
             let val = if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
                 i.as_i64().unwrap_or(0)
@@ -914,7 +950,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // ord(c) -> int
     env_mut.set(
         "ord".to_string(),
-        Rc::new(PyNativeFunction::new("ord".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("ord".to_string(), |args| {
             if args.len() != 1 { return Err("TypeError: ord() takes exactly one argument".to_string()); }
             let s = args[0].str();
             let c = s.chars().next().ok_or_else(|| "TypeError: ord() expected a character, not empty string".to_string())?;
@@ -925,7 +961,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // pow(x, y) -> number
     env_mut.set(
         "pow".to_string(),
-        Rc::new(PyNativeFunction::new("pow".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("pow".to_string(), |args| {
             if args.len() < 2 || args.len() > 3 { return Err("TypeError: pow() takes 2-3 arguments".to_string()); }
             // Simple two-argument pow using multiplication
             let base = &args[0];
@@ -940,7 +976,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // round(x) -> int
     env_mut.set(
         "round".to_string(),
-        Rc::new(PyNativeFunction::new("round".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("round".to_string(), |args| {
             if args.len() != 1 { return Err("TypeError: round() takes exactly one argument".to_string()); }
             if let Some(f) = args[0].as_any().downcast_ref::<crate::objects::float::PyFloat>() {
                 Ok(Rc::new(crate::objects::int::PyInt::from_i64(f.value.round() as i64)))
@@ -955,7 +991,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // sorted(iterable) -> list
     env_mut.set(
         "sorted".to_string(),
-        Rc::new(PyNativeFunction::new("sorted".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("sorted".to_string(), |args| {
             if args.len() != 1 { return Err("TypeError: sorted() takes exactly one argument".to_string()); }
             let iter = args[0].get_iter()?;
             let mut items: Vec<Rc<dyn PyObject>> = Vec::new();
@@ -986,7 +1022,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // reversed(seq) -> iterator (eager: returns a reversed list)
     env_mut.set(
         "reversed".to_string(),
-        Rc::new(PyNativeFunction::new("reversed".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("reversed".to_string(), |args| {
             if args.len() != 1 { return Err("TypeError: reversed() takes exactly one argument".to_string()); }
             let iter = args[0].get_iter()?;
             let mut items: Vec<Rc<dyn PyObject>> = Vec::new();
@@ -1001,7 +1037,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // enumerate(iterable, start=0) -> list of [index, value] pairs
     env_mut.set(
         "enumerate".to_string(),
-        Rc::new(PyNativeFunction::new("enumerate".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("enumerate".to_string(), |args| {
             if args.len() < 1 || args.len() > 2 { return Err("TypeError: enumerate() takes 1-2 arguments".to_string()); }
             let start = if args.len() >= 2 {
                 if let Some(i) = args[1].as_any().downcast_ref::<crate::objects::int::PyInt>() { i.as_i64().unwrap_or(0) } else { 0 }
@@ -1024,13 +1060,13 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // map(func, iterable) -> list (eager; only native functions for now)
     env_mut.set(
         "map".to_string(),
-        Rc::new(PyNativeFunction::new("map".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("map".to_string(), |args| {
             if args.len() != 2 { return Err("TypeError: map() takes exactly 2 arguments".to_string()); }
             if let Some(native) = args[0].as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
                 let iter = args[1].get_iter()?;
                 let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
                 while let Some(item) = iter.get_next()? {
-                    result.push((native.func)(vec![item])?);
+                    result.push((native.func)(vec![item], std::collections::HashMap::new())?);
                 }
                 Ok(Rc::new(crate::objects::list::PyList::new(result)))
             } else {
@@ -1042,13 +1078,13 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // filter(func, iterable) -> list (eager; only native functions for now)
     env_mut.set(
         "filter".to_string(),
-        Rc::new(PyNativeFunction::new("filter".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("filter".to_string(), |args| {
             if args.len() != 2 { return Err("TypeError: filter() takes exactly 2 arguments".to_string()); }
             if let Some(native) = args[0].as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
                 let iter = args[1].get_iter()?;
                 let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
                 while let Some(item) = iter.get_next()? {
-                    let should_keep = (native.func)(vec![Rc::clone(&item)])?;
+                    let should_keep = (native.func)(vec![Rc::clone(&item)], std::collections::HashMap::new())?;
                     if should_keep.is_truthy() {
                         result.push(item);
                     }
@@ -1063,7 +1099,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // zip(*iterables) -> list of lists (eager)
     env_mut.set(
         "zip".to_string(),
-        Rc::new(PyNativeFunction::new("zip".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("zip".to_string(), |args| {
             if args.is_empty() { return Ok(Rc::new(crate::objects::list::PyList::new(Vec::new()))); }
             let mut iters: Vec<Rc<dyn PyObject>> = Vec::new();
             for arg in args {
@@ -1088,7 +1124,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // bytes(source) -> bytes
     env_mut.set(
         "bytes".to_string(),
-        Rc::new(PyNativeFunction::new("bytes".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("bytes".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(PyBytes::new(Vec::new())));
             }
@@ -1127,7 +1163,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // set(iterable) -> set
     env_mut.set(
         "set".to_string(),
-        Rc::new(PyNativeFunction::new("set".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("set".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::set::PySet::new(Vec::new())));
             }
@@ -1146,7 +1182,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // frozenset(iterable) -> frozenset
     env_mut.set(
         "frozenset".to_string(),
-        Rc::new(PyNativeFunction::new("frozenset".to_string(), |args| {
+        Rc::new(PyNativeFunction::new_pos_only("frozenset".to_string(), |args| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::set::PyFrozenSet::new(Vec::new())));
             }
@@ -1165,12 +1201,14 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // open(file, mode='r', encoding=None)
     env_mut.set(
         "open".to_string(),
-        Rc::new(PyNativeFunction::new("open".to_string(), |args| {
-            if args.is_empty() || args.len() > 3 {
-                return Err(format!("TypeError: open() takes at most 3 arguments ({} given)", args.len()));
+        Rc::new(PyNativeFunction::new("open".to_string(), |args, kwargs| {
+            if args.is_empty() {
+                return Err("TypeError: open() missing required argument 'file'".to_string());
             }
             let path = args[0].str();
-            let mode = if args.len() >= 2 {
+            let mode = if let Some(v) = kwargs.get("mode") {
+                v.str()
+            } else if args.len() >= 2 {
                 args[1].str()
             } else {
                 "r".to_string()
@@ -1260,7 +1298,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let math_module = Rc::new(PyModule::new("math_native".to_string()));
     math_module.set_attr_inner(
         "sqrt",
-        Rc::new(PyNativeFunction::new("sqrt".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new_pos_only("sqrt".to_string(), move |args| {
             if args.len() != 1 {
                 return Err("TypeError: sqrt() takes exactly one argument".to_string());
             }
@@ -1283,7 +1321,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let asyncio_module = Rc::new(PyModule::new("asyncio".to_string()));
     asyncio_module.set_attr_inner(
         "run",
-        Rc::new(PyNativeFunction::new("run".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new_pos_only("run".to_string(), move |args| {
             if args.len() != 1 {
                 return Err("TypeError: run() takes exactly one argument (the coroutine)".to_string());
             }
@@ -1330,7 +1368,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let mut env_mut2 = env.borrow_mut();
     env_mut2.set(
         "__import__".to_string(),
-        Rc::new(PyNativeFunction::new(
+        Rc::new(PyNativeFunction::new_pos_only(
             "__import__".to_string(),
             move |args| {
                 // __import__(name, globals=None, locals=None, fromlist=(), level=0)

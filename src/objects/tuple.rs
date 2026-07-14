@@ -279,7 +279,7 @@ impl PyObject for PyTuple {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let elements = self.elements.clone();
         match attr {
-            "index" => Ok(Rc::new(PyNativeFunction::new("index".to_string(), move |args| {
+            "index" => Ok(Rc::new(PyNativeFunction::new_pos_only("index".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: tuple.index() takes exactly one argument".to_string()); }
                 for i in 0..elements.len() {
                     let eq = elements[i].eq(Rc::clone(&args[0]));
@@ -291,7 +291,7 @@ impl PyObject for PyTuple {
                 }
                 Err("ValueError: tuple.index(x): x not in tuple".to_string())
             }))),
-            "count" => Ok(Rc::new(PyNativeFunction::new("count".to_string(), move |args| {
+            "count" => Ok(Rc::new(PyNativeFunction::new_pos_only("count".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: tuple.count() takes exactly one argument".to_string()); }
                 let mut cnt = 0i64;
                 for i in 0..elements.len() {

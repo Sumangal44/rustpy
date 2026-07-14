@@ -24,7 +24,7 @@ impl PyProperty {
     pub fn call_getter(&self, instance: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
         if let Some(fget) = &self.fget {
             if let Some(native) = fget.as_any().downcast_ref::<PyNativeFunction>() {
-                return (native.func)(vec![instance]);
+                return (native.func)(vec![instance], std::collections::HashMap::new());
             }
             return Err("TypeError: property getter must be a native callable or use the VM".to_string());
         }

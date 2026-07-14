@@ -1,8 +1,9 @@
 use super::PyObject;
 use std::any::Any;
+use std::collections::HashMap;
 use std::rc::Rc;
 
-pub type NativeFunc = Rc<dyn Fn(Vec<Rc<dyn PyObject>>) -> Result<Rc<dyn PyObject>, String>>;
+pub type NativeFunc = Rc<dyn Fn(Vec<Rc<dyn PyObject>>, HashMap<String, Rc<dyn PyObject>>) -> Result<Rc<dyn PyObject>, String>>;
 
 #[derive(Clone)]
 pub struct PyNativeFunction {
@@ -13,11 +14,21 @@ pub struct PyNativeFunction {
 impl PyNativeFunction {
     pub fn new<F>(name: String, func: F) -> Self
     where
-        F: Fn(Vec<Rc<dyn PyObject>>) -> Result<Rc<dyn PyObject>, String> + 'static,
+        F: Fn(Vec<Rc<dyn PyObject>>, HashMap<String, Rc<dyn PyObject>>) -> Result<Rc<dyn PyObject>, String> + 'static,
     {
         Self {
             name,
             func: Rc::new(func),
+        }
+    }
+
+    pub fn new_pos_only<F>(name: String, func: F) -> Self
+    where
+        F: Fn(Vec<Rc<dyn PyObject>>) -> Result<Rc<dyn PyObject>, String> + 'static,
+    {
+        Self {
+            name,
+            func: Rc::new(move |args, _kwargs| func(args)),
         }
     }
 }

@@ -159,7 +159,7 @@ impl PyObject for PyDict {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let entries = Rc::clone(&self.entries);
         match attr {
-            "keys" => Ok(Rc::new(PyNativeFunction::new("keys".to_string(), move |args| {
+            "keys" => Ok(Rc::new(PyNativeFunction::new_pos_only("keys".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: dict.keys() takes no arguments".to_string()); }
                 let map = entries.borrow();
                 let mut keys: Vec<Rc<dyn PyObject>> = Vec::new();
@@ -170,7 +170,7 @@ impl PyObject for PyDict {
                 }
                 Ok(Rc::new(crate::objects::list::PyList::new(keys)))
             }))),
-            "values" => Ok(Rc::new(PyNativeFunction::new("values".to_string(), move |args| {
+            "values" => Ok(Rc::new(PyNativeFunction::new_pos_only("values".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: dict.values() takes no arguments".to_string()); }
                 let map = entries.borrow();
                 let mut vals: Vec<Rc<dyn PyObject>> = Vec::new();
@@ -181,7 +181,7 @@ impl PyObject for PyDict {
                 }
                 Ok(Rc::new(crate::objects::list::PyList::new(vals)))
             }))),
-            "items" => Ok(Rc::new(PyNativeFunction::new("items".to_string(), move |args| {
+            "items" => Ok(Rc::new(PyNativeFunction::new_pos_only("items".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: dict.items() takes no arguments".to_string()); }
                 let map = entries.borrow();
                 let mut items: Vec<Rc<dyn PyObject>> = Vec::new();
@@ -196,7 +196,7 @@ impl PyObject for PyDict {
                 }
                 Ok(Rc::new(crate::objects::list::PyList::new(items)))
             }))),
-            "get" => Ok(Rc::new(PyNativeFunction::new("get".to_string(), move |args| {
+            "get" => Ok(Rc::new(PyNativeFunction::new_pos_only("get".to_string(), move |args| {
                 if args.len() < 1 || args.len() > 2 { return Err("TypeError: get() takes 1-2 arguments".to_string()); }
                 let key = &args[0];
                 let h = match get_hash(key) {
@@ -215,7 +215,7 @@ impl PyObject for PyDict {
                     Ok(Rc::new(crate::objects::none::PyNone::new()))
                 }
             }))),
-            "pop" => Ok(Rc::new(PyNativeFunction::new("pop".to_string(), move |args| {
+            "pop" => Ok(Rc::new(PyNativeFunction::new_pos_only("pop".to_string(), move |args| {
                 if args.len() < 1 || args.len() > 2 { return Err("TypeError: pop() takes 1-2 arguments".to_string()); }
                 let key = &args[0];
                 let h = match get_hash(key) {
@@ -239,7 +239,7 @@ impl PyObject for PyDict {
                     Err(format!("KeyError: {}", args[0].repr()))
                 }
             }))),
-            "popitem" => Ok(Rc::new(PyNativeFunction::new("popitem".to_string(), move |args| {
+            "popitem" => Ok(Rc::new(PyNativeFunction::new_pos_only("popitem".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: popitem() takes no arguments".to_string()); }
                 let mut map = entries.borrow_mut();
                 let h = map.keys().next().cloned();
@@ -256,7 +256,7 @@ impl PyObject for PyDict {
                     None => Err("KeyError: 'popitem(): dictionary is empty'".to_string()),
                 }
             }))),
-            "update" => Ok(Rc::new(PyNativeFunction::new("update".to_string(), move |args| {
+            "update" => Ok(Rc::new(PyNativeFunction::new_pos_only("update".to_string(), move |args| {
                 if args.len() != 1 { return Err("TypeError: update() takes exactly one argument".to_string()); }
                 if let Some(other) = args[0].as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                     let other_map = other.entries.borrow();
@@ -276,12 +276,12 @@ impl PyObject for PyDict {
                 }
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "clear" => Ok(Rc::new(PyNativeFunction::new("clear".to_string(), move |args| {
+            "clear" => Ok(Rc::new(PyNativeFunction::new_pos_only("clear".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: dict.clear() takes no arguments".to_string()); }
                 entries.borrow_mut().clear();
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
-            "copy" => Ok(Rc::new(PyNativeFunction::new("copy".to_string(), move |args| {
+            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only("copy".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: dict.copy() takes no arguments".to_string()); }
                 let map = entries.borrow();
                 let mut pairs: Vec<(Rc<dyn PyObject>, Rc<dyn PyObject>)> = Vec::new();
@@ -292,7 +292,7 @@ impl PyObject for PyDict {
                 }
                 Ok(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs)))
             }))),
-            "setdefault" => Ok(Rc::new(PyNativeFunction::new("setdefault".to_string(), move |args| {
+            "setdefault" => Ok(Rc::new(PyNativeFunction::new_pos_only("setdefault".to_string(), move |args| {
                 if args.len() < 1 || args.len() > 2 { return Err("TypeError: setdefault() takes 1-2 arguments".to_string()); }
                 let key = &args[0];
                 let h = match get_hash(key) {

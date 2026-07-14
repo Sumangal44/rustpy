@@ -60,11 +60,11 @@ impl PyInstance {
             if let Some(native) = bound.func.as_any().downcast_ref::<PyNativeFunction>() {
                 let mut all_args = vec![Rc::new(self.clone()) as Rc<dyn PyObject>];
                 all_args.extend(args);
-                return (native.func)(all_args);
+                return (native.func)(all_args, std::collections::HashMap::new());
             }
             return Err(format!("NotImplementedError: calling {} on user-defined function not supported", name));
         } else if let Some(native) = method.as_any().downcast_ref::<PyNativeFunction>() {
-            return (native.func)(args);
+            return (native.func)(args, std::collections::HashMap::new());
         }
         Err(format!("TypeError: '{}' object is not callable", method.get_type()))
     }
