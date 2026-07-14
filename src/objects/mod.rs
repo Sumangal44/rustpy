@@ -155,6 +155,7 @@ pub mod complex;
 pub mod constants;
 pub mod dict;
 pub mod exception;
+pub mod file;
 pub mod float;
 pub mod function;
 pub mod generator;

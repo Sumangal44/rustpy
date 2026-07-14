@@ -31,22 +31,13 @@ pub fn create_sys_module(
         .collect();
     module.set_attr_inner("argv", Rc::new(PyList::new(argv_list)) as Rc<dyn PyObject>);
 
-    // sys.stdout placeholder (a simple object that has a write method)
-    let stdout_module = Rc::new(PyModule::new("stdout".to_string()));
-    stdout_module.set_attr_inner(
-        "write",
-        Rc::new(crate::objects::native_function::PyNativeFunction::new(
-            "write".to_string(),
-            |args| {
-                if args.is_empty() {
-                    return Err("TypeError: write() takes at least 1 argument".to_string());
-                }
-                print!("{}", args[0].str());
-                Ok(Rc::new(crate::objects::none::PyNone))
-            },
-        )) as Rc<dyn PyObject>,
-    );
-    module.set_attr_inner("stdout", stdout_module as Rc<dyn PyObject>);
+    // sys.stdin, sys.stdout, sys.stderr
+    let stdin = crate::objects::file::PyFile::stdin();
+    module.set_attr_inner("stdin", Rc::new(stdin) as Rc<dyn PyObject>);
+    let stdout = crate::objects::file::PyFile::stdout();
+    module.set_attr_inner("stdout", Rc::new(stdout) as Rc<dyn PyObject>);
+    let stderr = crate::objects::file::PyFile::stderr();
+    module.set_attr_inner("stderr", Rc::new(stderr) as Rc<dyn PyObject>);
 
     module
 }

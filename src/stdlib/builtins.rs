@@ -1162,6 +1162,80 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
+    // open(file, mode='r', encoding=None)
+    env_mut.set(
+        "open".to_string(),
+        Rc::new(PyNativeFunction::new("open".to_string(), |args| {
+            if args.is_empty() || args.len() > 3 {
+                return Err(format!("TypeError: open() takes at most 3 arguments ({} given)", args.len()));
+            }
+            let path = args[0].str();
+            let mode = if args.len() >= 2 {
+                args[1].str()
+            } else {
+                "r".to_string()
+            };
+            // Validate mode
+            if mode.is_empty() {
+                return Err("ValueError: empty mode".to_string());
+            }
+            let valid_chars = ['r', 'w', 'a', 'x', 'b', 't', '+'];
+            for c in mode.chars() {
+                if !valid_chars.contains(&c) {
+                    return Err(format!("ValueError: invalid mode: '{}'", mode));
+                }
+            }
+            if mode.chars().filter(|&c| c == 'r' || c == 'w' || c == 'a' || c == 'x').count() != 1 {
+                return Err(format!("ValueError: invalid mode: '{}'", mode));
+            }
+            // Parse mode into OpenOptions
+            let main_mode = mode.chars().find(|&c| c == 'r' || c == 'w' || c == 'a' || c == 'x').unwrap();
+            let plus = mode.contains('+');
+
+            let mut opts = std::fs::OpenOptions::new();
+            match main_mode {
+                'r' => {
+                    opts.read(true);
+                    if plus { opts.write(true); }
+                }
+                'w' => {
+                    opts.write(true);
+                    opts.truncate(true);
+                    opts.create(true);
+                    if plus { opts.read(true); }
+                }
+                'a' => {
+                    opts.write(true);
+                    opts.append(true);
+                    opts.create(true);
+                    if plus { opts.read(true); }
+                }
+                'x' => {
+                    opts.write(true);
+                    opts.create_new(true);
+                    if plus { opts.read(true); }
+                }
+                _ => unreachable!(),
+            }
+
+            match opts.open(&path) {
+                Ok(file) => Ok(Rc::new(crate::objects::file::PyFile::from_file(path, mode, file)) as Rc<dyn PyObject>),
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    if msg.contains("No such file or directory") {
+                        Err(format!("FileNotFoundError: [Errno 2] No such file or directory: '{}'", path))
+                    } else if msg.contains("Permission denied") {
+                        Err(format!("PermissionError: [Errno 13] Permission denied: '{}'", path))
+                    } else if msg.contains("File exists") {
+                        Err(format!("FileExistsError: [Errno 17] File exists: '{}'", path))
+                    } else {
+                        Err(format!("OSError: {}: '{}'", msg, path))
+                    }
+                }
+            }
+        })),
+    );
+
     // Drop env_mut so we can borrow env again below
     drop(env_mut);
 

@@ -1736,4 +1736,196 @@ result
         let env = execute_source("import sys, math_native\nresult = math_native.sqrt(1)\n");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "1.0");
     }
+
+    // --- File I/O tests ---
+
+    #[test]
+    fn test_file_write_read() {
+        let source = r#"
+with open("/tmp/rustpy_test_write.txt", "w") as f:
+    f.write("hello world")
+with open("/tmp/rustpy_test_write.txt", "r") as f:
+    res = f.read()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'hello world'");
+        fs::remove_file("/tmp/rustpy_test_write.txt").ok();
+    }
+
+    #[test]
+    fn test_file_readline() {
+        let source = r#"
+with open("/tmp/rustpy_test_lines.txt", "w") as f:
+    f.write("line1\nline2\nline3")
+with open("/tmp/rustpy_test_lines.txt", "r") as f:
+    res = f.readline()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'line1\n'");
+        fs::remove_file("/tmp/rustpy_test_lines.txt").ok();
+    }
+
+    #[test]
+    fn test_file_iter() {
+        let source = r#"
+with open("/tmp/rustpy_test_iter.txt", "w") as f:
+    f.write("a\nb\nc")
+res = list(open("/tmp/rustpy_test_iter.txt", "r"))
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "['a\n', 'b\n', 'c']");
+        fs::remove_file("/tmp/rustpy_test_iter.txt").ok();
+    }
+
+    #[test]
+    fn test_file_seek_tell() {
+        let source = r#"
+with open("/tmp/rustpy_test_seek.txt", "w+") as f:
+    f.write("hello")
+    f.seek(0)
+    res = f.read()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'hello'");
+        fs::remove_file("/tmp/rustpy_test_seek.txt").ok();
+    }
+
+    #[test]
+    fn test_file_append() {
+        let source = r#"
+with open("/tmp/rustpy_test_append.txt", "w") as f:
+    f.write("first\n")
+with open("/tmp/rustpy_test_append.txt", "a") as f:
+    f.write("second")
+with open("/tmp/rustpy_test_append.txt", "r") as f:
+    res = f.read()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'first\nsecond'");
+        fs::remove_file("/tmp/rustpy_test_append.txt").ok();
+    }
+
+    #[test]
+    fn test_stdout_write() {
+        let source = "import sys\nsys.stdout.write(\"test\\n\")\n";
+        let env = execute_source(source);
+        // No variable to check, just ensure no crash
+        assert!(true);
+    }
+
+    #[test]
+    fn test_file_readlines() {
+        let source = r#"
+with open("/tmp/rustpy_test_rls.txt", "w") as f:
+    f.write("x\ny\nz")
+with open("/tmp/rustpy_test_rls.txt", "r") as f:
+    res = f.readlines()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "['x\n', 'y\n', 'z']");
+        fs::remove_file("/tmp/rustpy_test_rls.txt").ok();
+    }
+
+    #[test]
+    fn test_file_without_with_close() {
+        let source = r#"
+f = open("/tmp/rustpy_test_close.txt", "w")
+f.write("data")
+f.close()
+f2 = open("/tmp/rustpy_test_close.txt", "r")
+res = f2.read()
+f2.close()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'data'");
+        fs::remove_file("/tmp/rustpy_test_close.txt").ok();
+    }
+
+    #[test]
+    fn test_file_repr() {
+        let output = execute_program(r#"open("/tmp/rustpy_test_repr.txt", "w")"#);
+        assert!(output.contains("TextIOWrapper"));
+        assert!(output.contains("/tmp/rustpy_test_repr.txt"));
+        assert!(output.contains("'w'"));
+        fs::remove_file("/tmp/rustpy_test_repr.txt").ok();
+    }
+
+    #[test]
+    fn test_file_writelines() {
+        let source = r#"
+with open("/tmp/rustpy_test_wlines.txt", "w") as f:
+    f.writelines(["a\n", "b\n", "c"])
+with open("/tmp/rustpy_test_wlines.txt", "r") as f:
+    res = f.read()
+"#;
+        let env = execute_source(source);
+        let res = env.borrow().get("res").unwrap();
+        assert_eq!(res.repr(), "'a\nb\nc'");
+        fs::remove_file("/tmp/rustpy_test_wlines.txt").ok();
+    }
+
+    #[test]
+    fn test_file_tell() {
+        let source = r#"
+with open("/tmp/rustpy_test_tell.txt", "w") as f:
+    f.write("hello")
+    pos = f.tell()
+"#;
+        let env = execute_source(source);
+        let pos = env.borrow().get("pos").unwrap();
+        assert_eq!(pos.repr(), "5");
+        fs::remove_file("/tmp/rustpy_test_tell.txt").ok();
+    }
+
+    #[test]
+    fn test_file_readable_writable() {
+        let source = r#"
+f = open("/tmp/rustpy_test_rw.txt", "w")
+r1 = f.writable()
+r2 = f.readable()
+f.close()
+"#;
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+        fs::remove_file("/tmp/rustpy_test_rw.txt").ok();
+    }
+
+    #[test]
+    fn test_file_flush() {
+        let source = r#"
+with open("/tmp/rustpy_test_flush.txt", "w") as f:
+    f.write("hello")
+    f.flush()
+with open("/tmp/rustpy_test_flush.txt", "r") as f:
+    res = f.read()
+"#;
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("res").unwrap().repr(), "'hello'");
+        fs::remove_file("/tmp/rustpy_test_flush.txt").ok();
+    }
+
+    #[test]
+    fn test_file_name_mode_closed() {
+        let source = r#"
+with open("/tmp/rustpy_test_attrs.txt", "w") as f:
+    n = f.name
+    m = f.mode
+    c1 = f.closed
+c2 = f.closed
+"#;
+        let env = execute_source(source);
+        assert_eq!(env.borrow().get("n").unwrap().repr(), "'/tmp/rustpy_test_attrs.txt'");
+        assert_eq!(env.borrow().get("m").unwrap().repr(), "'w'");
+        assert_eq!(env.borrow().get("c1").unwrap().repr(), "False");
+        assert_eq!(env.borrow().get("c2").unwrap().repr(), "True");
+        fs::remove_file("/tmp/rustpy_test_attrs.txt").ok();
+    }
 }
