@@ -188,6 +188,14 @@ pub enum Stmt {
         test: Expr,
         msg: Option<Box<Expr>>,
     },
+    Import {
+        names: Vec<Alias>,
+    },
+    ImportFrom {
+        module: String,
+        names: Vec<Alias>,
+        level: usize,
+    },
     ExprStmt {
         value: Expr,
     },
@@ -208,6 +216,12 @@ pub struct MatchCase {
     pub pattern: Pattern,
     pub guard: Option<Box<Expr>>,
     pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Alias {
+    pub name: String,
+    pub asname: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

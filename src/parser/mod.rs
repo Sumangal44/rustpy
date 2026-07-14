@@ -158,6 +158,14 @@ impl<'a> Parser<'a> {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.parse_match()
             }
+            TokenKind::Import => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_import()
+            }
+            TokenKind::From => {
+                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                self.parse_import_from()
+            }
             TokenKind::Yield => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
@@ -628,7 +636,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expression(&mut self, precedence: u8) -> Result<Expr, ParseError> {
+    pub fn parse_expression(&mut self, precedence: u8) -> Result<Expr, ParseError> {
         let mut left = self.parse_prefix()?;
 
         while precedence < self.peek_precedence() {
@@ -1322,6 +1330,140 @@ impl<'a> Parser<'a> {
         Ok(Expr::Attribute {
             value: Box::new(value),
             attr,
+        })
+    }
+
+    fn parse_import(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::Import)?;
+        let mut names = Vec::new();
+        loop {
+            let name = match &self.current_token.kind {
+                TokenKind::Identifier(n) => {
+                    let mut full_name = n.clone();
+                    self.advance()?;
+                    while self.check(&TokenKind::Dot) {
+                        self.advance()?;
+                        full_name.push('.');
+                        if let TokenKind::Identifier(part) = &self.current_token.kind {
+                            full_name.push_str(part);
+                            self.advance()?;
+                        } else {
+                            return Err(ParseError::new(
+                                ParseErrorKind::UnexpectedToken("Expected identifier after '.'".to_string()),
+                                self.current_token.span.clone(),
+                            ));
+                        }
+                    }
+                    full_name
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Expected module name".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+            };
+            let mut asname = None;
+            if self.check(&TokenKind::As) {
+                self.advance()?;
+                if let TokenKind::Identifier(a) = &self.current_token.kind {
+                    asname = Some(a.clone());
+                    self.advance()?;
+                } else {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Expected identifier after 'as'".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+            }
+            names.push(crate::ast::Alias { name, asname });
+            if self.check(&TokenKind::Comma) {
+                self.advance()?;
+            } else {
+                break;
+            }
+        }
+        self.consume(TokenKind::Newline)?;
+        Ok(Stmt::Import { names })
+    }
+
+    fn parse_import_from(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::From)?;
+        let mut module = String::new();
+        // Parse module name (possibly dotted)
+        if let TokenKind::Identifier(n) = &self.current_token.kind {
+            module = n.clone();
+            self.advance()?;
+            while self.check(&TokenKind::Dot) {
+                self.advance()?;
+                module.push('.');
+                if let TokenKind::Identifier(part) = &self.current_token.kind {
+                    module.push_str(part);
+                    self.advance()?;
+                } else {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Expected identifier after '.'".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+            }
+        } else {
+            // Relative imports with dots
+            while self.check(&TokenKind::Dot) {
+                self.advance()?;
+            }
+            if let TokenKind::Identifier(n) = &self.current_token.kind {
+                module = n.clone();
+                self.advance()?;
+            }
+        }
+
+        self.consume(TokenKind::Import)?;
+
+        let mut names = Vec::new();
+        if self.check(&TokenKind::Star) {
+            self.advance()?;
+            names.push(crate::ast::Alias {
+                name: "*".to_string(),
+                asname: None,
+            });
+        } else {
+            loop {
+                if let TokenKind::Identifier(n) = &self.current_token.kind {
+                    let name = n.clone();
+                    self.advance()?;
+                    let mut asname = None;
+                    if self.check(&TokenKind::As) {
+                        self.advance()?;
+                        if let TokenKind::Identifier(a) = &self.current_token.kind {
+                            asname = Some(a.clone());
+                            self.advance()?;
+                        } else {
+                            return Err(ParseError::new(
+                                ParseErrorKind::UnexpectedToken("Expected identifier after 'as'".to_string()),
+                                self.current_token.span.clone(),
+                            ));
+                        }
+                    }
+                    names.push(crate::ast::Alias { name, asname });
+                    if self.check(&TokenKind::Comma) {
+                        self.advance()?;
+                    } else {
+                        break;
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Expected identifier".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+            }
+        }
+        self.consume(TokenKind::Newline)?;
+        Ok(Stmt::ImportFrom {
+            module,
+            names,
+            level: 0,
         })
     }
 

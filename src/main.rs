@@ -1625,4 +1625,115 @@ result
         let output = execute_program("1 in {1: \"a\", 2: \"b\"}");
         assert_eq!(output, "True");
     }
+
+    #[test]
+    fn test_exec_basic() {
+        let env = execute_source("exec(\"a = 42\")\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_eval_expr() {
+        let output = execute_program("eval(\"1 + 2\")");
+        assert_eq!(output, "3");
+    }
+
+    #[test]
+    fn test_eval_string() {
+        let output = execute_program("eval(\"'hello' + ' world'\")");
+        assert_eq!(output, "'hello world'");
+    }
+
+    #[test]
+    fn test_exec_multi_stmt() {
+        let env = execute_source("exec(\"x = 10\\ny = 20\\nz = x + y\")\n");
+        assert_eq!(env.borrow().get("z").unwrap().repr(), "30");
+    }
+
+    #[test]
+    fn test_nested_exec_eval() {
+        let env = execute_source("exec(\"def foo():\\n    return 42\")\nres = eval(\"foo()\")\n");
+        assert_eq!(env.borrow().get("res").unwrap().repr(), "42");
+    }
+
+    #[test]
+    fn test_compile_exec_mode() {
+        let env = execute_source(r#"code = compile("1 + 2", "<test>", "exec")
+"#);
+        let code = env.borrow().get("code").unwrap();
+        assert_eq!(code.get_type(), "code");
+        assert!(code.repr().contains("<code object <test>"));
+    }
+
+    #[test]
+    fn test_eval_arithmetic() {
+        let output = execute_program("eval(\"2 * 3 + 1\")");
+        assert_eq!(output, "7");
+    }
+
+    #[test]
+    fn test_eval_list_literal() {
+        let output = execute_program("eval(\"[1, 2, 3]\")");
+        assert_eq!(output, "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_exec_shares_env() {
+        let env = execute_source("x = 10\nexec(\"y = x + 5\")\n");
+        assert_eq!(env.borrow().get("y").unwrap().repr(), "15");
+    }
+
+    #[test]
+    fn test_import_math_native() {
+        let env = execute_source("import math_native\nresult = math_native.sqrt(4)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "2.0");
+    }
+
+    #[test]
+    fn test_from_import() {
+        let env = execute_source("from math_native import sqrt\nresult = sqrt(9)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "3.0");
+    }
+
+    #[test]
+    fn test_sys_modules() {
+        let env = execute_source("import sys\nresult = type(sys.modules)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'<class 'dict'>'");
+    }
+
+    #[test]
+    fn test_sys_path() {
+        let env = execute_source("import sys\nresult = len(sys.path) > 0\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_sys_argv() {
+        let env = execute_source("import sys\nresult = len(sys.argv)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "1");
+    }
+
+    #[test]
+    fn test_import_as() {
+        let env = execute_source("import math_native as m\nresult = m.sqrt(4)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "2.0");
+    }
+
+    #[test]
+    fn test_from_import_as() {
+        let env = execute_source("from math_native import sqrt as s\nresult = s(16)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "4.0");
+    }
+
+    #[test]
+    fn test_import_star() {
+        let env = execute_source("from math_native import *\nresult = sqrt(25)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "5.0");
+    }
+
+    #[test]
+    fn test_multiple_imports() {
+        let env = execute_source("import sys, math_native\nresult = math_native.sqrt(1)\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "1.0");
+    }
 }

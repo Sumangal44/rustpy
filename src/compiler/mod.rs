@@ -37,6 +37,12 @@ impl Compiler {
         Ok(self.code)
     }
 
+    pub fn compile_expression(mut self, expr: &Expr) -> Result<CodeObject, String> {
+        self.compile_expr(expr)?;
+        self.emit(Opcode::ReturnValue);
+        Ok(self.code)
+    }
+
     fn emit(&mut self, opcode: Opcode) -> usize {
         let pos = self.code.instructions.len();
         self.code.instructions.push(opcode);
@@ -531,6 +537,66 @@ impl Compiler {
 
                 let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::StoreName(name_idx));
+            }
+            Stmt::Import { names } => {
+                for alias in names {
+                    let name = &alias.name;
+
+                    // For dotted imports, only the top-level name is bound
+                    let top_level = name.split('.').next().unwrap_or(name).to_string();
+                    let top_store = alias.asname.as_ref().unwrap_or(&top_level);
+
+                    // Push level=0, fromlist=()
+                    let zero_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(0)));
+                    self.emit(Opcode::LoadConst(zero_idx));
+                    let empty_tuple_idx = self.add_constant(Rc::new(crate::objects::tuple::PyTuple::new(vec![])));
+                    self.emit(Opcode::LoadConst(empty_tuple_idx));
+                    // IMPORT_NAME with the full module name
+                    let name_idx = self.get_or_add_name(name);
+                    self.emit(Opcode::ImportName(name_idx));
+                    // Store the top-level module
+                    let store_idx = self.get_or_add_name(top_store);
+                    self.emit(Opcode::StoreName(store_idx));
+                }
+            }
+            Stmt::ImportFrom { module, names, level: _level } => {
+                let mut from_names: Vec<Rc<dyn PyObject>> = Vec::new();
+                let is_star = names.len() == 1 && names[0].name == "*";
+
+                if is_star {
+                    // fromlist has a sentinel to distinguish star import
+                    let zero = Rc::new(crate::objects::int::PyInt::from_i64(0));
+                    from_names.push(zero);
+                } else {
+                    for alias in names {
+                        let name_obj = Rc::new(crate::objects::string::PyString::new(alias.name.clone()));
+                        from_names.push(name_obj);
+                    }
+                }
+
+                // Push level, fromlist
+                let level_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(0)));
+                self.emit(Opcode::LoadConst(level_idx));
+                let fromlist = Rc::new(crate::objects::tuple::PyTuple::new(from_names));
+                let fromlist_idx = self.add_constant(fromlist);
+                self.emit(Opcode::LoadConst(fromlist_idx));
+
+                // Import the module
+                let mod_idx = self.get_or_add_name(module);
+                self.emit(Opcode::ImportName(mod_idx));
+
+                if is_star {
+                    self.emit(Opcode::ImportStar);
+                } else {
+                    for alias in names {
+                        let attr_idx = self.get_or_add_name(&alias.name);
+                        self.emit(Opcode::ImportFrom(attr_idx));
+                        let store_name = alias.asname.as_ref().unwrap_or(&alias.name);
+                        let store_idx = self.get_or_add_name(store_name);
+                        self.emit(Opcode::StoreName(store_idx));
+                        self.emit(Opcode::PopTop); // pop the module
+                    }
+                }
             }
         }
         Ok(())

@@ -95,4 +95,9 @@ pub enum Opcode {
     // Context Managers
     SetupWith(usize), // pushes block, calls __enter__, pushes result
     WithCleanup,      // pops block, calls __exit__
+
+    // Import
+    ImportName(usize), // index into names; pops fromlist, level; pushes module
+    ImportFrom(usize), // index into names; pops module, pushes (attr, module)
+    ImportStar,        // pops module, stores all names in scope
 }

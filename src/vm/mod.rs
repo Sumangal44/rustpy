@@ -4,6 +4,8 @@ use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::PyObject;
 use crate::objects::function::PyFunction;
+use crate::objects::int::PyInt;
+use crate::objects::string::PyString;
 use crate::runtime::Environment;
 use frame::Frame;
 use std::rc::Rc;
@@ -858,6 +860,77 @@ impl VirtualMachine {
                     self.invoke(exit_func, vec![none.clone(), none.clone(), none], std::collections::HashMap::new())?;
                 } else {
                     return Err("CompilerError: WithCleanup expected SetupWith block".to_string());
+                }
+            }
+            Opcode::ImportName(idx) => {
+                // Stack: ... , fromlist (tuple), level (int)
+                let fromlist_obj = frame.pop()?;
+                let level_obj = frame.pop()?;
+                let name = &frame.code.names[*idx];
+
+                let level = level_obj
+                    .as_any()
+                    .downcast_ref::<PyInt>()
+                    .and_then(|i| i.as_i64())
+                    .unwrap_or(0);
+
+                // Call __import__(name, globals, locals, fromlist, level)
+                let import_func_name = "__import__".to_string();
+                let import_func = frame.env.borrow().get(&import_func_name).ok_or_else(|| {
+                    "NameError: name '__import__' is not defined".to_string()
+                })?;
+
+                let name_obj = Rc::new(PyString::new(name.clone())) as Rc<dyn PyObject>;
+
+                // globals = current env's locals
+                let globals_dict = {
+                    let env = frame.env.borrow();
+                    let mut pairs = Vec::new();
+                    for (k, v) in env.get_all_locals() {
+                        pairs.push((
+                            Rc::new(PyString::new(k)) as Rc<dyn PyObject>,
+                            v,
+                        ));
+                    }
+                    crate::objects::dict::PyDict::from_pairs(pairs)
+                };
+                let none = Rc::new(crate::objects::none::PyNone) as Rc<dyn PyObject>;
+
+                let result = self.invoke(
+                    import_func,
+                    vec![name_obj, Rc::new(globals_dict) as Rc<dyn PyObject>, none, fromlist_obj, Rc::new(crate::objects::int::PyInt::from_i64(level)) as Rc<dyn PyObject>],
+                    std::collections::HashMap::new(),
+                )?;
+                frame.push(result);
+            }
+            Opcode::ImportFrom(idx) => {
+                // Stack: ... , module
+                // After: ... , module, attr (module below attr)
+                let module = frame.pop()?;
+                let attr_name = &frame.code.names[*idx];
+                let attr_val = module.get_attr(attr_name)?;
+                frame.push(module); // Push module back first
+                frame.push(attr_val); // Then push attr on top
+            }
+            Opcode::ImportStar => {
+                let module = frame.pop()?;
+                // Get module's __dict__
+                let dict_obj = module.get_attr("__dict__")?;
+                if let Some(dict) = dict_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                    let entries = dict.entries.borrow();
+                    let mut env = frame.env.borrow_mut();
+                    for bucket in entries.values() {
+                        for (k, v) in bucket {
+                            if let Some(s) = k.as_any().downcast_ref::<PyString>() {
+                                // Skip private names (starting with _)
+                                if !s.value.starts_with('_') {
+                                    env.set(s.value.clone(), Rc::clone(v));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    return Err("TypeError: module.__dict__ is not a dict".to_string());
                 }
             }
             _ => return Err(format!("Opcode {:?} not yet implemented in VM", opcode)),

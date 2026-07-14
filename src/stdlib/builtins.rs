@@ -1,10 +1,17 @@
+use crate::compiler::Compiler;
+use crate::lexer::Lexer;
 use crate::objects::PyObject;
 use crate::objects::bytes::PyBytes;
 use crate::objects::int::PyInt;
+use crate::objects::module::PyModule;
 use crate::objects::native_function::PyNativeFunction;
 use crate::objects::none::PyNone;
 use crate::objects::string::PyString;
+use crate::parser::Parser;
 use crate::runtime::Environment;
+use crate::vm::VirtualMachine;
+use crate::vm::frame::Frame;
+use crate::stdlib::import::ImportSystem;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -743,10 +750,32 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
     // eval(expression, globals=None, locals=None)
+    let env_for_eval = Rc::clone(env);
     env_mut.set(
         "eval".to_string(),
-        Rc::new(PyNativeFunction::new("eval".to_string(), |args| {
-            Err("NotImplementedError: eval() is not fully wired to the AST yet".to_string())
+        Rc::new(PyNativeFunction::new("eval".to_string(), move |args| {
+            if args.is_empty() || args.len() > 3 {
+                return Err("TypeError: eval() takes at most 3 arguments".to_string());
+            }
+            let source = args[0].as_any()
+                .downcast_ref::<PyString>()
+                .ok_or_else(|| "TypeError: eval() arg 1 must be a string".to_string())?
+                .value.clone();
+
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer)
+                .map_err(|e| format!("SyntaxError: {}", e))?;
+            let expr = parser.parse_expression(0)
+                .map_err(|e| format!("SyntaxError: {}", e))?;
+            let compiler = Compiler::new("<string>".to_string());
+            let code = compiler.compile_expression(&expr)
+                .map_err(|e| format!("CompileError: {}", e))?;
+
+            let mut frame = Frame::new(code, Rc::clone(&env_for_eval));
+            let mut vm = VirtualMachine::new();
+            let result = vm.run(&mut frame)?;
+
+            Ok(result.unwrap_or_else(|| Rc::new(PyNone::new()) as Rc<dyn PyObject>))
         })),
     );
 
@@ -778,10 +807,33 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     );
 
     // exec(object, globals=None, locals=None)
+    let env_for_exec = Rc::clone(env);
     env_mut.set(
         "exec".to_string(),
-        Rc::new(PyNativeFunction::new("exec".to_string(), |args| {
-            Err("NotImplementedError: exec() is not fully wired to the AST yet".to_string())
+        Rc::new(PyNativeFunction::new("exec".to_string(), move |args| {
+            if args.is_empty() || args.len() > 3 {
+                return Err("TypeError: exec() takes at most 3 arguments".to_string());
+            }
+            let mut source = args[0].as_any()
+                .downcast_ref::<PyString>()
+                .ok_or_else(|| "TypeError: exec() arg 1 must be a string".to_string())?
+                .value.clone();
+            source.push('\n');
+
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer)
+                .map_err(|e| format!("SyntaxError: {}", e))?;
+            let module = parser.parse_module()
+                .map_err(|e| format!("SyntaxError: {}", e))?;
+            let compiler = Compiler::new("<string>".to_string());
+            let code = compiler.compile(&module)
+                .map_err(|e| format!("CompileError: {}", e))?;
+
+            let mut frame = Frame::new(code, Rc::clone(&env_for_exec));
+            let mut vm = VirtualMachine::new();
+            vm.run(&mut frame)?;
+
+            Ok(Rc::new(PyNone::new()) as Rc<dyn PyObject>)
         })),
     );
 
@@ -789,15 +841,53 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     env_mut.set(
         "compile".to_string(),
         Rc::new(PyNativeFunction::new("compile".to_string(), |args| {
-            Err("NotImplementedError: compile() is not fully wired to the AST yet".to_string())
-        })),
-    );
+            if args.len() < 3 {
+                return Err("TypeError: compile() requires at least 3 arguments".to_string());
+            }
+            let source = args[0].as_any()
+                .downcast_ref::<PyString>()
+                .ok_or_else(|| "TypeError: compile() arg 1 must be a string".to_string())?
+                .value.clone();
+            let filename = args[1].as_any()
+                .downcast_ref::<PyString>()
+                .ok_or_else(|| "TypeError: compile() arg 2 must be a string".to_string())?
+                .value.clone();
+            let mode = args[2].as_any()
+                .downcast_ref::<PyString>()
+                .ok_or_else(|| "TypeError: compile() arg 3 must be a string".to_string())?
+                .value.clone();
 
-    // __import__(name, globals=None, locals=None, fromlist=(), level=0)
-    env_mut.set(
-        "__import__".to_string(),
-        Rc::new(PyNativeFunction::new("__import__".to_string(), |args| {
-            Err("ImportError: __import__() module loading not implemented yet".to_string())
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer)
+                .map_err(|e| format!("SyntaxError: {}", e))?;
+
+            match mode.as_str() {
+                "exec" => {
+                    let module = parser.parse_module()
+                        .map_err(|e| format!("SyntaxError: {}", e))?;
+                    let compiler = Compiler::new(filename);
+                    let code = compiler.compile(&module)
+                        .map_err(|e| format!("CompileError: {}", e))?;
+                    Ok(Rc::new(code) as Rc<dyn PyObject>)
+                }
+                "eval" => {
+                    let expr = parser.parse_expression(0)
+                        .map_err(|e| format!("SyntaxError: {}", e))?;
+                    let compiler = Compiler::new(filename);
+                    let code = compiler.compile_expression(&expr)
+                        .map_err(|e| format!("CompileError: {}", e))?;
+                    Ok(Rc::new(code) as Rc<dyn PyObject>)
+                }
+                "single" => {
+                    let module = parser.parse_module()
+                        .map_err(|e| format!("SyntaxError: {}", e))?;
+                    let compiler = Compiler::new(filename);
+                    let code = compiler.compile(&module)
+                        .map_err(|e| format!("CompileError: {}", e))?;
+                    Ok(Rc::new(code) as Rc<dyn PyObject>)
+                }
+                _ => Err("ValueError: compile() mode must be 'exec', 'eval', or 'single'".to_string()),
+            }
         })),
     );
 
@@ -1070,5 +1160,86 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             }
             Ok(Rc::new(crate::objects::set::PyFrozenSet::new(items)))
         })),
+    );
+
+    // Drop env_mut so we can borrow env again below
+    drop(env_mut);
+
+    // Initialize import system
+    let import_system = Rc::new(ImportSystem::new());
+
+    // Create sys module
+    let argv: Vec<String> = std::env::args().collect();
+    let sys_module = crate::stdlib::sys::create_sys_module(
+        Rc::clone(&import_system.sys_modules),
+        argv,
+    );
+    import_system.register_native_module("sys", Rc::clone(&sys_module));
+
+    // Register sys in sys.modules
+    let sys_key = Rc::new(PyString::new("sys".to_string())) as Rc<dyn PyObject>;
+    let _ = import_system
+        .sys_modules
+        .set_item(Rc::clone(&sys_key), Rc::clone(&sys_module) as Rc<dyn PyObject>);
+
+    // Create math_native module
+    let math_module = Rc::new(PyModule::new("math_native".to_string()));
+    math_module.set_attr_inner(
+        "sqrt",
+        Rc::new(PyNativeFunction::new("sqrt".to_string(), move |args| {
+            if args.len() != 1 {
+                return Err("TypeError: sqrt() takes exactly one argument".to_string());
+            }
+            let val = if let Some(i) = args[0].as_any().downcast_ref::<PyInt>() {
+                i.as_i64().unwrap_or(0) as f64
+            } else if let Some(f) = args[0]
+                .as_any()
+                .downcast_ref::<crate::objects::float::PyFloat>()
+            {
+                f.value
+            } else {
+                return Err("TypeError: sqrt() argument must be int or float".to_string());
+            };
+            Ok(Rc::new(crate::objects::float::PyFloat::new(val.sqrt())))
+        })) as Rc<dyn PyObject>,
+    );
+    import_system.register_native_module("math_native", Rc::clone(&math_module));
+
+    // builtins module
+    let builtins_module = Rc::new(PyModule::new("builtins".to_string()));
+    {
+        let env_b = env.borrow();
+        for (k, v) in env_b.get_all_locals() {
+            builtins_module.set_attr_inner(&k, v);
+        }
+    }
+    import_system.register_native_module("builtins", Rc::clone(&builtins_module));
+
+    // __import__ builtin
+    let import_system_for_import = Rc::clone(&import_system);
+    let mut env_mut2 = env.borrow_mut();
+    env_mut2.set(
+        "__import__".to_string(),
+        Rc::new(PyNativeFunction::new(
+            "__import__".to_string(),
+            move |args| {
+                // __import__(name, globals=None, locals=None, fromlist=(), level=0)
+                if args.is_empty() {
+                    return Err(
+                        "TypeError: __import__() missing required argument: name".to_string()
+                    );
+                }
+                let name = args[0]
+                    .as_any()
+                    .downcast_ref::<PyString>()
+                    .map(|s| s.value.clone())
+                    .ok_or_else(|| {
+                        "TypeError: __import__() argument 1 must be str".to_string()
+                    })?;
+
+                let result = import_system_for_import.import_module(&name)?;
+                Ok(result)
+            },
+        )),
     );
 }
