@@ -124,6 +124,17 @@ mod tests {
     use super::*;
     use crate::objects::PyObject;
 
+    fn execute_program(source: &str) -> String {
+        let env = Environment::new();
+        stdlib::builtins::inject_builtins(&env);
+        let wrapped = format!("__result__ = {}\n", source);
+        execute(&wrapped, Rc::clone(&env), "<test>");
+        env.borrow()
+            .get("__result__")
+            .map(|r| r.repr())
+            .unwrap_or_default()
+    }
+
     fn execute_source(source: &str) -> Rc<RefCell<Environment>> {
         let env = Environment::new();
         stdlib::builtins::inject_builtins(&env);
@@ -911,8 +922,8 @@ mod tests {
         let env = execute_source(source);
         let result = env.borrow().get("result").unwrap();
         assert!(result.is_truthy());
-        // Check values via get_item
-        let key = std::rc::Rc::new(crate::objects::string::PyString::new("1".to_string())) as std::rc::Rc<dyn crate::objects::PyObject>;
+        // Check values via get_item with int key
+        let key = std::rc::Rc::new(crate::objects::int::PyInt::from_i64(1)) as std::rc::Rc<dyn crate::objects::PyObject>;
         let val = result.get_item(key).unwrap();
         assert_eq!(val.repr(), "2");
     }
@@ -1131,6 +1142,13 @@ match x:
     }
 
     #[test]
+    fn test_set_comprehension() {
+        let env = execute_source("result = {x for x in [1, 2, 3]}\n");
+        let result = env.borrow().get("result").unwrap();
+        assert_eq!(result.repr(), "{1, 2, 3}");
+    }
+
+    #[test]
     fn test_set_create() {
         let env = execute_source("s = {1, 2, 3}\n");
         let s = env.borrow().get("s").unwrap();
@@ -1274,5 +1292,337 @@ r4 = a ^ b
     fn test_set_update() {
         let env = execute_source("a = {1, 2}\na.update({2, 3, 4})\nresult = len(a)\n");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "4");
+    }
+
+    #[test]
+    fn test_finally_no_exception() {
+        let env = execute_source("
+result = []
+try:
+    result.append('try')
+finally:
+    result.append('finally')
+result
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'finally']");
+    }
+
+    #[test]
+    fn test_finally_with_exception() {
+        let env = execute_source("
+result = []
+try:
+    result.append('try')
+    raise 'error'
+finally:
+    result.append('finally')
+result
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'finally']");
+    }
+
+    #[test]
+    fn test_try_except_finally_no_exception() {
+        let env = execute_source("
+result = []
+try:
+    result.append('try')
+except:
+    result.append('except')
+finally:
+    result.append('finally')
+result
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'finally']");
+    }
+
+    #[test]
+    fn test_try_except_finally_with_exception() {
+        let env = execute_source("
+result = []
+try:
+    result.append('try')
+    raise 'error'
+except:
+    result.append('except')
+finally:
+    result.append('finally')
+result
+");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'except', 'finally']");
+    }
+
+    #[test]
+    fn test_tuple_create() {
+        let env = execute_source("t = (1, 2, 3)\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "(1, 2, 3)");
+    }
+
+    #[test]
+    fn test_tuple_single() {
+        let env = execute_source("t = (1,)\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "(1,)");
+    }
+
+    #[test]
+    fn test_tuple_empty() {
+        let env = execute_source("t = ()\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "()");
+    }
+
+    #[test]
+    fn test_tuple_index() {
+        let env = execute_source("t = (10, 20, 30)\nr = t[1]\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "20");
+    }
+
+    #[test]
+    fn test_tuple_len() {
+        let env = execute_source("r = len((1, 2, 3))\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "3");
+    }
+
+    #[test]
+    fn test_tuple_contains() {
+        let env = execute_source("r1 = 3 in (1, 2, 3)\nr2 = 5 in (1, 2, 3)\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_tuple_unpack() {
+        let env = execute_source("a, b = (1, 2)\n");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "1");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "2");
+    }
+
+    #[test]
+    fn test_tuple_iteration() {
+        let env = execute_source("total = 0\nfor x in (1, 2, 3):\n    total = total + x\n");
+        assert_eq!(env.borrow().get("total").unwrap().repr(), "6");
+    }
+
+    #[test]
+    fn test_tuple_index_method() {
+        let env = execute_source("t = (10, 20, 30)\nr = t.index(20)\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "1");
+    }
+
+    #[test]
+    fn test_tuple_count_method() {
+        let env = execute_source("t = (1, 2, 2, 3)\nr = t.count(2)\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "2");
+    }
+
+    #[test]
+    fn test_tuple_builtin() {
+        let env = execute_source("t = tuple([1, 2, 3])\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "(1, 2, 3)");
+    }
+
+    #[test]
+    fn test_tuple_equality() {
+        let env = execute_source("r1 = (1, 2) == (1, 2)\nr2 = (1, 2) == (3, 4)\n");
+        assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
+        assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_tuple_concatenate() {
+        let env = execute_source("t = (1, 2) + (3, 4)\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "(1, 2, 3, 4)");
+    }
+
+    #[test]
+    fn test_tuple_repeat() {
+        let env = execute_source("t = (1, 2) * 3\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "(1, 2, 1, 2, 1, 2)");
+    }
+
+    #[test]
+    fn test_tuple_slice() {
+        let env = execute_source("t = (0, 1, 2, 3, 4)\nr = t[1:3]\n");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "(1, 2)");
+    }
+
+    #[test]
+    fn test_tuple_add_mul() {
+        let env = execute_source("t = (1, 2) + (3,)\nr = t * 2\n");
+        assert_eq!(env.borrow().get("t").unwrap().repr(), "(1, 2, 3)");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "(1, 2, 3, 1, 2, 3)");
+    }
+
+    #[test]
+    fn test_complex_create() {
+        let env = execute_source("1+2j\n");
+        let output = env.borrow().get("_").unwrap_or_else(|| {
+            // Expression statement result is discarded, so we test by storing
+            env.borrow().get("x").unwrap_or(Rc::new(crate::objects::bool::PyBool::new(true)))
+        });
+        // Just run to make sure it doesn't error
+    }
+
+    #[test]
+    fn test_complex_repr() {
+        let env = execute_source("x = 1+2j\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "(1+2j)");
+    }
+
+    #[test]
+    fn test_complex_imag_only() {
+        let env = execute_source("x = 5j\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "5j");
+    }
+
+    #[test]
+    fn test_complex_real_attr() {
+        let env = execute_source("x = (3+4j).real\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "3.0");
+    }
+
+    #[test]
+    fn test_complex_imag_attr() {
+        let env = execute_source("x = (3+4j).imag\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "4.0");
+    }
+
+    #[test]
+    fn test_complex_add() {
+        let env = execute_source("x = (1+2j) + (3+4j)\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "(4+6j)");
+    }
+
+    #[test]
+    fn test_complex_eq() {
+        let env = execute_source("x = (1+2j) == (1+2j)\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "True");
+    }
+
+    #[test]
+    fn test_complex_builtin() {
+        let env = execute_source("x = complex(3, 4)\n");
+        assert_eq!(env.borrow().get("x").unwrap().repr(), "(3+4j)");
+    }
+
+    #[test]
+    fn test_bytes_literal() {
+        let output = execute_program("b\"hello\"");
+        assert_eq!(output, "b'hello'");
+    }
+
+    #[test]
+    fn test_bytes_decode() {
+        let output = execute_program("b\"hello\".decode()");
+        assert_eq!(output, "'hello'");
+    }
+
+    #[test]
+    fn test_bytes_index() {
+        let output = execute_program("b\"abc\"[1]");
+        assert_eq!(output, "98");
+    }
+
+    #[test]
+    fn test_bytes_hex() {
+        let output = execute_program("b\"\\x00\\xff\".hex()");
+        assert_eq!(output, "'00ff'");
+    }
+
+    #[test]
+    fn test_bytes_len() {
+        let output = execute_program("len(b\"hello\")");
+        assert_eq!(output, "5");
+    }
+
+    #[test]
+    fn test_bytes_contains() {
+        let output = execute_program("b\"ell\" in b\"hello\"");
+        assert_eq!(output, "True");
+    }
+
+    #[test]
+    fn test_bytes_builtin() {
+        let output = execute_program("bytes(5)");
+        assert_eq!(output, "b'\\x00\\x00\\x00\\x00\\x00'");
+    }
+
+    #[test]
+    fn test_dict_int_key() {
+        let output = execute_program("{1: \"one\", 2: \"two\"}[1]");
+        assert_eq!(output, "'one'");
+    }
+
+    #[test]
+    fn test_dict_tuple_key() {
+        let output = execute_program("{(1, 2): \"value\"}[(1, 2)]");
+        assert_eq!(output, "'value'");
+    }
+
+    #[test]
+    fn test_dict_mixed_keys() {
+        let output = execute_program("{1: \"int\", \"key\": \"str\", (1,): \"tuple\"}[(1,)]");
+        assert_eq!(output, "'tuple'");
+    }
+
+    #[test]
+    fn test_dict_keys_method() {
+        let output = execute_program("sorted({1: \"a\", 2: \"b\"}.keys())");
+        assert_eq!(output, "[1, 2]");
+    }
+
+    #[test]
+    fn test_dict_values_method() {
+        let output = execute_program("list({1: \"a\", 2: \"b\"}.values())");
+        assert!(output == "['a', 'b']" || output == "['b', 'a']");
+    }
+
+    #[test]
+    fn test_dict_get_method() {
+        let output = execute_program("{1: \"one\"}.get(1)");
+        assert_eq!(output, "'one'");
+    }
+
+    #[test]
+    fn test_dict_get_default() {
+        let output = execute_program("{1: \"one\"}.get(2, \"default\")");
+        assert_eq!(output, "'default'");
+    }
+
+    #[test]
+    fn test_dict_pop_method() {
+        let output = execute_program("{1: \"one\", 2: \"two\"}.pop(1)");
+        assert_eq!(output, "'one'");
+    }
+
+    #[test]
+    fn test_dict_update_method() {
+        let output = execute_program("{1: \"a\", 2: \"b\"}.update({2: \"c\", 3: \"d\"})");
+        assert_eq!(output, "None");
+        let output2 = execute_program("sorted(({1: \"a\", 2: \"b\"} | {2: \"c\", 3: \"d\"}).keys())");
+        assert_eq!(output2, "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_dict_copy() {
+        let output = execute_program("{1: \"a\"}.copy()");
+        assert_eq!(output, "{1: 'a'}");
+    }
+
+    #[test]
+    fn test_dict_clear() {
+        let output = execute_program("{1: \"a\", 2: \"b\"}.clear()");
+        assert_eq!(output, "None");
+    }
+
+    #[test]
+    fn test_dict_len() {
+        let output = execute_program("len({1: \"a\", 2: \"b\"})");
+        assert_eq!(output, "2");
+    }
+
+    #[test]
+    fn test_dict_contains() {
+        let output = execute_program("1 in {1: \"a\", 2: \"b\"}");
+        assert_eq!(output, "True");
     }
 }

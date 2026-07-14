@@ -62,13 +62,17 @@ pub enum Opcode {
     // Data Structures
     BuildList(usize), // count
     BuildMap(usize),  // count (number of key-value pairs)
+    BuildTuple(usize), // count
+    BuildSet(usize),  // count (number of elements; 0 for comprehension)
     ListExtend,       // pops an iterable, pops a list, extends list, pushes list
     DictMerge,        // pops a dict, pops a dict, merges, pushes dict
     ListAppend,       // pops item, pops list, appends item, pushes list back
     MapAdd,           // pops value, pops key, pops dict, inserts key:value, pushes dict back
+    SetAdd,           // pops item, pops set, adds item (no-op if duplicate), pushes set back
     BuildSlice,       // pops step (or None), stop (or None), start (or None), pushes PySlice
     BinarySubscript,  // pops index, pops collection, pushes item
     StoreSubscript,   // pops value, pops index, pops collection, stores item
+    UnpackSequence(usize), // pops sequence, pushes individual items in reverse order
 
     // Control Flow
     GetIter,        // pops collection, pushes iterator
@@ -82,7 +86,11 @@ pub enum Opcode {
     // Exceptions
     SetupExcept(usize), // pushes a block onto block stack, with target
     PopExcept,          // pops a block from block stack
+    SetupFinally(usize), // pushes a finally block; on exception, saves exception and jumps to target
+    PopFinally,          // pops a finally block from block stack
+    EndFinally,          // end of finally block; re-raises pending exception if any
     Raise,              // pops an object, raises it as an exception
+    TryEnd,             // marker for end of try structure
 
     // Context Managers
     SetupWith(usize), // pushes block, calls __enter__, pushes result

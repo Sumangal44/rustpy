@@ -3,7 +3,6 @@ use super::bound_method::PyBoundMethod;
 use super::class::PyClass;
 use super::classmethod::PyClassMethod;
 use super::int::PyInt;
-use super::bool::PyBool;
 use super::native_function::PyNativeFunction;
 use super::property::PyProperty;
 use super::staticmethod::PyStaticMethod;
@@ -73,7 +72,7 @@ impl PyInstance {
     pub fn len(&self) -> Result<usize, String> {
         let result = self.call_dunder("__len__", vec![])?;
         if let Some(i) = result.as_any().downcast_ref::<PyInt>() {
-            Ok(i.value as usize)
+            Ok(i.to_usize().unwrap_or(0))
         } else {
             Err("TypeError: __len__ must return an int".to_string())
         }
@@ -115,7 +114,7 @@ impl PyObject for PyInstance {
         }
         if let Ok(result) = self.call_dunder("__len__", vec![]) {
             if let Some(i) = result.as_any().downcast_ref::<PyInt>() {
-                return i.value != 0;
+                return i.as_i64().unwrap_or(0) != 0;
             }
         }
         true

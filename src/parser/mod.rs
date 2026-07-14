@@ -1,7 +1,7 @@
 use crate::ast::{BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind};
 use crate::diagnostics::{LexerError, ParseError, ParseErrorKind};
 use crate::lexer::Lexer;
-use crate::lexer::tokens::{Span, Token, TokenKind};
+use crate::lexer::tokens::{Token, TokenKind};
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -405,6 +405,21 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_set_comp(&mut self, elt: Expr) -> Result<Expr, ParseError> {
+        self.consume(TokenKind::For)?;
+        let target = self.parse_for_target()?;
+        self.consume(TokenKind::In)?;
+        let iter = self.parse_expression(0)?;
+        self.consume(TokenKind::RBrace)?;
+        Ok(Expr::Comprehension {
+            kind: crate::ast::CompKind::Set,
+            elt: Box::new(elt),
+            key: None,
+            target: Box::new(target),
+            iter: Box::new(iter),
+        })
+    }
+
     fn parse_for(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::For)?;
         let target = self.parse_for_target()?;
@@ -567,14 +582,30 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assign_or_expr(&mut self) -> Result<Stmt, ParseError> {
-        let expr = self.parse_expression(0)?;
+        let first = self.parse_expression(0)?;
+        let mut targets = vec![first];
+
+        while self.check(&TokenKind::Comma) {
+            self.advance()?;
+            if self.check(&TokenKind::Equal) {
+                // a, = ...  single-element unpack target list ends at =
+                break;
+            }
+            targets.push(self.parse_expression(0)?);
+        }
 
         if let Some(op) = self.parse_aug_op() {
             self.advance()?;
             let value = self.parse_expression(0)?;
             self.consume(TokenKind::Newline)?;
+            if targets.len() != 1 {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidSyntax("augmented assignment with multiple targets".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
             Ok(Stmt::AugAssign {
-                target: Box::new(expr),
+                target: Box::new(targets.into_iter().next().unwrap()),
                 op,
                 value,
             })
@@ -582,15 +613,18 @@ impl<'a> Parser<'a> {
             self.advance()?;
             let value = self.parse_expression(0)?;
             self.consume(TokenKind::Newline)?;
-            Ok(Stmt::Assign {
-                targets: vec![expr],
-                value,
-            })
+            Ok(Stmt::Assign { targets, value })
         } else {
             if self.check(&TokenKind::Newline) {
                 self.advance()?;
             }
-            Ok(Stmt::ExprStmt { value: expr })
+            if targets.len() > 1 {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidSyntax("cannot assign to tuple literal (use parentheses for tuple expressions)".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
+            Ok(Stmt::ExprStmt { value: targets.into_iter().next().unwrap() })
         }
     }
 
@@ -629,7 +663,7 @@ impl<'a> Parser<'a> {
                 Ok(expr)
             }
             TokenKind::IntLiteral(val) => {
-                let expr = Expr::IntLiteral(*val);
+                let expr = Expr::IntLiteral(val.clone());
                 self.advance()?;
                 Ok(expr)
             }
@@ -638,8 +672,18 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 Ok(expr)
             }
+            TokenKind::ImagLiteral(val) => {
+                let expr = Expr::ImagLiteral(*val);
+                self.advance()?;
+                Ok(expr)
+            }
             TokenKind::StringLiteral(val) => {
                 let expr = Expr::StringLiteral(val.clone());
+                self.advance()?;
+                Ok(expr)
+            }
+            TokenKind::BytesLiteral(val) => {
+                let expr = Expr::BytesLiteral(val.clone());
                 self.advance()?;
                 Ok(expr)
             }
@@ -664,12 +708,24 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 if self.check(&TokenKind::RParen) {
                     self.advance()?;
-                    return Ok(Expr::NoneLiteral);  // empty tuple? For now, just return None
+                    return Ok(Expr::Tuple(Vec::new()));
                 }
                 let first = self.parse_expression(0)?;
                 // Check for generator expression: (expr for target in iter)
                 if self.check(&TokenKind::For) {
                     return self.parse_generator_expr(first);
+                }
+                if self.check(&TokenKind::Comma) {
+                    let mut elements = vec![first];
+                    while self.check(&TokenKind::Comma) {
+                        self.advance()?;
+                        if self.check(&TokenKind::RParen) {
+                            break;
+                        }
+                        elements.push(self.parse_expression(0)?);
+                    }
+                    self.consume(TokenKind::RParen)?;
+                    return Ok(Expr::Tuple(elements));
                 }
                 self.consume(TokenKind::RParen)?;
                 Ok(first)
@@ -715,10 +771,7 @@ impl<'a> Parser<'a> {
                 }
                 let first = self.parse_expression(0)?;
                 if self.check(&TokenKind::For) {
-                    return Err(ParseError::new(
-                        ParseErrorKind::InvalidSyntax("set comprehensions not yet supported".to_string()),
-                        self.current_token.span.clone(),
-                    ));
+                    return self.parse_set_comp(first);
                 }
                 if self.check(&TokenKind::Colon) {
                     self.advance()?;
@@ -996,7 +1049,7 @@ impl<'a> Parser<'a> {
     fn parse_single_pattern(&mut self) -> Result<Pattern, ParseError> {
         match &self.current_token.kind {
             TokenKind::IntLiteral(val) => {
-                let expr = Expr::IntLiteral(*val);
+                let expr = Expr::IntLiteral(val.clone());
                 self.advance()?;
                 Ok(Pattern::Literal(Box::new(expr)))
             }
@@ -1007,6 +1060,11 @@ impl<'a> Parser<'a> {
             }
             TokenKind::StringLiteral(val) => {
                 let expr = Expr::StringLiteral(val.clone());
+                self.advance()?;
+                Ok(Pattern::Literal(Box::new(expr)))
+            }
+            TokenKind::BytesLiteral(val) => {
+                let expr = Expr::BytesLiteral(val.clone());
                 self.advance()?;
                 Ok(Pattern::Literal(Box::new(expr)))
             }

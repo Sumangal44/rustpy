@@ -53,15 +53,14 @@ impl PyObject for PyList {
     fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
         if let Some(idx_obj) = key.as_any().downcast_ref::<crate::objects::int::PyInt>() {
             let elements = self.elements.borrow();
-            let mut idx = idx_obj.value;
-            if idx < 0 {
-                idx += elements.len() as i64;
-            }
-            if idx >= 0 && (idx as usize) < elements.len() {
-                Ok(Rc::clone(&elements[idx as usize]))
-            } else {
-                Err("IndexError: list index out of range".to_string())
-            }
+                let elements = self.elements.borrow();
+                let i = idx_obj.as_i64().unwrap_or(0);
+                let idx = if i < 0 { (elements.len() as i64 + i) as usize } else { i as usize };
+                if idx < elements.len() {
+                    Ok(Rc::clone(&elements[idx]))
+                } else {
+                    Err("IndexError: list index out of range".to_string())
+                }
         } else if let Some(slice) = key.as_any().downcast_ref::<crate::objects::slice::PySlice>() {
             let elements = self.elements.borrow();
             let length = elements.len();
@@ -80,7 +79,7 @@ impl PyObject for PyList {
                 loop {
                     result.push(Rc::clone(&elements[i]));
                     if i == stop { break; }
-                    let next = (i as i64 + step);
+                    let next = i as i64 + step;
                     if next < 0 || next as usize >= length { break; }
                     i = next as usize;
                 }
@@ -116,29 +115,30 @@ impl PyObject for PyList {
                     if arr.is_empty() { return Err("IndexError: pop from empty list".to_string()); }
                     arr.len() - 1
                 } else {
-                    let i = match args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                        Some(n) => n.value,
+                    let i_val = match args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                        Some(n) => n.as_i64().unwrap_or(0),
                         None => return Err("TypeError: 'int' object expected".to_string()),
                     };
-                    if i < 0 {
-                        if (-i as usize) > arr.len() { return Err("IndexError: pop index out of range".to_string()); }
-                        (arr.len() as i64 + i) as usize
+                    if i_val < 0 {
+                        let u = (-i_val) as usize;
+                        if u > arr.len() { return Err("IndexError: pop index out of range".to_string()); }
+                        (arr.len() as i64 + i_val) as usize
                     } else {
-                        if (i as usize) >= arr.len() { return Err("IndexError: pop index out of range".to_string()); }
-                        i as usize
+                        if (i_val as usize) >= arr.len() { return Err("IndexError: pop index out of range".to_string()); }
+                        i_val as usize
                     }
                 };
                 Ok(arr.remove(idx))
             }))),
             "insert" => Ok(Rc::new(PyNativeFunction::new("insert".to_string(), move |args| {
                 if args.len() != 2 { return Err("TypeError: list.insert() takes exactly 2 arguments".to_string()); }
-                let idx = match args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    Some(n) => n.value,
+                let i_val = match args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    Some(n) => n.as_i64().unwrap_or(0),
                     None => return Err("TypeError: 'int' object expected".to_string()),
                 };
                 let mut arr = elements.borrow_mut();
                 let len = arr.len() as i64;
-                let pos = if idx < 0 { 0.max(len + idx) as usize } else { (idx as usize).min(len as usize) };
+                let pos = if i_val < 0 { 0usize.max((len + i_val) as usize) } else { (i_val as usize).min(arr.len()) };
                 arr.insert(pos, Rc::clone(&args[1]));
                 Ok(Rc::new(crate::objects::none::PyNone::new()))
             }))),
@@ -163,7 +163,7 @@ impl PyObject for PyList {
                     let eq = arr[i].eq(Rc::clone(&args[0]));
                     if let Some(result) = eq {
                         if result.is_truthy() {
-                            return Ok(Rc::new(crate::objects::int::PyInt::new(i as i64)));
+                            return Ok(Rc::new(crate::objects::int::PyInt::from_i64(i as i64)));
                         }
                     }
                 }
@@ -181,7 +181,7 @@ impl PyObject for PyList {
                         }
                     }
                 }
-                Ok(Rc::new(crate::objects::int::PyInt::new(cnt)))
+                Ok(Rc::new(crate::objects::int::PyInt::from_i64(cnt)))
             }))),
             "sort" => Ok(Rc::new(PyNativeFunction::new("sort".to_string(), move |args| {
                 if args.len() != 0 { return Err("TypeError: list.sort() takes no arguments".to_string()); }

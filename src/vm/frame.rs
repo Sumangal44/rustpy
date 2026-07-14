@@ -15,6 +15,10 @@ pub enum Block {
         stack_size: usize,
         exit_func: Rc<dyn PyObject>,
     },
+    SetupFinally {
+        handler_ip: usize,
+        stack_size: usize,
+    },
 }
 
 pub struct Frame {
@@ -23,6 +27,7 @@ pub struct Frame {
     pub stack: Vec<Rc<dyn PyObject>>,
     pub env: Rc<RefCell<Environment>>,
     pub block_stack: Vec<Block>,
+    pub pending_exception: Option<Rc<dyn PyObject>>,
 }
 
 impl Frame {
@@ -33,6 +38,7 @@ impl Frame {
             stack: Vec::new(),
             env,
             block_stack: Vec::new(),
+            pending_exception: None,
         }
     }
 

@@ -41,8 +41,9 @@ pub enum TokenKind {
 
     // Identifiers and Literals
     Identifier(String),
-    IntLiteral(i64),
+    IntLiteral(String),
     FloatLiteral(f64),
+    ImagLiteral(f64),
     StringLiteral(String),
     BytesLiteral(Vec<u8>),
     FStringLiteral(String),

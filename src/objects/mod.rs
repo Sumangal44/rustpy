@@ -148,8 +148,10 @@ pub trait PyObject: Debug + Any {
 
 pub mod bool;
 pub mod bound_method;
+pub mod bytes;
 pub mod class;
 pub mod classmethod;
+pub mod complex;
 pub mod constants;
 pub mod dict;
 pub mod exception;
@@ -167,3 +169,4 @@ pub mod set;
 pub mod slice;
 pub mod staticmethod;
 pub mod string;
+pub mod tuple;

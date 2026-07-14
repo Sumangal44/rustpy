@@ -7,9 +7,11 @@ pub enum FStringSegment {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Identifier(String),
-    IntLiteral(i64),
+    IntLiteral(String),
     FloatLiteral(f64),
+    ImagLiteral(f64),
     StringLiteral(String),
+    BytesLiteral(Vec<u8>),
     BooleanLiteral(bool),
     NoneLiteral,
     List(Vec<Expr>),
@@ -64,6 +66,7 @@ pub enum Expr {
         value: Box<Expr>,
     },
     Set(Vec<Expr>),
+    Tuple(Vec<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -71,6 +74,7 @@ pub enum CompKind {
     List,
     Dict,
     Generator,
+    Set,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

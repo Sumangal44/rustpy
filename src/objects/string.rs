@@ -111,7 +111,7 @@ impl PyObject for PyString {
 
     fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
         if let Some(idx_obj) = key.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            let mut idx = idx_obj.value;
+            let mut idx = idx_obj.as_i64().unwrap_or(0);
             let len = self.value.len() as i64;
             if idx < 0 {
                 idx += len;
@@ -140,7 +140,7 @@ impl PyObject for PyString {
                 loop {
                     result.push(chars[i]);
                     if i == stop { break; }
-                    let next = (i as i64 + step);
+                    let next = i as i64 + step;
                     if next < 0 || next as usize >= length { break; }
                     i = next as usize;
                 }
@@ -281,8 +281,8 @@ impl PyObject for PyString {
                     if args.len() != 1 { return Err("TypeError: find() takes exactly one argument ({} given)".to_string()); }
                     let sub = args[0].str();
                     match val.find(&sub) {
-                        Some(pos) => Ok(Rc::new(crate::objects::int::PyInt::new(pos as i64))),
-                        None => Ok(Rc::new(crate::objects::int::PyInt::new(-1))),
+                        Some(pos) => Ok(Rc::new(crate::objects::int::PyInt::from_i64(pos as i64))),
+                        None => Ok(Rc::new(crate::objects::int::PyInt::from_i64(-1))),
                     }
                 })))
             }
@@ -292,7 +292,7 @@ impl PyObject for PyString {
                     if args.len() != 1 { return Err("TypeError: index() takes exactly one argument ({} given)".to_string()); }
                     let sub = args[0].str();
                     match val.find(&sub) {
-                        Some(pos) => Ok(Rc::new(crate::objects::int::PyInt::new(pos as i64))),
+                        Some(pos) => Ok(Rc::new(crate::objects::int::PyInt::from_i64(pos as i64))),
                         None => Err("ValueError: substring not found".to_string()),
                     }
                 })))
@@ -302,7 +302,7 @@ impl PyObject for PyString {
                 Ok(Rc::new(PyNativeFunction::new("count".to_string(), move |args| {
                     if args.len() != 1 { return Err("TypeError: count() takes exactly one argument ({} given)".to_string()); }
                     let sub = args[0].str();
-                    Ok(Rc::new(crate::objects::int::PyInt::new(val.matches(&sub).count() as i64)))
+                    Ok(Rc::new(crate::objects::int::PyInt::from_i64(val.matches(&sub).count() as i64)))
                 })))
             }
             "isdigit" => {

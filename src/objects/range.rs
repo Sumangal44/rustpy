@@ -73,7 +73,7 @@ impl PyObject for PyRange {
 
     fn get_item(&self, index: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
         let idx = if let Some(i) = index.as_any().downcast_ref::<super::int::PyInt>() {
-            i.value
+            i.as_i64().unwrap_or(0)
         } else {
             return Err("TypeError: range indices must be integers".to_string());
         };
@@ -82,12 +82,12 @@ impl PyObject for PyRange {
         if actual < 0 || actual >= len {
             return Err("IndexError: range index out of range".to_string());
         }
-        Ok(Rc::new(super::int::PyInt::new(self.start + actual * self.step)))
+        Ok(Rc::new(super::int::PyInt::from_i64(self.start + actual * self.step)))
     }
 
     fn contains(&self, other: Rc<dyn PyObject>) -> Result<bool, String> {
         let val = if let Some(i) = other.as_any().downcast_ref::<super::int::PyInt>() {
-            i.value
+            i.as_i64().unwrap_or(0)
         } else {
             return Err(format!("TypeError: '{}' object cannot be interpreted as an integer", other.get_type()));
         };
@@ -133,7 +133,7 @@ impl PyObject for PyRangeIterator {
         if (self.step > 0 && *current >= self.stop) || (self.step < 0 && *current <= self.stop) {
             return Ok(None);
         }
-        let result = Rc::new(super::int::PyInt::new(*current)) as Rc<dyn PyObject>;
+        let result = Rc::new(super::int::PyInt::from_i64(*current)) as Rc<dyn PyObject>;
         *current += self.step;
         Ok(Some(result))
     }

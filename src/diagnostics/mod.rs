@@ -21,6 +21,8 @@ pub enum LexerErrorKind {
     UnterminatedString,
     InvalidNumber,
     IndentationError,
+    InvalidEscape,
+    InvalidCharacter,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +44,8 @@ impl std::fmt::Display for LexerError {
             LexerErrorKind::UnterminatedString => "Unterminated string literal".to_string(),
             LexerErrorKind::InvalidNumber => "Invalid number literal".to_string(),
             LexerErrorKind::IndentationError => "Indentation error".to_string(),
+            LexerErrorKind::InvalidEscape => "Invalid escape sequence".to_string(),
+            LexerErrorKind::InvalidCharacter => "Invalid character".to_string(),
         };
         write!(f, "{}", msg)
     }

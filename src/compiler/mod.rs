@@ -1,7 +1,7 @@
 pub mod code;
 pub mod opcodes;
 
-use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, MatchCase, Module, Pattern, Stmt};
+use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, Module, Pattern, Stmt};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
@@ -62,35 +62,37 @@ impl Compiler {
             Stmt::Assign { targets, value } => {
                 self.compile_expr(value)?;
 
-                if targets.len() != 1 {
-                    return Err("Multiple assignment targets not yet supported".to_string());
-                }
-
-                match &targets[0] {
-                    Expr::Identifier(name) => {
-                        let name_idx = self.get_or_add_name(name);
-                        self.emit(Opcode::StoreName(name_idx));
+                if targets.len() == 1 {
+                    match &targets[0] {
+                        Expr::Identifier(name) => {
+                            let name_idx = self.get_or_add_name(name);
+                            self.emit(Opcode::StoreName(name_idx));
+                        }
+                        Expr::Attribute {
+                            value: target_value,
+                            attr,
+                        } => {
+                            self.compile_expr(target_value)?;
+                            self.emit(Opcode::StoreAttr(attr.clone()));
+                        }
+                        Expr::Subscript { value, slice } => {
+                            self.compile_expr(value)?;
+                            self.compile_expr(slice)?;
+                            self.emit(Opcode::StoreSubscript);
+                        }
+                        _ => {
+                            return Err("CompilerError: Unsupported assignment target".to_string());
+                        }
                     }
-                    Expr::Attribute {
-                        value: target_value,
-                        attr,
-                    } => {
-                        self.compile_expr(target_value)?;
-                        self.emit(Opcode::StoreAttr(attr.clone()));
-                    }
-                    Expr::Subscript { value, slice } => {
-                        // For subscript assignment: evaluate once, then use StoreSubscript
-                        self.compile_expr(value)?;
-                        self.compile_expr(slice)?;
-                        // Stack is: collection, index, value (from right side)
-                        // We need: collection, index, value -> StoreSubscript pops value, index, collection
-                        // Wait, value is already on stack from compile_expr(value) above
-                        // The stack is: collection, index, (value from parent compile)
-                        // So we just emit StoreSubscript
-                        self.emit(Opcode::StoreSubscript);
-                    }
-                    _ => {
-                        return Err("CompilerError: Unsupported assignment target".to_string());
+                } else {
+                    self.emit(Opcode::UnpackSequence(targets.len()));
+                    for target in targets.iter() {
+                        if let Expr::Identifier(name) = target {
+                            let name_idx = self.get_or_add_name(name);
+                            self.emit(Opcode::StoreName(name_idx));
+                        } else {
+                            return Err("CompilerError: Unsupported unpack target".to_string());
+                        }
                     }
                 }
             }
@@ -363,40 +365,84 @@ impl Compiler {
                 self.emit(Opcode::StoreName(name_idx));
             }
             Stmt::Try { body, handlers, finally_body } => {
-                let setup_except_idx = self.emit(Opcode::SetupExcept(0));
+                let has_handlers = !handlers.is_empty();
+                let has_finally = finally_body.is_some();
+
+                let mut finally_jumps: Vec<usize> = Vec::new();
+                let mut end_jumps: Vec<usize> = Vec::new();
+
+                let setup_finally_idx = if has_finally {
+                    Some(self.emit(Opcode::SetupFinally(0)))
+                } else {
+                    None
+                };
+
+                let setup_except_idx = if has_handlers {
+                    Some(self.emit(Opcode::SetupExcept(0)))
+                } else {
+                    None
+                };
 
                 for s in body {
                     self.compile_stmt(s)?;
                 }
 
-                self.emit(Opcode::PopExcept);
-
-                let jump_forward_idx = self.emit(Opcode::JumpAbsolute(0));
-
-                let except_target = self.code.instructions.len();
-                self.code.instructions[setup_except_idx] = Opcode::SetupExcept(except_target);
-
-                // Compile handlers
-                for (exc_type, handler_body) in handlers {
-                    // The exception object is pushed onto the stack by the VM
-                    if exc_type.is_some() {
-                        // Pop the exception for typed except - we're ignoring type checking for now
-                        self.emit(Opcode::PopTop);
-                    } else {
-                        // Bare except: pop the exception
-                        self.emit(Opcode::PopTop);
+                match (has_handlers, has_finally) {
+                    (true, false) => {
+                        self.emit(Opcode::PopExcept);
+                        end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
                     }
-                    for s in handler_body {
-                        self.compile_stmt(s)?;
+                    (true, true) => {
+                        self.emit(Opcode::PopExcept);
+                        self.emit(Opcode::PopFinally);
+                        finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                    (false, true) => {
+                        self.emit(Opcode::PopFinally);
+                        finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    }
+                    (false, false) => {}
+                }
+
+                if let Some(except_idx) = setup_except_idx {
+                    let handler_start = self.code.instructions.len();
+                    self.code.instructions[except_idx] = Opcode::SetupExcept(handler_start);
+
+                    for (exc_type, handler_body) in handlers {
+                        self.emit(Opcode::PopTop);
+                        for s in handler_body {
+                            self.compile_stmt(s)?;
+                        }
+                    }
+
+                    if has_finally {
+                        self.emit(Opcode::PopFinally);
+                        finally_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+                    } else {
+                        end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
                     }
                 }
 
-                self.code.instructions[jump_forward_idx] =
-                    Opcode::JumpAbsolute(self.code.instructions.len());
-                
-                // TODO: Implement finally when we add SetupFinally/PopFinally opcodes
-                if let Some(_finally) = finally_body {
-                    // Not yet implemented
+                if let Some(finally_idx) = setup_finally_idx {
+                    let finally_start = self.code.instructions.len();
+                    self.code.instructions[finally_idx] = Opcode::SetupFinally(finally_start);
+
+                    for jmp_idx in &finally_jumps {
+                        self.code.instructions[*jmp_idx] = Opcode::JumpAbsolute(finally_start);
+                    }
+
+                    if let Some(finally_body) = finally_body {
+                        for s in finally_body {
+                            self.compile_stmt(s)?;
+                        }
+                    }
+
+                    self.emit(Opcode::EndFinally);
+                }
+
+                let end = self.code.instructions.len();
+                for jmp_idx in &end_jumps {
+                    self.code.instructions[*jmp_idx] = Opcode::JumpAbsolute(end);
                 }
             }
             Stmt::With {
@@ -578,15 +624,24 @@ impl Compiler {
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), String> {
         match expr {
             Expr::IntLiteral(val) => {
-                let idx = self.add_constant(Rc::new(PyInt::new(*val)));
+                let bigint: num_bigint::BigInt = val.parse().map_err(|_| format!("Invalid integer literal: {}", val))?;
+                let idx = self.add_constant(Rc::new(PyInt::new(bigint)));
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::FloatLiteral(val) => {
                 let idx = self.add_constant(Rc::new(crate::objects::float::PyFloat::new(*val)));
                 self.emit(Opcode::LoadConst(idx));
             }
+            Expr::ImagLiteral(val) => {
+                let idx = self.add_constant(Rc::new(crate::objects::complex::PyComplex::new(0.0, *val)));
+                self.emit(Opcode::LoadConst(idx));
+            }
             Expr::StringLiteral(val) => {
                 let idx = self.add_constant(Rc::new(PyString::new(val.clone())));
+                self.emit(Opcode::LoadConst(idx));
+            }
+            Expr::BytesLiteral(val) => {
+                let idx = self.add_constant(Rc::new(crate::objects::bytes::PyBytes::new(val.clone())));
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::BooleanLiteral(val) => {
@@ -694,6 +749,12 @@ impl Compiler {
                     self.compile_expr(el)?;
                 }
                 self.emit(Opcode::BuildList(elements.len()));
+            }
+            Expr::Tuple(elements) => {
+                for el in elements {
+                    self.compile_expr(el)?;
+                }
+                self.emit(Opcode::BuildTuple(elements.len()));
             }
             Expr::Dict(pairs) => {
                 for (key, value) in pairs {
@@ -836,6 +897,42 @@ impl Compiler {
                         self.emit(Opcode::LoadName(result_name));
                         self.compile_expr(elt)?;
                         self.emit(Opcode::ListAppend);
+                        self.emit(Opcode::StoreName(result_name));
+
+                        self.emit(Opcode::JumpAbsolute(loop_start));
+
+                        let loop_end = self.code.instructions.len();
+                        self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
+
+                        self.emit(Opcode::LoadName(result_name));
+                    }
+                    CompKind::Set => {
+                        self.compile_expr(iter)?;
+                        self.emit(Opcode::GetIter);
+                        let iter_name = self.get_or_add_name("__comp_iter");
+                        self.emit(Opcode::StoreName(iter_name));
+
+                        self.emit(Opcode::BuildSet(0));
+                        let result_name = self.get_or_add_name("__comp_result");
+                        self.emit(Opcode::StoreName(result_name));
+
+                        let loop_start = self.code.instructions.len();
+
+                        self.emit(Opcode::LoadName(iter_name));
+                        let for_iter_idx = self.emit(Opcode::ForIter(0));
+
+                        if let Expr::Identifier(name) = target.as_ref() {
+                            let target_idx = self.get_or_add_name(name);
+                            self.emit(Opcode::StoreName(target_idx));
+                        } else {
+                            return Err("Comprehension target must be an identifier".to_string());
+                        }
+
+                        self.emit(Opcode::StoreName(iter_name));
+
+                        self.emit(Opcode::LoadName(result_name));
+                        self.compile_expr(elt)?;
+                        self.emit(Opcode::SetAdd);
                         self.emit(Opcode::StoreName(result_name));
 
                         self.emit(Opcode::JumpAbsolute(loop_start));

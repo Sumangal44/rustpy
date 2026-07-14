@@ -194,6 +194,12 @@ impl<'a> Lexer<'a> {
             return self.lex_fstring(start_pos, start_col, quote);
         }
 
+        // Check for bytes prefix: b or B followed by a quote
+        if (value == "b" || value == "B") && (self.current == Some('"') || self.current == Some('\'')) {
+            let quote = self.current.unwrap();
+            return self.lex_bytes(start_pos, start_col, quote);
+        }
+
         let kind = match value.as_str() {
             "def" => TokenKind::Def,
             "return" => TokenKind::Return,
@@ -267,14 +273,24 @@ impl<'a> Lexer<'a> {
             })?;
             TokenKind::FloatLiteral(num)
         } else {
-            let num = value.parse::<i64>().map_err(|_| {
-                LexerError::new(
+            if value.is_empty() {
+                return Err(LexerError::new(
                     LexerErrorKind::InvalidNumber,
                     self.span(start_pos, start_col),
-                )
-            })?;
-            TokenKind::IntLiteral(num)
+                ));
+            }
+            TokenKind::IntLiteral(value)
         };
+
+        if self.current == Some('j') || self.current == Some('J') {
+            self.advance();
+            let num = match kind {
+                TokenKind::IntLiteral(ref s) => s.parse::<f64>().unwrap_or(0.0),
+                TokenKind::FloatLiteral(v) => v,
+                _ => unreachable!(),
+            };
+            return Ok(self.make_token(TokenKind::ImagLiteral(num), start_pos, start_col));
+        }
 
         Ok(self.make_token(kind, start_pos, start_col))
     }
@@ -324,6 +340,75 @@ impl<'a> Lexer<'a> {
             }
             value.push(c);
             self.advance();
+        }
+
+        Err(LexerError::new(
+            LexerErrorKind::UnterminatedString,
+            self.span(start_pos, start_col),
+        ))
+    }
+
+    fn lex_bytes(
+        &mut self,
+        start_pos: usize,
+        start_col: usize,
+        quote: char,
+    ) -> Result<Token, LexerError> {
+        self.advance(); // consume opening quote
+        let mut bytes = Vec::new();
+        let mut escape = false;
+
+        while let Some(c) = self.current {
+            if escape {
+                match c {
+                    'n' => { bytes.push(0x0a); escape = false; self.advance(); }
+                    't' => { bytes.push(0x09); escape = false; self.advance(); }
+                    'r' => { bytes.push(0x0d); escape = false; self.advance(); }
+                    '\\' => { bytes.push(0x5c); escape = false; self.advance(); }
+                    '\'' => { bytes.push(0x27); escape = false; self.advance(); }
+                    '"' => { bytes.push(0x22); escape = false; self.advance(); }
+                    'x' => {
+                        self.advance(); // move past x to first hex digit
+                        let hex_str = match (self.current, self.peek()) {
+                            (Some(a), Some(b)) => format!("{}{}", a, b),
+                            _ => return Err(LexerError::new(
+                                LexerErrorKind::InvalidEscape,
+                                self.span(start_pos, start_col),
+                            )),
+                        };
+                        let val = u8::from_str_radix(&hex_str, 16).map_err(|_| {
+                            LexerError::new(
+                                LexerErrorKind::InvalidEscape,
+                                self.span(start_pos, start_col),
+                            )
+                        })?;
+                        bytes.push(val);
+                        self.advance(); // skip first hex digit
+                        self.advance(); // skip second hex digit
+                        escape = false;
+                    }
+                    _ => {
+                        bytes.push(c as u8);
+                        escape = false;
+                        self.advance();
+                    }
+                }
+            } else if c == '\\' {
+                escape = true;
+                self.advance();
+            } else if c == quote {
+                self.advance(); // consume closing quote
+                return Ok(self.make_token(TokenKind::BytesLiteral(bytes), start_pos, start_col));
+            } else {
+                if c as u32 > 255 {
+                    return Err(LexerError::new(
+                        LexerErrorKind::InvalidCharacter,
+                        self.span(start_pos, start_col),
+                    ));
+                }
+                bytes.push(c as u8);
+                self.advance();
+            }
         }
 
         Err(LexerError::new(

@@ -30,6 +30,8 @@ impl VirtualMachine {
                 Ok(Some(ret)) => return Ok(Some(ret)),
                 Ok(None) => {} // continue
                 Err(e) => {
+                    frame.pending_exception = None;
+
                     let exc_obj = self.last_exception.take().unwrap_or_else(|| {
                         Rc::new(crate::objects::exception::PyException::new(
                             "RuntimeError".to_string(),
@@ -44,6 +46,13 @@ impl VirtualMachine {
                             crate::vm::frame::Block::SetupExcept { handler_ip, stack_size } => {
                                 frame.stack.truncate(stack_size);
                                 frame.push(exc_obj.clone());
+                                frame.ip = handler_ip;
+                                handled = true;
+                                break;
+                            }
+                            crate::vm::frame::Block::SetupFinally { handler_ip, stack_size } => {
+                                frame.stack.truncate(stack_size);
+                                frame.pending_exception = Some(exc_obj.clone());
                                 frame.ip = handler_ip;
                                 handled = true;
                                 break;
@@ -133,13 +142,10 @@ impl VirtualMachine {
                 let value = frame.pop()?;
                 let idx = frame.pop()?;
                 let collection = frame.pop()?;
-                // Call set_item on the collection
-                // We don't have set_item on the trait, so let's implement it
-                // For now, return an error for non-list types
                 if let Some(list) = collection.as_any().downcast_ref::<crate::objects::list::PyList>() {
                     if let Some(int_idx) = idx.as_any().downcast_ref::<crate::objects::int::PyInt>() {
                         let mut elements = list.elements.borrow_mut();
-                        let mut idx_val = int_idx.value;
+                        let mut idx_val = int_idx.as_i64().unwrap_or(0);
                         if idx_val < 0 {
                             idx_val += elements.len() as i64;
                         }
@@ -151,6 +157,8 @@ impl VirtualMachine {
                     } else {
                         return Err("TypeError: list indices must be integers, not ...".to_string());
                     }
+                } else if let Some(d) = collection.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                    d.set_item(idx, value)?;
                 } else {
                     return Err("TypeError: '{}' object does not support item assignment".to_string());
                 }
@@ -257,8 +265,10 @@ impl VirtualMachine {
                 if *flags & 1 != 0 {
                     let kwargs_dict_obj = frame.pop()?;
                     if let Some(dict) = kwargs_dict_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
-                        for (k, v) in dict.entries.borrow().iter() {
-                            kwargs.insert(k.clone(), Rc::clone(v));
+                        for bucket in dict.entries.borrow().values() {
+                            for (k, v) in bucket {
+                                kwargs.insert(k.str(), Rc::clone(v));
+                            }
                         }
                     } else {
                         return Err("TypeError: kwargs must be a dict".to_string());
@@ -288,19 +298,55 @@ impl VirtualMachine {
                 let list = Rc::new(crate::objects::list::PyList::new(elements));
                 frame.push(list);
             }
+            Opcode::BuildTuple(count) => {
+                let mut elements = Vec::new();
+                for _ in 0..*count {
+                    elements.push(frame.pop()?);
+                }
+                elements.reverse();
+                let t = Rc::new(crate::objects::tuple::PyTuple::new(elements));
+                frame.push(t);
+            }
+            Opcode::UnpackSequence(count) => {
+                let seq = frame.pop()?;
+                if let Some(t) = seq.as_any().downcast_ref::<crate::objects::tuple::PyTuple>() {
+                    if t.elements.len() != *count {
+                        return Err(format!("ValueError: too many values to unpack (expected {})", *count));
+                    }
+                    for i in (0..*count).rev() {
+                        frame.push(Rc::clone(&t.elements[i]));
+                    }
+                } else if let Some(l) = seq.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    let elements = l.elements.borrow();
+                    if elements.len() != *count {
+                        return Err(format!("ValueError: too many values to unpack (expected {})", *count));
+                    }
+                    for i in (0..*count).rev() {
+                        frame.push(Rc::clone(&elements[i]));
+                    }
+                } else {
+                    let iter = seq.get_iter()?;
+                    let mut items = Vec::new();
+                    while let Some(item) = iter.get_next()? {
+                        items.push(item);
+                    }
+                    if items.len() != *count {
+                        return Err(format!("ValueError: too many values to unpack (expected {})", *count));
+                    }
+                    for item in items.into_iter().rev() {
+                        frame.push(item);
+                    }
+                }
+            }
             Opcode::BuildMap(count) => {
-                let mut entries = std::collections::HashMap::new();
+                let mut pairs: Vec<(Rc<dyn PyObject>, Rc<dyn PyObject>)> = Vec::new();
                 for _ in 0..*count {
                     let value = frame.pop()?;
                     let key_obj = frame.pop()?;
-
-                    if let Some(str_key) = key_obj.as_any().downcast_ref::<crate::objects::string::PyString>() {
-                        entries.insert(str_key.value.clone(), value);
-                    } else {
-                        return Err(format!("TypeError: unhashable type: '{}' (Only strings supported as dict keys)", key_obj.get_type()));
-                    }
+                    key_obj.hash().map_err(|_| format!("TypeError: unhashable type: '{}'", key_obj.get_type()))?;
+                    pairs.push((key_obj, value));
                 }
-                let dict = Rc::new(crate::objects::dict::PyDict::new(entries));
+                let dict = Rc::new(crate::objects::dict::PyDict::from_pairs(pairs));
                 frame.push(dict);
             }
             Opcode::ListExtend => {
@@ -326,8 +372,10 @@ impl VirtualMachine {
 
                 if let Some(dict1) = dict1_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                     if let Some(dict2) = dict2_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
-                        for (k, v) in dict2.entries.borrow().iter() {
-                            dict1.entries.borrow_mut().insert(k.clone(), Rc::clone(v));
+                        for bucket in dict2.entries.borrow().values() {
+                            for (k, v) in bucket {
+                                let _ = dict1.set_item(Rc::clone(k), Rc::clone(v));
+                            }
                         }
                         frame.push(dict1_obj); // push dict1 back
                     } else {
@@ -347,13 +395,37 @@ impl VirtualMachine {
                     return Err("TypeError: ListAppend expected a list".to_string());
                 }
             }
+            Opcode::BuildSet(count) => {
+                let mut elements = Vec::new();
+                for _ in 0..*count {
+                    elements.push(frame.pop()?);
+                }
+                elements.reverse();
+                let set = Rc::new(crate::objects::set::PySet::new(elements));
+                frame.push(set);
+            }
+            Opcode::SetAdd => {
+                let item = frame.pop()?;
+                let set_obj = frame.pop()?;
+                if let Some(set) = set_obj.as_any().downcast_ref::<crate::objects::set::PySet>() {
+                    let duplicate = {
+                        let elements = set.elements.borrow();
+                        crate::objects::set::PySet::has_element(&*elements, &item)
+                    };
+                    if !duplicate {
+                        set.elements.borrow_mut().push(item);
+                    }
+                    frame.push(set_obj);
+                } else {
+                    return Err("TypeError: SetAdd expected a set".to_string());
+                }
+            }
             Opcode::MapAdd => {
                 let value = frame.pop()?;
                 let key = frame.pop()?;
                 let dict_obj = frame.pop()?;
                 if let Some(dict) = dict_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
-                    let key_str = key.str();
-                    dict.entries.borrow_mut().insert(key_str, value);
+                    dict.set_item(key, value)?;
                     frame.push(dict_obj);
                 } else {
                     return Err("TypeError: MapAdd expected a dict".to_string());
@@ -366,21 +438,21 @@ impl VirtualMachine {
                 let start = if start_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
                     None
                 } else if let Some(i) = start_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    Some(i.value)
+                    Some(i.as_i64().unwrap_or(0))
                 } else {
                     return Err("TypeError: slice indices must be integers or None".to_string());
                 };
                 let stop = if stop_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
                     None
                 } else if let Some(i) = stop_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    Some(i.value)
+                    Some(i.as_i64().unwrap_or(0))
                 } else {
                     return Err("TypeError: slice indices must be integers or None".to_string());
                 };
                 let step = if step_obj.as_any().downcast_ref::<crate::objects::none::PyNone>().is_some() {
                     None
                 } else if let Some(i) = step_obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    Some(i.value)
+                    Some(i.as_i64().unwrap_or(0))
                 } else {
                     return Err("TypeError: slice indices must be integers or None".to_string());
                 };
@@ -739,6 +811,24 @@ impl VirtualMachine {
                     frame.ip = *target;
                 }
             }
+            Opcode::SetupFinally(target) => {
+                let stack_size = frame.stack.len();
+                frame.block_stack.push(crate::vm::frame::Block::SetupFinally {
+                    handler_ip: *target,
+                    stack_size,
+                });
+            }
+            Opcode::PopFinally => {
+                frame.block_stack.pop();
+                frame.pending_exception = None;
+            }
+            Opcode::EndFinally => {
+                if let Some(exc) = frame.pending_exception.take() {
+                    self.last_exception = Some(exc.clone());
+                    return Err(exc.repr());
+                }
+            }
+            Opcode::TryEnd => {}
             Opcode::Raise => {
                 let exc = frame.pop()?;
                 self.last_exception = Some(exc.clone());
@@ -830,7 +920,11 @@ impl VirtualMachine {
 
             // 4. Handle **kwargs if kwarg is present
             if let Some(kwarg) = &func.code.kwarg {
-                let dict = Rc::new(crate::objects::dict::PyDict::new(unused_kwargs));
+                let mut pairs: Vec<(Rc<dyn PyObject>, Rc<dyn PyObject>)> = Vec::new();
+                for (k, v) in unused_kwargs {
+                    pairs.push((Rc::new(crate::objects::string::PyString::new(k)) as Rc<dyn PyObject>, v));
+                }
+                let dict = Rc::new(crate::objects::dict::PyDict::from_pairs(pairs));
                 new_env.borrow_mut().set(kwarg.clone(), dict);
             } else if !unused_kwargs.is_empty() {
                 let first_unexpected = unused_kwargs.keys().next().unwrap();

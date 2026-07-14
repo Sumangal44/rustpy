@@ -1,4 +1,5 @@
 use super::PyObject;
+use num_traits::{ToPrimitive, Zero};
 use std::any::Any;
 use std::rc::Rc;
 
@@ -43,7 +44,9 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(PyFloat::new(self.value + f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(PyFloat::new(self.value + i.value as f64)))
+            Some(Rc::new(PyFloat::new(self.value + i.value.to_f64().unwrap_or(0.0))))
+        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+            Some(Rc::new(crate::objects::complex::PyComplex::new(self.value + c.real, c.imag)))
         } else {
             None
         }
@@ -53,7 +56,9 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(PyFloat::new(self.value - f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(PyFloat::new(self.value - i.value as f64)))
+            Some(Rc::new(PyFloat::new(self.value - i.value.to_f64().unwrap_or(0.0))))
+        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+            Some(Rc::new(crate::objects::complex::PyComplex::new(self.value - c.real, -c.imag)))
         } else {
             None
         }
@@ -63,7 +68,9 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(PyFloat::new(self.value * f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(PyFloat::new(self.value * i.value as f64)))
+            Some(Rc::new(PyFloat::new(self.value * i.value.to_f64().unwrap_or(0.0))))
+        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+            Some(Rc::new(crate::objects::complex::PyComplex::new(self.value * c.real, self.value * c.imag)))
         } else {
             None
         }
@@ -74,8 +81,14 @@ impl PyObject for PyFloat {
             if f.value == 0.0 { return None; }
             Some(Rc::new(PyFloat::new(self.value / f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            if i.value == 0 { return None; }
-            Some(Rc::new(PyFloat::new(self.value / i.value as f64)))
+            if i.value.is_zero() { return None; }
+            Some(Rc::new(PyFloat::new(self.value / i.value.to_f64().unwrap_or(0.0))))
+        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+            let denom = c.real * c.real + c.imag * c.imag;
+            if denom == 0.0 { return None; }
+            let real = self.value * c.real / denom;
+            let imag = -self.value * c.imag / denom;
+            Some(Rc::new(crate::objects::complex::PyComplex::new(real, imag)))
         } else {
             None
         }
@@ -86,8 +99,8 @@ impl PyObject for PyFloat {
             if f.value == 0.0 { return None; }
             Some(Rc::new(PyFloat::new((self.value / f.value).floor())))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            if i.value == 0 { return None; }
-            Some(Rc::new(PyFloat::new((self.value / i.value as f64).floor())))
+            if i.value.is_zero() { return None; }
+            Some(Rc::new(PyFloat::new((self.value / i.value.to_f64().unwrap_or(0.0)).floor())))
         } else {
             None
         }
@@ -98,8 +111,8 @@ impl PyObject for PyFloat {
             if f.value == 0.0 { return None; }
             Some(Rc::new(PyFloat::new(self.value % f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            if i.value == 0 { return None; }
-            Some(Rc::new(PyFloat::new(self.value % i.value as f64)))
+            if i.value.is_zero() { return None; }
+            Some(Rc::new(PyFloat::new(self.value % i.value.to_f64().unwrap_or(0.0))))
         } else {
             None
         }
@@ -109,7 +122,8 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(PyFloat::new(self.value.powf(f.value))))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(PyFloat::new(self.value.powi(i.value as i32))))
+            let exp = i.as_i64().unwrap_or(0) as i32;
+            Some(Rc::new(PyFloat::new(self.value.powi(exp))))
         } else {
             None
         }
@@ -127,7 +141,9 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value == f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value == i.value as f64)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value == i.value.to_f64().unwrap_or(0.0))))
+        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value == c.real && c.imag == 0.0)))
         } else {
             None
         }
@@ -137,7 +153,9 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value != f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value != i.value as f64)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value != i.value.to_f64().unwrap_or(0.0))))
+        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value != c.real || c.imag != 0.0)))
         } else {
             None
         }
@@ -147,7 +165,7 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value < f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value < i.value as f64)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value < i.value.to_f64().unwrap_or(0.0))))
         } else {
             None
         }
@@ -157,7 +175,7 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value <= f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value <= i.value as f64)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value <= i.value.to_f64().unwrap_or(0.0))))
         } else {
             None
         }
@@ -167,7 +185,7 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value > f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value > i.value as f64)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value > i.value.to_f64().unwrap_or(0.0))))
         } else {
             None
         }
@@ -181,7 +199,7 @@ impl PyObject for PyFloat {
         if let Some(f) = other.as_any().downcast_ref::<PyFloat>() {
             Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= f.value)))
         } else if let Some(i) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= i.value as f64)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= i.value.to_f64().unwrap_or(0.0))))
         } else {
             None
         }

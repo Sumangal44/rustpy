@@ -1,8 +1,5 @@
 use super::PyObject;
-use crate::objects::int::PyInt;
-use crate::objects::none::PyNone;
 use std::any::Any;
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct PySlice {
