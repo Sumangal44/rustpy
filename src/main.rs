@@ -2130,4 +2130,125 @@ u = slice(1, 10, 2)
         assert_eq!(env.borrow().get("t").unwrap().get_type(), "slice");
         assert_eq!(env.borrow().get("u").unwrap().get_type(), "slice");
     }
+
+    #[test]
+    fn test_bytearray_basic() {
+        let env = execute_source("
+ba = bytearray(b\"hello\")
+r = repr(ba)
+");
+        assert_eq!(env.borrow().get("r").unwrap().str(), "bytearray(b'hello')");
+    }
+
+    #[test]
+    fn test_bytearray_append() {
+        let env = execute_source("
+ba = bytearray(b\"abc\")
+ba.append(100)
+r = repr(ba)
+");
+        assert_eq!(env.borrow().get("r").unwrap().str(), "bytearray(b'abcd')");
+    }
+
+    #[test]
+    fn test_bytearray_decode() {
+        let env = execute_source("
+ba = bytearray(b\"hello\")
+r = ba.decode()
+");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "'hello'");
+    }
+
+    #[test]
+    fn test_bytearray_from_int() {
+        let env = execute_source("
+ba = bytearray(5)
+r = repr(ba)
+");
+        assert_eq!(env.borrow().get("r").unwrap().str(), "bytearray(b'\\x00\\x00\\x00\\x00\\x00')");
+    }
+
+    #[test]
+    fn test_delattr_works() {
+        let env = execute_source("
+class Foo:
+    pass
+obj = Foo()
+obj.x = 42
+delattr(obj, \"x\")
+h = hasattr(obj, \"x\")
+");
+        assert_eq!(env.borrow().get("h").unwrap().repr(), "False");
+    }
+
+    #[test]
+    fn test_vars_dict() {
+        let env = execute_source("
+class Foo:
+    def __init__(self):
+        self.a = 1
+        self.b = 2
+obj = Foo()
+d = vars(obj)
+");
+        assert_eq!(env.borrow().get("d").unwrap().repr(), "{'a': 1, 'b': 2}");
+    }
+
+    #[test]
+    fn test_sorted_key() {
+        let env = execute_source("
+r = sorted([3, 1, 2])
+");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_sorted_reverse() {
+        let env = execute_source("
+r = sorted([3, 1, 2], reverse=True)
+");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "[3, 2, 1]");
+    }
+
+    #[test]
+    fn test_int_base() {
+        let env = execute_source("
+a = int(\"ff\", 16)
+b = int(\"77\", 8)
+");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "255");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "63");
+    }
+
+    #[test]
+    fn test_pow_mod() {
+        let env = execute_source("
+r = pow(2, 10, 7)
+");
+        assert_eq!(env.borrow().get("r").unwrap().repr(), "2");
+    }
+
+    #[test]
+    fn test_float_constructor() {
+        let env = execute_source("
+a = float()
+b = float(42)
+c = float(\"3.14\")
+");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "0.0");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "42.0");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "3.14");
+    }
+
+    #[test]
+    fn test_format_builtin() {
+        let env = execute_source("
+a = format(42)
+b = format(3.14)
+c = format(\"hello\")
+");
+        assert_eq!(env.borrow().get("a").unwrap().repr(), "'42'");
+        assert_eq!(env.borrow().get("b").unwrap().repr(), "'3.14'");
+        assert_eq!(env.borrow().get("c").unwrap().repr(), "'hello'");
+    }
 }

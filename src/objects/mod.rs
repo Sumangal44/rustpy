@@ -134,6 +134,14 @@ pub trait PyObject: Debug + Any {
         ))
     }
 
+    fn del_attr(&self, name: &str) -> Result<(), String> {
+        Err(format!(
+            "AttributeError: '{}' object has no attribute '{}'",
+            self.get_type(),
+            name
+        ))
+    }
+
     fn get_item(&self, _key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
         Err(format!(
             "TypeError: '{}' object is not subscriptable",
@@ -148,6 +156,7 @@ pub trait PyObject: Debug + Any {
 
 pub mod bool;
 pub mod bound_method;
+pub mod bytearray;
 pub mod bytes;
 pub mod class;
 pub mod classmethod;

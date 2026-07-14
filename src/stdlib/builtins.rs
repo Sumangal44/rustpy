@@ -360,29 +360,59 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // int(object)
+    // int(x, base=10)
     env_mut.set(
         "int".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("int".to_string(), |args| {
+        Rc::new(PyNativeFunction::new("int".to_string(), |args, kwargs| {
             if args.is_empty() {
                 return Ok(Rc::new(crate::objects::int::PyInt::from_i64(0)));
             }
-            if args.len() != 1 {
-                return Err("TypeError: int() takes at most 1 argument".to_string());
+            if args.len() > 2 {
+                return Err("TypeError: int() takes at most 2 arguments".to_string());
             }
+            let base = if args.len() == 2 {
+                if let Some(i) = args[1].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    i.as_i64().unwrap_or(10)
+                } else { 10 }
+            } else {
+                kwargs.get("base").and_then(|v| v.as_any().downcast_ref::<crate::objects::int::PyInt>()).map(|i| i.as_i64().unwrap_or(10)).unwrap_or(10)
+            };
             let obj = &args[0];
             if let Some(i) = obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
                 return Ok(Rc::new(crate::objects::int::PyInt::from_i64(i.as_i64().unwrap_or(0))));
             }
             if let Some(s) = obj.as_any().downcast_ref::<crate::objects::string::PyString>() {
-                if let Ok(val) = s.value.parse::<i64>() {
-                    return Ok(Rc::new(crate::objects::int::PyInt::from_i64(val)));
+                let trimmed = s.value.trim();
+                if base == 10 {
+                    if let Ok(val) = trimmed.parse::<i64>() {
+                        return Ok(Rc::new(crate::objects::int::PyInt::from_i64(val)));
+                    } else {
+                        return Err(format!("ValueError: invalid literal for int() with base 10: '{}'", s.value));
+                    }
+                } else if base == 0 {
+                    let (radix, digits) = if trimmed.starts_with("0x") || trimmed.starts_with("0X") { (16, &trimmed[2..]) }
+                        else if trimmed.starts_with("0o") || trimmed.starts_with("0O") { (8, &trimmed[2..]) }
+                        else if trimmed.starts_with("0b") || trimmed.starts_with("0B") { (2, &trimmed[2..]) }
+                        else { (10, trimmed) };
+                    if let Ok(val) = i64::from_str_radix(digits, radix) {
+                        return Ok(Rc::new(crate::objects::int::PyInt::from_i64(val)));
+                    } else {
+                        return Err(format!("ValueError: invalid literal for int() with base {}: '{}'", radix, s.value));
+                    }
                 } else {
-                    return Err(format!("ValueError: invalid literal for int() with base 10: '{}'", s.value));
+                    let digits = if trimmed.starts_with("0x") || trimmed.starts_with("0X") { &trimmed[2..] } else if trimmed.starts_with("0o") || trimmed.starts_with("0O") { &trimmed[2..] } else if trimmed.starts_with("0b") || trimmed.starts_with("0B") { &trimmed[2..] } else { trimmed };
+                    if let Ok(val) = i64::from_str_radix(digits, base as u32) {
+                        return Ok(Rc::new(crate::objects::int::PyInt::from_i64(val)));
+                    } else {
+                        return Err(format!("ValueError: invalid literal for int() with base {}: '{}'", base, s.value));
+                    }
                 }
             }
             if let Some(b) = obj.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
                 return Ok(Rc::new(crate::objects::int::PyInt::from_i64(if b.value { 1 } else { 0 })));
+            }
+            if let Some(f) = obj.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                return Ok(Rc::new(crate::objects::int::PyInt::from_i64(f.value as i64)));
             }
             Err(format!("TypeError: int() argument must be a string, a bytes-like object or a real number, not '{}'", obj.get_type()))
         })),
@@ -567,53 +597,103 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // max(*args)
+    // max(*args, key=None)
     env_mut.set(
         "max".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("max".to_string(), |args| {
+        Rc::new(PyNativeFunction::new("max".to_string(), |args, kwargs| {
             if args.is_empty() {
                 return Err("TypeError: max expected 1 argument, got 0".to_string());
             }
-            let mut maximum = &args[0];
-            let mut max_val = maximum
-                .as_any()
-                .downcast_ref::<crate::objects::int::PyInt>()
-                .map(|i| i.as_i64().unwrap_or(0))
-                .unwrap_or(0);
-            for arg in args.iter().skip(1) {
-                if let Some(i) = arg.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    if i.as_i64().unwrap_or(0) > max_val {
-                        max_val = i.as_i64().unwrap_or(0);
-                        maximum = arg;
+            let items: Vec<Rc<dyn PyObject>> = if args.len() == 1 {
+                let iter = args[0].get_iter()?;
+                let mut v = Vec::new();
+                while let Some(item) = iter.get_next()? {
+                    v.push(item);
+                }
+                v
+            } else {
+                args.to_vec()
+            };
+            if items.is_empty() {
+                return Err("TypeError: max() arg is an empty sequence".to_string());
+            }
+
+            let key_fn = kwargs.get("key").cloned();
+
+            let mut best = Rc::clone(&items[0]);
+            let mut best_key = if let Some(ref kf) = key_fn {
+                if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                    (native.func)(vec![Rc::clone(&items[0])], std::collections::HashMap::new())?
+                } else { Rc::clone(&items[0]) }
+            } else { Rc::clone(&items[0]) };
+
+            for item in items.iter().skip(1) {
+                let item_key = if let Some(ref kf) = key_fn {
+                    if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                        (native.func)(vec![Rc::clone(item)], std::collections::HashMap::new())?
+                    } else { Rc::clone(item) }
+                } else { Rc::clone(item) };
+                match item_key.lt(best_key.clone()) {
+                    Some(result) => {
+                        if !result.is_truthy() {
+                            best_key = item_key;
+                            best = Rc::clone(item);
+                        }
                     }
+                    None => {}
                 }
             }
-            Ok(maximum.clone())
+            Ok(best)
         })),
     );
 
-    // min(*args)
+    // min(*args, key=None)
     env_mut.set(
         "min".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("min".to_string(), |args| {
+        Rc::new(PyNativeFunction::new("min".to_string(), |args, kwargs| {
             if args.is_empty() {
                 return Err("TypeError: min expected 1 argument, got 0".to_string());
             }
-            let mut minimum = &args[0];
-            let mut min_val = minimum
-                .as_any()
-                .downcast_ref::<crate::objects::int::PyInt>()
-                .map(|i| i.as_i64().unwrap_or(0))
-                .unwrap_or(0);
-            for arg in args.iter().skip(1) {
-                if let Some(i) = arg.as_any().downcast_ref::<crate::objects::int::PyInt>() {
-                    if i.as_i64().unwrap_or(0) < min_val {
-                        min_val = i.as_i64().unwrap_or(0);
-                        minimum = arg;
+            let items: Vec<Rc<dyn PyObject>> = if args.len() == 1 {
+                let iter = args[0].get_iter()?;
+                let mut v = Vec::new();
+                while let Some(item) = iter.get_next()? {
+                    v.push(item);
+                }
+                v
+            } else {
+                args.to_vec()
+            };
+            if items.is_empty() {
+                return Err("TypeError: min() arg is an empty sequence".to_string());
+            }
+
+            let key_fn = kwargs.get("key").cloned();
+
+            let mut best = Rc::clone(&items[0]);
+            let mut best_key = if let Some(ref kf) = key_fn {
+                if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                    (native.func)(vec![Rc::clone(&items[0])], std::collections::HashMap::new())?
+                } else { Rc::clone(&items[0]) }
+            } else { Rc::clone(&items[0]) };
+
+            for item in items.iter().skip(1) {
+                let item_key = if let Some(ref kf) = key_fn {
+                    if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                        (native.func)(vec![Rc::clone(item)], std::collections::HashMap::new())?
+                    } else { Rc::clone(item) }
+                } else { Rc::clone(item) };
+                match item_key.lt(best_key.clone()) {
+                    Some(result) => {
+                        if result.is_truthy() {
+                            best_key = item_key;
+                            best = Rc::clone(item);
+                        }
                     }
+                    None => {}
                 }
             }
-            Ok(minimum.clone())
+            Ok(best)
         })),
     );
 
@@ -790,7 +870,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     let env_for_eval = Rc::clone(env);
     env_mut.set(
         "eval".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("eval".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new("eval".to_string(), move |args, _kwargs| {
             if args.is_empty() || args.len() > 3 {
                 return Err("TypeError: eval() takes at most 3 arguments".to_string());
             }
@@ -843,11 +923,11 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // exec(object, globals=None, locals=None)
+    // exec(source, globals=None, locals=None)
     let env_for_exec = Rc::clone(env);
     env_mut.set(
         "exec".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("exec".to_string(), move |args| {
+        Rc::new(PyNativeFunction::new("exec".to_string(), move |args, _kwargs| {
             if args.is_empty() || args.len() > 3 {
                 return Err("TypeError: exec() takes at most 3 arguments".to_string());
             }
@@ -959,17 +1039,32 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // pow(x, y) -> number
+    // pow(base, exp, mod=None) -> number
     env_mut.set(
         "pow".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("pow".to_string(), |args| {
-            if args.len() < 2 || args.len() > 3 { return Err("TypeError: pow() takes 2-3 arguments".to_string()); }
-            // Simple two-argument pow using multiplication
+        Rc::new(PyNativeFunction::new("pow".to_string(), |args, kwargs| {
+            if args.len() < 2 || args.len() > 3 {
+                return Err("TypeError: pow() takes 2-3 arguments".to_string());
+            }
             let base = &args[0];
             let exp = &args[1];
-            match base.pow(Rc::clone(exp)) {
-                Some(result) => Ok(result),
-                None => Err(format!("TypeError: unsupported operand type(s) for pow(): '{}' and '{}'", base.get_type(), exp.get_type())),
+            let result = match base.pow(Rc::clone(exp)) {
+                Some(result) => result,
+                None => return Err(format!("TypeError: unsupported operand type(s) for pow(): '{}' and '{}'", base.get_type(), exp.get_type())),
+            };
+            if args.len() == 3 {
+                let mod_val = &args[2];
+                match result.modulo(Rc::clone(mod_val)) {
+                    Some(mod_result) => Ok(mod_result),
+                    None => Err("TypeError: pow() 3rd argument not allowed unless all arguments are integers".to_string()),
+                }
+            } else if let Some(mod_val) = kwargs.get("mod") {
+                match result.modulo(Rc::clone(mod_val)) {
+                    Some(mod_result) => Ok(mod_result),
+                    None => Err("TypeError: pow() 3rd argument not allowed unless all arguments are integers".to_string()),
+                }
+            } else {
+                Ok(result)
             }
         })),
     );
@@ -989,24 +1084,36 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // sorted(iterable) -> list
+    // sorted(iterable, key=None, reverse=False) -> list
     env_mut.set(
         "sorted".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("sorted".to_string(), |args| {
-            if args.len() != 1 { return Err("TypeError: sorted() takes exactly one argument".to_string()); }
+        Rc::new(PyNativeFunction::new("sorted".to_string(), |args, kwargs| {
+            if args.len() != 1 { return Err("TypeError: sorted() takes exactly 1 positional argument".to_string()); }
             let iter = args[0].get_iter()?;
             let mut items: Vec<Rc<dyn PyObject>> = Vec::new();
             while let Some(item) = iter.get_next()? {
                 items.push(item);
             }
+
+            let reverse = kwargs.get("reverse").map_or(false, |v| v.is_truthy());
+            let key_fn = kwargs.get("key").cloned();
+
             // Bubble sort using lt()
             let n = items.len();
             for i in 0..n {
                 for j in 0..n-1-i {
                     let do_swap = {
-                        let a = Rc::clone(&items[j]);
-                        let b = Rc::clone(&items[j+1]);
-                        match a.lt(b) {
+                        let a_val = if let Some(ref kf) = key_fn {
+                            if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                                (native.func)(vec![Rc::clone(&items[j])], std::collections::HashMap::new())?
+                            } else { Rc::clone(&items[j]) }
+                        } else { Rc::clone(&items[j]) };
+                        let b_val = if let Some(ref kf) = key_fn {
+                            if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                                (native.func)(vec![Rc::clone(&items[j+1])], std::collections::HashMap::new())?
+                            } else { Rc::clone(&items[j+1]) }
+                        } else { Rc::clone(&items[j+1]) };
+                        match a_val.lt(b_val) {
                             Some(result) => !result.is_truthy(),
                             None => false,
                         }
@@ -1016,6 +1123,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                     }
                 }
             }
+            if reverse { items.reverse(); }
             Ok(Rc::new(crate::objects::list::PyList::new(items)))
         })),
     );
@@ -1158,6 +1266,60 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 return Ok(Rc::new(PyBytes::new(result)));
             }
             Err(format!("TypeError: cannot convert '{}' object to bytes", obj.get_type()))
+        })),
+    );
+
+    // bytearray(source, encoding) -> bytearray
+    env_mut.set(
+        "bytearray".to_string(),
+        Rc::new(PyNativeFunction::new("bytearray".to_string(), |args, _kwargs| {
+            if args.is_empty() {
+                return Ok(Rc::new(crate::objects::bytearray::PyByteArray::new(Vec::new())));
+            }
+            if args.len() > 2 {
+                return Err(format!("TypeError: bytearray() takes at most 2 arguments ({} given)", args.len()));
+            }
+            let obj = &args[0];
+            // bytearray(integer) -> zero-initialized of that length
+            if let Some(i) = obj.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                let n = i.as_i64().unwrap_or(0);
+                if n < 0 {
+                    return Err("ValueError: negative count".to_string());
+                }
+                return Ok(Rc::new(crate::objects::bytearray::PyByteArray::new(vec![0u8; n as usize])));
+            }
+            // bytearray(string, encoding)
+            if let Some(s) = obj.as_any().downcast_ref::<PyString>() {
+                if args.len() < 2 {
+                    return Err("TypeError: bytearray() argument 1 must be str, not 'str' (use encoding argument)".to_string());
+                }
+                let encoding = if let Some(e) = args[1].as_any().downcast_ref::<PyString>() {
+                    e.value.clone()
+                } else {
+                    return Err("TypeError: encoding must be str".to_string());
+                };
+                if encoding != "utf-8" && encoding != "utf8" {
+                    return Err(format!("LookupError: unknown encoding: '{}'", encoding));
+                }
+                return Ok(Rc::new(crate::objects::bytearray::PyByteArray::new(s.value.as_bytes().to_vec())));
+            }
+            // bytearray(iterable_of_ints)
+            if let Ok(iter) = obj.get_iter() {
+                let mut result = Vec::new();
+                while let Some(item) = iter.get_next()? {
+                    if let Some(n) = item.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                        let val = n.as_i64().unwrap_or(0);
+                        if val < 0 || val > 255 {
+                            return Err(format!("ValueError: byte must be in range(0, 256)"));
+                        }
+                        result.push(val as u8);
+                    } else {
+                        return Err(format!("TypeError: '{}' object cannot be interpreted as an integer", item.get_type()));
+                    }
+                }
+                return Ok(Rc::new(crate::objects::bytearray::PyByteArray::new(result)));
+            }
+            Err(format!("TypeError: cannot convert '{}' object to bytearray", obj.get_type()))
         })),
     );
 
@@ -1411,7 +1573,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             if args.len() != 1 {
                 return Err("TypeError: oct() takes exactly one argument".to_string());
             }
-            let val = if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
+            let _val = if let Some(i) = args[0].as_any().downcast_ref::<crate::objects::int::PyInt>() {
                 i.repr()
             } else {
                 let i: i64 = args[0].str().parse().map_err(|_| format!("TypeError: oct() argument must be an int"))?;
@@ -1476,7 +1638,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             } else {
                 return Err("TypeError: delattr() argument 2 must be str".to_string());
             };
-            args[0].set_attr(&name, Rc::new(PyNone::new()))?;
+            args[0].del_attr(&name)?;
             Ok(Rc::new(PyNone::new()))
         })),
     );
@@ -1498,6 +1660,14 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                         for (k, _) in bucket {
                             names.push(Rc::clone(k));
                         }
+                    }
+                }
+            } else {
+                // Fallback: try common attributes
+                let common_attrs = vec!["__class__", "__doc__", "__module__", "__init__", "__repr__", "__str__"];
+                for attr in common_attrs {
+                    if obj.get_attr(attr).is_ok() {
+                        names.push(Rc::new(PyString::new(attr.to_string())) as Rc<dyn PyObject>);
                     }
                 }
             }
@@ -1581,7 +1751,16 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             }
             let cls = Rc::clone(&args[0]);
             let classinfo = Rc::clone(&args[1]);
-            // Check if cls is a subclass of classinfo
+            if let Some(cls_class) = cls.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                if let Some(info_class) = classinfo.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                    let is_sub = cls_class.mro.iter().any(|c| {
+                        if let Some(c_cls) = c.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                            c_cls.name == info_class.name
+                        } else { false }
+                    });
+                    return Ok(Rc::new(crate::objects::bool::PyBool::new(is_sub)) as Rc<dyn PyObject>);
+                }
+            }
             let cls_name = cls.get_type();
             let info_name = classinfo.get_type();
             Ok(Rc::new(crate::objects::bool::PyBool::new(cls_name == info_name)) as Rc<dyn PyObject>)

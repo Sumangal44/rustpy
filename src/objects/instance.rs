@@ -6,6 +6,7 @@ use super::int::PyInt;
 use super::native_function::PyNativeFunction;
 use super::property::PyProperty;
 use super::staticmethod::PyStaticMethod;
+use super::string::PyString;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -137,6 +138,15 @@ impl PyObject for PyInstance {
     }
 
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        if attr == "__dict__" {
+            let attrs = self.attributes.borrow();
+            let mut pairs = Vec::new();
+            for (k, v) in attrs.iter() {
+                pairs.push((Rc::new(PyString::new(k.clone())) as Rc<dyn PyObject>, Rc::clone(v)));
+            }
+            return Ok(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs)));
+        }
+
         let attrs = self.attributes.borrow();
         if let Some(val) = attrs.get(attr) {
             return Ok(Rc::clone(val));
@@ -148,6 +158,11 @@ impl PyObject for PyInstance {
 
     fn set_attr(&self, attr: &str, value: Rc<dyn PyObject>) -> Result<(), String> {
         self.attributes.borrow_mut().insert(attr.to_string(), value);
+        Ok(())
+    }
+
+    fn del_attr(&self, name: &str) -> Result<(), String> {
+        self.attributes.borrow_mut().remove(name);
         Ok(())
     }
 

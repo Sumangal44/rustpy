@@ -423,6 +423,17 @@ impl PyObject for PyString {
                     Ok(Rc::new(PyString::new(val.chars().map(|c| if c.is_uppercase() { c.to_lowercase().to_string() } else { c.to_uppercase().to_string() }).collect::<String>())))
                 })))
             }
+            "__format__" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
+                    let spec = if args.is_empty() { String::new() } else { args[0].str() };
+                    if spec.is_empty() {
+                        Ok(Rc::new(PyString::new(val.clone())))
+                    } else {
+                        Err(format!("ValueError: Unknown format code '{}' for object of type 'str'", spec))
+                    }
+                })))
+            }
             _ => Err(format!("AttributeError: 'str' object has no attribute '{}'", attr)),
         }
     }

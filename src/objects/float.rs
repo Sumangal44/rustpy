@@ -1,4 +1,5 @@
 use super::PyObject;
+use super::native_function::PyNativeFunction;
 use num_traits::{ToPrimitive, Zero};
 use std::any::Any;
 use std::rc::Rc;
@@ -193,6 +194,32 @@ impl PyObject for PyFloat {
 
     fn hash(&self) -> Result<i64, String> {
         Ok(self.value.to_bits() as i64)
+    }
+
+    fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        match attr {
+            "__format__" => {
+                let val = self.value;
+                Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
+                    let spec = if args.is_empty() { String::new() } else { args[0].str() };
+                    if spec.is_empty() {
+                        Ok(Rc::new(crate::objects::string::PyString::new({
+                            let r = format!("{}", val);
+                            if !r.contains('.') && !r.contains('e') && !r.contains('E') {
+                                format!("{}.0", r)
+                            } else { r }
+                        })))
+                    } else {
+                        match spec.as_str() {
+                            "f" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{}", val)))),
+                            "e" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:e}", val)))),
+                            _ => Err(format!("ValueError: Unknown format code '{}' for object of type 'float'", spec)),
+                        }
+                    }
+                })))
+            }
+            _ => Err(format!("AttributeError: 'float' object has no attribute '{}'", attr)),
+        }
     }
 
     fn ge(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {

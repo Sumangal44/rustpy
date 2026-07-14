@@ -1,4 +1,5 @@
 use super::PyObject;
+use super::native_function::PyNativeFunction;
 use num_bigint::BigInt;
 use num_traits::{Zero, One, ToPrimitive, Signed};
 use std::any::Any;
@@ -318,5 +319,27 @@ impl PyObject for PyInt {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.value.hash(&mut hasher);
         Ok(hasher.finish() as i64)
+    }
+
+    fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        match attr {
+            "__format__" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
+                    let spec = if args.is_empty() { String::new() } else { args[0].str() };
+                    if spec.is_empty() || spec == "d" {
+                        Ok(Rc::new(crate::objects::string::PyString::new(val.to_string())))
+                    } else {
+                        match spec.as_str() {
+                            "x" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:x}", val)))),
+                            "o" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:o}", val)))),
+                            "b" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:b}", val)))),
+                            _ => Err(format!("ValueError: Unknown format code '{}' for object of type 'int'", spec)),
+                        }
+                    }
+                })))
+            }
+            _ => Err(format!("AttributeError: 'int' object has no attribute '{}'", attr)),
+        }
     }
 }

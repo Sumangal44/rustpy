@@ -89,4 +89,10 @@ impl PyObject for PyModule {
         self.set_attr_inner(attr, value);
         Ok(())
     }
+
+    fn del_attr(&self, name: &str) -> Result<(), String> {
+        let mut d = self.dict.borrow_mut();
+        d.retain(|(k, _)| k != name);
+        Ok(())
+    }
 }

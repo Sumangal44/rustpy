@@ -129,6 +129,11 @@ impl PyObject for PyClass {
         self.attributes.borrow_mut().insert(attr.to_string(), value);
         Ok(())
     }
+
+    fn del_attr(&self, name: &str) -> Result<(), String> {
+        self.attributes.borrow_mut().remove(name);
+        Ok(())
+    }
 }
 
 pub struct PySuper {
