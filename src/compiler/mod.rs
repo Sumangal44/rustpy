@@ -10,6 +10,7 @@ use std::rc::Rc;
 struct LoopInfo {
     start: usize,
     break_targets: Vec<usize>,
+    is_for: bool,
 }
 
 pub struct Compiler {
@@ -221,6 +222,9 @@ impl Compiler {
                     return Err("SyntaxError: 'break' outside loop".to_string());
                 }
                 let idx_in_stack = self.loop_stack.len() - 1;
+                if self.loop_stack[idx_in_stack].is_for {
+                    self.emit(Opcode::PopTop);
+                }
                 let break_idx = self.emit(Opcode::JumpAbsolute(0));
                 self.loop_stack[idx_in_stack].break_targets.push(break_idx);
             }
@@ -361,6 +365,7 @@ impl Compiler {
                 self.loop_stack.push(LoopInfo {
                     start: loop_start,
                     break_targets: Vec::new(),
+                    is_for: false,
                 });
 
                 self.compile_expr(test)?;
@@ -396,6 +401,7 @@ impl Compiler {
                 self.loop_stack.push(LoopInfo {
                     start: loop_start,
                     break_targets: Vec::new(),
+                    is_for: true,
                 });
                 let for_iter_idx = self.emit(Opcode::ForIter(0));
                 if let Expr::Identifier(name) = target {
@@ -871,8 +877,8 @@ impl Compiler {
                         let store_name = alias.asname.as_ref().unwrap_or(&alias.name);
                         let store_idx = self.get_or_add_name(store_name);
                         self.emit(Opcode::StoreName(store_idx));
-                        self.emit(Opcode::PopTop); // pop the module
                     }
+                    self.emit(Opcode::PopTop); // pop the module
                 }
             }
         }
