@@ -25,6 +25,7 @@ def main():
         ("Custom Conditionals Parity", [sys.executable, "tests/cpython_tester.py", "tests/conditionals_test.py"]),
         ("Custom Loop Structures Parity", [sys.executable, "tests/cpython_tester.py", "tests/loops_test.py"]),
         ("Custom Loops + Conditionals Integration Parity", [sys.executable, "tests/cpython_tester.py", "tests/loops_conditionals_test.py"]),
+        ("Custom Import Behavior Parity", [sys.executable, "tests/cpython_tester.py", "tests/import_test.py"]),
     ]
 
     all_passed = True
