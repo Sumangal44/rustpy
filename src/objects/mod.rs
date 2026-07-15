@@ -153,6 +153,13 @@ pub trait PyObject: Debug + Any {
         ))
     }
 
+    fn del_item(&self, _key: Rc<dyn PyObject>) -> Result<(), String> {
+        Err(format!(
+            "TypeError: '{}' object does not support item deletion",
+            self.get_type()
+        ))
+    }
+
     fn hash(&self) -> Result<i64, String> {
         Err(format!("TypeError: unhashable type: '{}'", self.get_type()))
     }

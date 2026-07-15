@@ -1764,7 +1764,7 @@ with open("/tmp/rustpy_test_lines.txt", "r") as f:
 "#;
         let env = execute_source(source);
         let res = env.borrow().get("res").unwrap();
-        assert_eq!(res.repr(), "'line1\n'");
+        assert_eq!(res.repr(), "'line1\\n'");
         fs::remove_file("/tmp/rustpy_test_lines.txt").ok();
     }
 
@@ -1777,7 +1777,7 @@ res = list(open("/tmp/rustpy_test_iter.txt", "r"))
 "#;
         let env = execute_source(source);
         let res = env.borrow().get("res").unwrap();
-        assert_eq!(res.repr(), "['a\n', 'b\n', 'c']");
+        assert_eq!(res.repr(), "['a\\n', 'b\\n', 'c']");
         fs::remove_file("/tmp/rustpy_test_iter.txt").ok();
     }
 
@@ -1807,7 +1807,7 @@ with open("/tmp/rustpy_test_append.txt", "r") as f:
 "#;
         let env = execute_source(source);
         let res = env.borrow().get("res").unwrap();
-        assert_eq!(res.repr(), "'first\nsecond'");
+        assert_eq!(res.repr(), "'first\\nsecond'");
         fs::remove_file("/tmp/rustpy_test_append.txt").ok();
     }
 
@@ -1829,7 +1829,7 @@ with open("/tmp/rustpy_test_rls.txt", "r") as f:
 "#;
         let env = execute_source(source);
         let res = env.borrow().get("res").unwrap();
-        assert_eq!(res.repr(), "['x\n', 'y\n', 'z']");
+        assert_eq!(res.repr(), "['x\\n', 'y\\n', 'z']");
         fs::remove_file("/tmp/rustpy_test_rls.txt").ok();
     }
 
@@ -1868,7 +1868,7 @@ with open("/tmp/rustpy_test_wlines.txt", "r") as f:
 "#;
         let env = execute_source(source);
         let res = env.borrow().get("res").unwrap();
-        assert_eq!(res.repr(), "'a\nb\nc'");
+        assert_eq!(res.repr(), "'a\\nb\\nc'");
         fs::remove_file("/tmp/rustpy_test_wlines.txt").ok();
     }
 

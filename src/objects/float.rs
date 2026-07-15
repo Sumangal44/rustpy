@@ -214,6 +214,11 @@ impl PyObject for PyFloat {
                             } else { r }
                         })))
                     } else {
+                        if spec.starts_with('.') && spec.ends_with('f') {
+                            if let Ok(prec) = spec[1..spec.len()-1].parse::<usize>() {
+                                return Ok(Rc::new(crate::objects::string::PyString::new(format!("{:.*}", prec, val))));
+                            }
+                        }
                         match spec.as_str() {
                             "f" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{}", val)))),
                             "e" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:e}", val)))),

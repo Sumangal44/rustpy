@@ -1,5 +1,9 @@
 use super::PyObject;
+use super::function::PyFunction;
 use super::native_function::PyNativeFunction;
+use crate::runtime::Environment;
+use crate::vm::VirtualMachine;
+use crate::vm::frame::Frame;
 use std::any::Any;
 use std::rc::Rc;
 
@@ -26,7 +30,18 @@ impl PyProperty {
             if let Some(native) = fget.as_any().downcast_ref::<PyNativeFunction>() {
                 return (native.func)(vec![instance], std::collections::HashMap::new());
             }
-            return Err("TypeError: property getter must be a native callable or use the VM".to_string());
+            if let Some(func) = fget.as_any().downcast_ref::<PyFunction>() {
+                let code = func.code.clone();
+                let env = Environment::new_enclosed(func.env.clone());
+                env.borrow_mut().set("self".to_string(), instance);
+                let mut vm = VirtualMachine::new();
+                let mut frame = Frame::new(code, env);
+                match vm.run(&mut frame) {
+                    Ok(val) => return Ok(val.unwrap_or_else(|| Rc::new(crate::objects::none::PyNone))),
+                    Err(e) => return Err(e),
+                }
+            }
+            return Err("TypeError: property getter must be callable".to_string());
         }
         Err("AttributeError: unreadable attribute".to_string())
     }

@@ -10,26 +10,171 @@ use crate::runtime::Environment;
 use frame::Frame;
 use std::rc::Rc;
 
+pub const RECURSION_LIMIT: usize = 100;
+
 pub struct VirtualMachine {
     pub last_exception: Option<Rc<dyn PyObject>>,
+    pub frames: Vec<Frame>,
+    pub recursion_depth: usize,
 }
 
 impl VirtualMachine {
     pub fn new() -> Self {
-        Self {
+        VirtualMachine {
             last_exception: None,
+            frames: Vec::new(),
+            recursion_depth: 0,
         }
     }
 
-    pub fn run(&mut self, frame: &mut Frame) -> Result<Option<Rc<dyn PyObject>>, String> {
-        let instructions = frame.code.instructions.clone();
+    fn intercept_native_function(&mut self, func_obj: &Rc<dyn PyObject>, args: &[Rc<dyn PyObject>], kwargs: &std::collections::HashMap<String, Rc<dyn PyObject>>, frame: &mut Frame) -> Result<Option<Rc<dyn PyObject>>, String> {
+        if let Some(nat) = func_obj.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+            match nat.name.as_str() {
+                "super" if args.is_empty() => {
+                    // 0-arg super(): look for self and __class__ in the current frame
+                    let self_val = frame.env.borrow().get("self");
+                    if let Some(self_obj) = self_val {
+                        if let Some(inst) = self_obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                            let super_proxy = crate::objects::class::PySuper::new(
+                                Rc::clone(&inst.class),
+                                Rc::new(inst.clone()),
+                            );
+                            return Ok(Some(Rc::new(super_proxy) as Rc<dyn PyObject>));
+                        }
+                        // Check if self is a class (for use in classmethods)
+                        if let Some(cls) = self_obj.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                            return Ok(Some(Rc::new(cls.clone()) as Rc<dyn PyObject>));
+                        }
+                    }
+                    return Err("RuntimeError: super(): no self found in current frame".to_string());
+                }
+                "locals" => {
+                    let mut pairs = Vec::new();
+                    for (k, v) in frame.env.borrow().get_all_locals().iter() {
+                        pairs.push((Rc::new(crate::objects::string::PyString::new(k.clone())) as Rc<dyn PyObject>, Rc::clone(v)));
+                    }
+                    return Ok(Some(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs))));
+                }
+                "exec" | "eval" => {
+                    if args.is_empty() { return Err(format!("TypeError: {} expected 1 arg", nat.name)); }
+                    
+                    let code = if let Some(c) = args[0].as_any().downcast_ref::<crate::compiler::code::CodeObject>() {
+                        c.clone()
+                    } else if let Some(s) = args[0].as_any().downcast_ref::<crate::objects::string::PyString>() {
+                        let source = s.value.clone();
+                        let lexer = crate::lexer::Lexer::new(&source);
+                        let mut parser = match crate::parser::Parser::new(lexer) {
+                            Ok(p) => p,
+                            Err(e) => return Err(format!("{:?}", e)),
+                        };
+                        let compiler = crate::compiler::Compiler::new(format!("<{}>", nat.name));
+                        if nat.name == "eval" {
+                            let ast = parser.parse_expression(0).map_err(|e| format!("{:?}", e))?;
+                            compiler.compile_expression(&ast).map_err(|e| format!("{:?}", e))?
+                        } else {
+                            let ast = parser.parse_module().map_err(|e| format!("{:?}", e))?;
+                            compiler.compile(&ast).map_err(|e| format!("{:?}", e))?
+                        }
+                    } else {
+                        return Err(format!("TypeError: {} arg 1 must be string or code object", nat.name));
+                    };
 
-        while frame.ip < instructions.len() {
-            let opcode = instructions[frame.ip].clone();
+                    let mut new_frame = crate::vm::frame::Frame::new(code, Rc::clone(&frame.env));
+                    let res = self.run(&mut new_frame)?;
+                    return Ok(Some(res.unwrap_or_else(|| Rc::new(crate::objects::none::PyNone))));
+                }
+                "map" => {
+                    if args.len() != 2 { return Err(format!("TypeError: {} expected 2 args", nat.name)); }
+                    let func = &args[0];
+                    let iter = args[1].get_iter()?;
+                    let mut result = Vec::new();
+                    while let Some(item) = iter.get_next()? {
+                        let mapped = self.invoke(Rc::clone(func), vec![item], std::collections::HashMap::new())?;
+                        result.push(mapped);
+                    }
+                    return Ok(Some(Rc::new(crate::objects::list::PyList::new(result))));
+                }
+                "filter" => {
+                    if args.len() != 2 { return Err(format!("TypeError: {} expected 2 args", nat.name)); }
+                    let func = &args[0];
+                    let iter = args[1].get_iter()?;
+                    let mut result = Vec::new();
+                    while let Some(item) = iter.get_next()? {
+                        let keep = if func.as_any().is::<crate::objects::none::PyNone>() {
+                            item.is_truthy()
+                        } else {
+                            self.invoke(Rc::clone(func), vec![Rc::clone(&item)], std::collections::HashMap::new())?.is_truthy()
+                        };
+                        if keep { result.push(item); }
+                    }
+                    return Ok(Some(Rc::new(crate::objects::list::PyList::new(result))));
+                }
+                "max" => {
+                    if args.is_empty() {
+                        return Err("TypeError: max expected 1 argument, got 0".to_string());
+                    }
+                    let items: Vec<Rc<dyn PyObject>> = if args.len() == 1 {
+                        let iter = args[0].get_iter()?;
+                        let mut v = Vec::new();
+                        while let Some(item) = iter.get_next()? {
+                            v.push(item);
+                        }
+                        v
+                    } else {
+                        args.to_vec()
+                    };
+                    if items.is_empty() {
+                        return Err("TypeError: max() arg is an empty sequence".to_string());
+                    }
+        
+                    let key_fn = kwargs.get("key").cloned();
+        
+                    let mut max_val: Option<Rc<dyn PyObject>> = None;
+                    for item in items {
+                        if max_val.is_none() {
+                            max_val = Some(item);
+                            continue;
+                        }
+                        
+                        let cur_max = max_val.clone().unwrap();
+                        
+                        let (cmp_val, cmp_max) = if let Some(ref kf) = key_fn {
+                            let v = self.invoke(Rc::clone(kf), vec![Rc::clone(&item)], std::collections::HashMap::new())?;
+                            let m = self.invoke(Rc::clone(kf), vec![Rc::clone(&cur_max)], std::collections::HashMap::new())?;
+                            (v, m)
+                        } else {
+                            (Rc::clone(&item), Rc::clone(&cur_max))
+                        };
+                        
+                        let gt = cmp_val.gt(cmp_max).ok_or_else(|| "TypeError: unorderable types".to_string())?;
+                        if gt.is_truthy() {
+                            max_val = Some(item);
+                        }
+                    }
+                    return Ok(Some(max_val.unwrap()));
+                }
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn run(&mut self, frame: &mut Frame) -> Result<Option<Rc<dyn PyObject>>, String> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > RECURSION_LIMIT {
+            self.recursion_depth -= 1;
+            return Err("RecursionError: maximum recursion depth exceeded".to_string());
+        }
+
+        while frame.ip < frame.code.instructions.len() {
+            let opcode = frame.code.instructions[frame.ip].clone();
             frame.ip += 1;
 
             match self.execute_opcode(&opcode, frame) {
-                Ok(Some(ret)) => return Ok(Some(ret)),
+                Ok(Some(ret)) => {
+                    self.recursion_depth -= 1;
+                    return Ok(Some(ret));
+                }
                 Ok(None) => {} // continue
                 Err(e) => {
                     frame.pending_exception = None;
@@ -79,12 +224,14 @@ impl VirtualMachine {
                     }
 
                     if !handled {
+                        self.recursion_depth -= 1;
                         return Err(e);
                     }
                 }
             }
         }
 
+        self.recursion_depth -= 1;
         Ok(None)
     }
 
@@ -98,8 +245,23 @@ impl VirtualMachine {
                 frame.pop()?;
             }
             Opcode::DupTop => {
-                let val = frame.last()?;
+                let val = frame.pop()?;
+                frame.push(Rc::clone(&val));
                 frame.push(val);
+            }
+            Opcode::RotTwo => {
+                let first = frame.pop()?;
+                let second = frame.pop()?;
+                frame.push(first);
+                frame.push(second);
+            }
+            Opcode::RotThree => {
+                let first = frame.pop()?;
+                let second = frame.pop()?;
+                let third = frame.pop()?;
+                frame.push(first);
+                frame.push(third);
+                frame.push(second);
             }
             Opcode::LoadConst(idx) => {
                 let obj = Rc::clone(&frame.code.constants[*idx]);
@@ -119,6 +281,20 @@ impl VirtualMachine {
                 let obj = frame.pop()?;
                 frame.env.borrow_mut().set(name, obj);
             }
+            Opcode::LoadGlobal(idx) => {
+                let name = &frame.code.names[*idx];
+                let obj_opt = frame.env.borrow().get_root(name);
+                if let Some(obj) = obj_opt {
+                    frame.push(obj);
+                } else {
+                    return Err(format!("NameError: global name '{}' is not defined", name));
+                }
+            }
+            Opcode::StoreGlobal(idx) => {
+                let name = frame.code.names[*idx].clone();
+                let obj = frame.pop()?;
+                frame.env.borrow_mut().set_root(name, obj);
+            }
             Opcode::DeleteName(idx) => {
                 let name = &frame.code.names[*idx];
                 if frame.env.borrow_mut().remove(name) {
@@ -129,21 +305,19 @@ impl VirtualMachine {
             }
             Opcode::DeleteAttr(attr_name) => {
                 let obj = frame.pop()?;
-                // For simplicity, we just set the attribute to None (we can't remove it from the trait easily)
-                // Actually, let's just set it to PyNone
-                obj.set_attr(attr_name, Rc::new(crate::objects::none::PyNone))?;
+                obj.del_attr(attr_name)?;
             }
             Opcode::DeleteSubscript => {
-                let _idx = frame.pop()?;
-                let _collection = frame.pop()?;
-                return Err("TypeError: '{}' object does not support item deletion".to_string());
+                let key = frame.pop()?;
+                let collection = frame.pop()?;
+                collection.del_item(key)?;
             }
             Opcode::StoreSubscript => {
-                let value = frame.pop()?;
-                let idx = frame.pop()?;
+                let key = frame.pop()?;
                 let collection = frame.pop()?;
+                let value = frame.pop()?;
                 if let Some(list) = collection.as_any().downcast_ref::<crate::objects::list::PyList>() {
-                    if let Some(int_idx) = idx.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    if let Some(int_idx) = key.as_any().downcast_ref::<crate::objects::int::PyInt>() {
                         let mut elements = list.elements.borrow_mut();
                         let mut idx_val = int_idx.as_i64().unwrap_or(0);
                         if idx_val < 0 {
@@ -158,7 +332,7 @@ impl VirtualMachine {
                         return Err("TypeError: list indices must be integers, not ...".to_string());
                     }
                 } else if let Some(d) = collection.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
-                    d.set_item(idx, value)?;
+                    d.set_item(key, value)?;
                 } else {
                     return Err("TypeError: '{}' object does not support item assignment".to_string());
                 }
@@ -213,6 +387,24 @@ impl VirtualMachine {
             }
             Opcode::MakeFunction => {
                 let code_obj = frame.pop()?;
+                let defaults_obj = frame.pop()?;
+                let kwdefaults_obj = frame.pop()?;
+                let mut defaults = Vec::new();
+                if let Some(tup) = defaults_obj.as_any().downcast_ref::<crate::objects::tuple::PyTuple>() {
+                    for item in &tup.elements {
+                        defaults.push(Rc::clone(item));
+                    }
+                } else {
+                    return Err("Expected tuple for defaults to MakeFunction".to_string());
+                }
+                let mut kwonly_defaults = Vec::new();
+                if let Some(tup) = kwdefaults_obj.as_any().downcast_ref::<crate::objects::tuple::PyTuple>() {
+                    for item in &tup.elements {
+                        kwonly_defaults.push(Rc::clone(item));
+                    }
+                } else {
+                    return Err("Expected tuple for kwonly defaults to MakeFunction".to_string());
+                }
                 if let Some(code) = code_obj.as_any().downcast_ref::<CodeObject>() {
                     let name = code.name.clone();
                     let params = code
@@ -221,12 +413,17 @@ impl VirtualMachine {
                         .take(code.arg_count)
                         .cloned()
                         .collect::<Vec<_>>();
+                    let kwonly_params = code.kwonly_params.clone();
 
                     let func = Rc::new(PyFunction::new(
                         name,
                         params,
                         code.clone(),
                         Rc::clone(&frame.env),
+                        defaults,
+                        code.posonly_count,
+                        kwonly_params,
+                        kwonly_defaults,
                     ));
                     frame.push(func);
                 } else {
@@ -241,6 +438,12 @@ impl VirtualMachine {
                 args.reverse(); // Pop gets them in reverse order
 
                 let func_obj = frame.pop()?;
+                
+                if let Some(res) = self.intercept_native_function(&func_obj, &args, &std::collections::HashMap::new(), frame)? {
+                    frame.push(res);
+                    return Ok(None);
+                }
+
                 let result = self.invoke(func_obj, args, std::collections::HashMap::new())?;
                 frame.push(result);
             }
@@ -255,6 +458,10 @@ impl VirtualMachine {
                 let func_obj = frame.pop()?;
 
                 let kwargs = std::collections::HashMap::new();
+                if let Some(res) = self.intercept_native_function(&func_obj, &args, &kwargs, frame)? {
+                    frame.push(res);
+                    return Ok(None);
+                }
                 let result = self.invoke(func_obj, args, kwargs)?;
                 frame.push(result);
             }
@@ -265,14 +472,18 @@ impl VirtualMachine {
                     if let Some(dict) = kwargs_dict_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                         for bucket in dict.entries.borrow().values() {
                             for (k, v) in bucket {
-                                kwargs.insert(k.str(), Rc::clone(v));
+                                let key_str = if let Some(s) = k.as_any().downcast_ref::<crate::objects::string::PyString>() {
+                                    s.value.clone()
+                                } else {
+                                    k.repr()
+                                };
+                                kwargs.insert(key_str, Rc::clone(v));
                             }
                         }
                     } else {
                         return Err("TypeError: kwargs must be a dict".to_string());
                     }
                 }
-
                 let args_iter_obj = frame.pop()?;
                 let mut args = Vec::new();
                 if let Some(list) = args_iter_obj.as_any().downcast_ref::<crate::objects::list::PyList>() {
@@ -284,6 +495,12 @@ impl VirtualMachine {
                 }
 
                 let func_obj = frame.pop()?;
+
+                if let Some(res) = self.intercept_native_function(&func_obj, &args, &kwargs, frame)? {
+                    frame.push(res);
+                    return Ok(None);
+                }
+
                 let result = self.invoke(func_obj, args, kwargs)?;
                 frame.push(result);
             }
@@ -336,6 +553,33 @@ impl VirtualMachine {
                     }
                 }
             }
+            Opcode::UnpackEx(before, after) => {
+                let before = *before;
+                let after = *after;
+                let total = before + after;
+                let seq = frame.pop()?;
+                let iter = seq.get_iter()?;
+                let mut items = Vec::new();
+                while let Some(item) = iter.get_next()? {
+                    items.push(item);
+                }
+                if items.len() < total {
+                    return Err(format!("ValueError: not enough values to unpack (expected at least {}, got {})", total, items.len()));
+                }
+                let star_count = items.len() - total;
+                // Push items_after in reverse
+                for item in items.iter().skip(before + star_count).rev() {
+                    frame.push(Rc::clone(item));
+                }
+                // Push star list
+                let star_items: Vec<Rc<dyn PyObject>> = items[before..before + star_count].to_vec();
+                let star_list = Rc::new(crate::objects::list::PyList::new(star_items));
+                frame.push(star_list);
+                // Push items_before in reverse
+                for item in items[..before].iter().rev() {
+                    frame.push(Rc::clone(item));
+                }
+            }
             Opcode::BuildMap(count) => {
                 let mut pairs: Vec<(Rc<dyn PyObject>, Rc<dyn PyObject>)> = Vec::new();
                 for _ in 0..*count {
@@ -344,6 +588,7 @@ impl VirtualMachine {
                     key_obj.hash().map_err(|_| format!("TypeError: unhashable type: '{}'", key_obj.get_type()))?;
                     pairs.push((key_obj, value));
                 }
+                pairs.reverse();
                 let dict = Rc::new(crate::objects::dict::PyDict::from_pairs(pairs));
                 frame.push(dict);
             }
@@ -370,9 +615,15 @@ impl VirtualMachine {
 
                 if let Some(dict1) = dict1_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
                     if let Some(dict2) = dict2_obj.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
-                        for bucket in dict2.entries.borrow().values() {
-                            for (k, v) in bucket {
-                                let _ = dict1.set_item(Rc::clone(k), Rc::clone(v));
+                        let ord2 = dict2.ordered_keys.borrow();
+                        let entries2 = dict2.entries.borrow();
+                        for k in ord2.iter() {
+                            if let Ok(h) = crate::objects::dict::get_hash(k) {
+                                if let Some(bucket) = entries2.get(&h) {
+                                    if let Some(idx) = crate::objects::dict::find_in_bucket(bucket, k) {
+                                        let _ = dict1.set_item(Rc::clone(k), Rc::clone(&bucket[idx].1));
+                                    }
+                                }
                             }
                         }
                         frame.push(dict1_obj); // push dict1 back
@@ -467,8 +718,8 @@ impl VirtualMachine {
                 frame.push(result);
             }
             Opcode::GetIter => {
-                let collection = frame.pop()?;
-                let iterator = collection.get_iter()?;
+                let obj = frame.pop()?;
+                let iterator = obj.get_iter()?;
                 frame.push(iterator);
             }
             Opcode::ForIter(target) => {
@@ -529,13 +780,13 @@ impl VirtualMachine {
             }
             Opcode::ReturnValue => {
                 let val = if frame.stack.is_empty() {
-                    Rc::new(crate::objects::none::PyNone)
+                    Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>
                 } else {
                     frame.pop()?
                 };
+                frame.return_value = Some(val.clone());
                 if frame.code.is_async {
-                    frame.return_value = Some(val);
-                    return Ok(Some(Rc::new(crate::objects::none::PyNone)));
+                    return Ok(Some(Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>));
                 }
                 return Ok(Some(val));
             }
@@ -563,6 +814,21 @@ impl VirtualMachine {
             Opcode::BinaryTrueDivide => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
+                let is_zero = if let Some(i) = right.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    i.as_i64() == Some(0)
+                } else if let Some(f) = right.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                    f.value == 0.0
+                } else {
+                    false
+                };
+                if is_zero {
+                    let exc = crate::objects::exception::PyException::new(
+                        "ZeroDivisionError".to_string(),
+                        Some("division by zero".to_string()),
+                    );
+                    self.last_exception = Some(Rc::new(exc));
+                    return Err("ZeroDivisionError: division by zero".to_string());
+                }
                 if let Some(result) = left.truediv(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
@@ -576,6 +842,21 @@ impl VirtualMachine {
             Opcode::BinaryFloorDivide => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
+                let is_zero = if let Some(i) = right.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    i.as_i64() == Some(0)
+                } else if let Some(f) = right.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                    f.value == 0.0
+                } else {
+                    false
+                };
+                if is_zero {
+                    let exc = crate::objects::exception::PyException::new(
+                        "ZeroDivisionError".to_string(),
+                        Some("integer division or modulo by zero".to_string()),
+                    );
+                    self.last_exception = Some(Rc::new(exc));
+                    return Err("ZeroDivisionError: integer division or modulo by zero".to_string());
+                }
                 if let Some(result) = left.floordiv(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
@@ -589,6 +870,21 @@ impl VirtualMachine {
             Opcode::BinaryModulo => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
+                let is_zero = if let Some(i) = right.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                    i.as_i64() == Some(0)
+                } else if let Some(f) = right.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                    f.value == 0.0
+                } else {
+                    false
+                };
+                if is_zero {
+                    let exc = crate::objects::exception::PyException::new(
+                        "ZeroDivisionError".to_string(),
+                        Some("integer division or modulo by zero".to_string()),
+                    );
+                    self.last_exception = Some(Rc::new(exc));
+                    return Err("ZeroDivisionError: integer division or modulo by zero".to_string());
+                }
                 if let Some(result) = left.modulo(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
@@ -708,11 +1004,7 @@ impl VirtualMachine {
                 if let Some(result) = left.eq(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
-                    return Err(format!(
-                        "TypeError: '{}' and '{}' are not comparable with ==",
-                        left.get_type(),
-                        right.get_type()
-                    ));
+                    frame.push(Rc::new(crate::objects::bool::PyBool::new(false)));
                 }
             }
             Opcode::CompareNotEq => {
@@ -721,11 +1013,7 @@ impl VirtualMachine {
                 if let Some(result) = left.ne(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
-                    return Err(format!(
-                        "TypeError: '{}' and '{}' are not comparable with !=",
-                        left.get_type(),
-                        right.get_type()
-                    ));
+                    frame.push(Rc::new(crate::objects::bool::PyBool::new(true)));
                 }
             }
             Opcode::CompareLt => {
@@ -829,15 +1117,47 @@ impl VirtualMachine {
             Opcode::EndFinally => {
                 if let Some(exc) = frame.pending_exception.take() {
                     self.last_exception = Some(exc.clone());
-                    return Err(exc.repr());
+                    let msg = if let Some(exc_obj) = exc.as_any().downcast_ref::<crate::objects::exception::PyException>() {
+                        let s = exc_obj.str();
+                        if s.is_empty() {
+                            exc_obj.repr()
+                        } else {
+                            format!("{}: {}", exc_obj.exc_type, s)
+                        }
+                    } else {
+                        exc.repr()
+                    };
+                    return Err(msg);
                 }
             }
             Opcode::TryEnd => {}
             Opcode::Raise => {
-                let exc = frame.pop()?;
+                let exc = if frame.stack.len() >= 2 {
+                    let exc = frame.pop()?;
+                    let cause = frame.pop()?;
+                    if !cause.as_any().is::<crate::objects::none::PyNone>() {
+                        let _ = exc.set_attr("__cause__", cause);
+                    }
+                    exc
+                } else if frame.stack.len() == 1 {
+                    frame.pop()?
+                } else if let Some(last) = self.last_exception.clone() {
+                    last
+                } else {
+                    return Err("RuntimeError: no active exception to re-raise".to_string());
+                };
                 self.last_exception = Some(exc.clone());
-                // We expect exc to be an Exception object
-                return Err(exc.repr());
+                let msg = if let Some(exc_obj) = exc.as_any().downcast_ref::<crate::objects::exception::PyException>() {
+                    let s = exc_obj.str();
+                    if s.is_empty() {
+                        exc_obj.repr()
+                    } else {
+                        format!("{}: {}", exc_obj.exc_type, s)
+                    }
+                } else {
+                    exc.repr()
+                };
+                return Err(msg);
             }
             Opcode::SetupWith(target) => {
                 let context_manager = frame.pop()?;
@@ -942,32 +1262,132 @@ impl VirtualMachine {
                 frame.push(iterator);
             }
             Opcode::YieldFrom => {
+                let send_val = frame.pop()?;
                 let iterator = frame.pop()?;
+                
+                let next_res = if send_val.get_type() != "NoneType" {
+                    if let Some(generator) = iterator.as_any().downcast_ref::<crate::objects::generator::PyGenerator>() {
+                        // Push send_val to the generator's frame
+                        generator.frame.borrow_mut().push(send_val);
+                        iterator.get_next()
+                    } else if let Some(coroutine) = iterator.as_any().downcast_ref::<crate::objects::coroutine::PyCoroutine>() {
+                        coroutine.frame.borrow_mut().push(send_val);
+                        iterator.get_next()
+                    } else {
+                        return Err(format!("AttributeError: '{}' object has no attribute 'send'", iterator.get_type()));
+                    }
+                } else {
+                    iterator.get_next()
+                };
+
                 loop {
-                    match iterator.get_next()? {
+                    match next_res? {
                         Some(val) => {
                             // The inner coroutine yielded. Re-yield this value.
                             frame.push(iterator);
-                            frame.push(val);
-                            // Decrement ip so we re-execute YieldFrom on resume
+                            // YieldFrom pushes the yielded value to the caller
+                            // The YieldFrom instruction pauses the generator.
+                            // When it resumes (e.g. via next()), it expects the send_val to be on the stack.
+                            // Currently our `get_next()` doesn't push the send_val, so we simulate it by pushing None.
+                            frame.push(Rc::new(crate::objects::none::PyNone::new()));
                             frame.ip -= 1;
-                            return Ok(Some(frame.pop()?));
+                            return Ok(Some(val));
                         }
                         None => {
                             // Inner coroutine completed. Check for return value.
-                            let ret_val = if let Some(coro) = iterator.as_any()
+                            let ret_val = if let Some(generator) = iterator.as_any()
+                                .downcast_ref::<crate::objects::generator::PyGenerator>()
+                            {
+                                let f = generator.frame.borrow();
+                                f.return_value.clone().unwrap_or_else(|| Rc::new(crate::objects::none::PyNone::new()))
+                            } else if let Some(coroutine) = iterator.as_any()
                                 .downcast_ref::<crate::objects::coroutine::PyCoroutine>()
                             {
-                                let f = coro.frame.borrow();
-                                f.return_value.clone().unwrap_or_else(|| Rc::new(crate::objects::none::PyNone))
+                                let f = coroutine.frame.borrow();
+                                f.return_value.clone().unwrap_or_else(|| Rc::new(crate::objects::none::PyNone::new()))
                             } else {
-                                Rc::new(crate::objects::none::PyNone)
+                                Rc::new(crate::objects::none::PyNone::new())
                             };
                             frame.push(ret_val);
                             break;
                         }
                     }
                 }
+            }
+            Opcode::MatchMapping => {
+                let subj = frame.pop()?;
+                let is_dict = subj.get_type() == "dict";
+                frame.push(subj);
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(is_dict)));
+            }
+            Opcode::MatchClassCheck => {
+                let class_obj = frame.pop()?;
+                let subj = frame.pop()?;
+                let class_name = if let Some(cls) = class_obj.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                    Some(cls.name.clone())
+                } else if let Some(nf) = class_obj.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                    Some(nf.name.clone())
+                } else if let Some(tp) = class_obj.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                    Some(tp.name.clone())
+                } else {
+                    None
+                };
+                let is_match = if let Some(name) = class_name {
+                    if let Some(inst) = subj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                        inst.class.name == name || inst.class.mro.iter().any(|base| {
+                            base.as_any().downcast_ref::<crate::objects::class::PyClass>().map_or(false, |c| c.name == name)
+                        })
+                    } else if let Some(exc) = subj.as_any().downcast_ref::<crate::objects::exception::PyException>() {
+                        exc.exc_type == name
+                    } else {
+                        // For built-in types, match by type name
+                        subj.get_type() == name || name == "object"
+                    }
+                } else {
+                    false
+                };
+                frame.push(subj);
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(is_match)));
+            }
+            Opcode::MatchClassGetPos(idx) => {
+                let subj = frame.pop()?;
+                let mut attr_val = None;
+                
+                let class_obj_opt = if let Some(inst) = subj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                    Some(Rc::clone(&inst.class) as Rc<dyn PyObject>)
+                } else {
+                    subj.get_attr("__class__").ok()
+                };
+                
+                if let Some(class_obj) = class_obj_opt {
+                    let match_args: Rc<dyn PyObject> = class_obj.get_attr("__match_args__").unwrap_or_else(|_| Rc::new(crate::objects::none::PyNone::new()));
+                    if let Some(t) = match_args.as_any().downcast_ref::<crate::objects::tuple::PyTuple>() {
+                        if *idx < t.elements.len() {
+                            if let Some(s) = t.elements[*idx].as_any().downcast_ref::<crate::objects::string::PyString>() {
+                                attr_val = subj.get_attr(&s.value).ok();
+                            }
+                        }
+                    }
+                }
+                
+                if let Some(val) = attr_val {
+                    frame.push(val);
+                    frame.push(Rc::new(crate::objects::bool::PyBool::new(true)));
+                } else {
+                    frame.push(Rc::new(crate::objects::none::PyNone::new()));
+                    frame.push(Rc::new(crate::objects::bool::PyBool::new(false)));
+                }
+            }
+            Opcode::CheckSequence(count) => {
+                let subj = frame.pop()?;
+                let mut is_seq = false;
+                if let Some(t) = subj.as_any().downcast_ref::<crate::objects::tuple::PyTuple>() {
+                    is_seq = t.elements.len() == *count;
+                } else if let Some(l) = subj.as_any().downcast_ref::<crate::objects::list::PyList>() {
+                    is_seq = l.elements.borrow().len() == *count;
+                }
+                frame.push(subj);
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(is_seq)));
             }
         }
         Ok(None)
@@ -979,54 +1399,87 @@ impl VirtualMachine {
         args: Vec<Rc<dyn PyObject>>,
         kwargs: std::collections::HashMap<String, Rc<dyn PyObject>>,
     ) -> Result<Rc<dyn PyObject>, String> {
+        self.invoke_inner(func_obj, args, kwargs)
+    }
+
+    fn invoke_inner(
+        &mut self,
+        func_obj: Rc<dyn PyObject>,
+        args: Vec<Rc<dyn PyObject>>,
+        kwargs: std::collections::HashMap<String, Rc<dyn PyObject>>,
+    ) -> Result<Rc<dyn PyObject>, String> {
         if let Some(func) = func_obj.as_any().downcast_ref::<PyFunction>() {
             let new_env = Environment::new_enclosed(Rc::clone(&func.env));
-            
-            // 1. Bind positional arguments
+
+            let mut vararg_extra: Vec<Rc<dyn PyObject>> = Vec::new();
+            let param_count = func.params.len();
+
+            // 1. Bind positional arguments (to posonly + regular params only)
             for (i, arg) in args.iter().enumerate() {
-                if i < func.params.len() {
+                if i < param_count {
                     new_env.borrow_mut().set(func.params[i].clone(), Rc::clone(arg));
+                } else if func.code.vararg.is_some() {
+                    vararg_extra.push(Rc::clone(arg));
                 } else {
-                    // Collect into *args if vararg is present
-                    if let Some(vararg) = &func.code.vararg {
-                        let mut env = new_env.borrow_mut();
-                        let existing = env.get(vararg);
-                        if let Some(existing_tuple) = existing {
-                            // Append to tuple (list for now)
-                            if let Some(list) = existing_tuple.as_any().downcast_ref::<crate::objects::list::PyList>() {
-                                list.elements.borrow_mut().push(Rc::clone(arg));
-                            }
-                        } else {
-                            // Create new tuple (list for now)
-                            let list = Rc::new(crate::objects::list::PyList::new(vec![Rc::clone(arg)]));
-                            env.set(vararg.clone(), list);
+                    return Err(format!("TypeError: {}() takes {} positional arguments but {} were given", func.code.name, param_count, args.len()));
+                }
+            }
+
+            // 2. Store *vararg as a tuple
+            if let Some(vararg) = &func.code.vararg {
+                let tup = Rc::new(crate::objects::tuple::PyTuple::new(vararg_extra));
+                new_env.borrow_mut().set(vararg.clone(), tup);
+            }
+
+            // 3. Apply default parameter values for missing positional arguments
+            let default_count = func.defaults.len();
+            let pos_count = args.len().min(param_count);
+            let mandatory_count = param_count.saturating_sub(default_count);
+            if pos_count < param_count {
+                for i in pos_count..param_count {
+                    if i >= mandatory_count {
+                        let default_idx = i - mandatory_count;
+                        if default_idx < default_count {
+                            new_env.borrow_mut().set(func.params[i].clone(), Rc::clone(&func.defaults[default_idx]));
                         }
-                    } else {
-                        return Err(format!("TypeError: {}() takes {} positional arguments but {} were given", func.code.name, func.params.len(), args.len()));
                     }
                 }
             }
 
-            // 2. Initialize empty *args if vararg is present but no extra args were given
-            if let Some(vararg) = &func.code.vararg {
-                let mut env = new_env.borrow_mut();
-                if env.get(vararg).is_none() {
-                    let list = Rc::new(crate::objects::list::PyList::new(Vec::new()));
-                    env.set(vararg.clone(), list);
-                }
-            }
-
-            // 3. Bind keyword arguments
+            // 4. Bind keyword arguments
             let mut unused_kwargs = std::collections::HashMap::new();
             for (key, val) in kwargs {
+                // Check if it's a positional-only param -> error
+                if let Some(idx) = func.params.iter().position(|p| p == &key) {
+                    if idx < func.posonly_count {
+                        return Err(format!("TypeError: '{}' is a positional-only parameter", key));
+                    }
+                }
                 if func.params.contains(&key) {
+                    new_env.borrow_mut().set(key, val);
+                } else if func.kwonly_params.contains(&key) {
                     new_env.borrow_mut().set(key, val);
                 } else {
                     unused_kwargs.insert(key, val);
                 }
             }
 
-            // 4. Handle **kwargs if kwarg is present
+            // 5. Apply defaults for keyword-only arguments (right-aligned)
+            let kw_default_offset = func.kwonly_params.len().saturating_sub(func.kwonly_defaults.len());
+            for (i, param) in func.kwonly_params.iter().enumerate() {
+                if new_env.borrow().get(param).is_none() {
+                    if i >= kw_default_offset {
+                        let kw_idx = i - kw_default_offset;
+                        if kw_idx < func.kwonly_defaults.len() {
+                            new_env.borrow_mut().set(param.clone(), Rc::clone(&func.kwonly_defaults[kw_idx]));
+                            continue;
+                        }
+                    }
+                    return Err(format!("TypeError: missing required keyword-only argument '{}'", param));
+                }
+            }
+
+            // 6. Handle **kwargs if kwarg is present
             if let Some(kwarg) = &func.code.kwarg {
                 let mut pairs: Vec<(Rc<dyn PyObject>, Rc<dyn PyObject>)> = Vec::new();
                 for (k, v) in unused_kwargs {
@@ -1037,6 +1490,13 @@ impl VirtualMachine {
             } else if !unused_kwargs.is_empty() {
                 let first_unexpected = unused_kwargs.keys().next().unwrap();
                 return Err(format!("TypeError: {}() got an unexpected keyword argument '{}'", func.code.name, first_unexpected));
+            }
+
+            // 7. Check all required positional params are bound
+            for i in 0..param_count {
+                if new_env.borrow().get(&func.params[i]).is_none() {
+                    return Err(format!("TypeError: missing required positional argument '{}'", func.params[i]));
+                }
             }
 
             let mut new_frame = Frame::new(func.code.clone(), new_env);
@@ -1063,7 +1523,7 @@ impl VirtualMachine {
             }
             Ok(instance)
         } else if let Some(bound_method) = func_obj.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
-            let mut bound_args = vec![Rc::new(bound_method.instance.clone()) as Rc<dyn PyObject>];
+            let mut bound_args = vec![Rc::clone(&bound_method.instance)];
             bound_args.extend(args);
             self.invoke(Rc::clone(&bound_method.func), bound_args, kwargs)
         } else {

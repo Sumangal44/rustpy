@@ -1,16 +1,15 @@
 use super::PyObject;
-use super::instance::PyInstance;
 use std::any::Any;
 use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct PyBoundMethod {
-    pub instance: PyInstance,
+    pub instance: Rc<dyn PyObject>,
     pub func: Rc<dyn PyObject>,
 }
 
 impl PyBoundMethod {
-    pub fn new(instance: PyInstance, func: Rc<dyn PyObject>) -> Self {
+    pub fn new(instance: Rc<dyn PyObject>, func: Rc<dyn PyObject>) -> Self {
         Self { instance, func }
     }
 }

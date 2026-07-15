@@ -253,7 +253,7 @@ BOOLEAN_TESTS = [
 CONTROL_FLOW_TESTS = [
     ("if_true", "x=42\nif x > 0:\n    print('positive')", "positive"),
     ("if_else", "x=-5\nif x > 0:\n    print('pos')\nelse:\n    print('neg')", "neg"),
-    ("if_elif_else", "x=0\nif x > 0:\n    print('pos')\n    elif x < 0:\n        print('neg')\nelse:\n    print('zero')", "zero"),
+    ("if_elif_else", "x=0\nif x > 0:\n    print('pos')\nelif x < 0:\n    print('neg')\nelse:\n    print('zero')", "zero"),
     ("while_loop", "i=3\nwhile i > 0:\n    print(i)\n    i-=1", "3\n2\n1"),
     ("for_range", "for i in range(3):\n    print(i)", "0\n1\n2"),
     ("for_list", "for x in [10,20,30]:\n    print(x)", "10\n20\n30"),
@@ -396,7 +396,7 @@ SET_METHOD_TESTS = [
     ("set_issubset", "print({1,2}.issubset({1,2,3}))", "True"),
     ("set_issuperset", "print({1,2,3}.issuperset({1,2}))", "True"),
     ("set_isdisjoint", "print({1,2}.isdisjoint({3,4}))", "True"),
-    ("set_copy", "s={1,2}\nc=s.copy()\ns.add(3)\nprint(len(s))\nprint(len(c))", "2\n2"),
+    ("set_copy", "s={1,2}\nc=s.copy()\ns.add(3)\nprint(len(s))\nprint(len(c))", "3\n2"),
     ("set_update", "s={1,2}\ns.update({2,3,4})\nprint(sorted(s))", "[1, 2, 3, 4]"),
     ("set_comp", "print({x*2 for x in [1,2,3]})", "{2, 4, 6}"),
 ]

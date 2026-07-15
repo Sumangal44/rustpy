@@ -137,4 +137,20 @@ impl PyObject for PyRangeIterator {
         *current += self.step;
         Ok(Some(result))
     }
+
+    fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        match attr {
+            "__next__" => {
+                let it = self.clone();
+                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: __next__() takes no arguments".to_string()); }
+                    match it.get_next()? {
+                        Some(val) => Ok(val),
+                        None => Err("StopIteration".to_string()),
+                    }
+                })))
+            }
+            _ => Err(format!("AttributeError: '{}' object has no attribute '{}'", self.get_type(), attr)),
+        }
+    }
 }

@@ -1,7 +1,10 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum FStringSegment {
     Text(String),
-    Expr(Box<Expr>),
+    Expr {
+        expr: Box<Expr>,
+        format_spec: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,18 +51,30 @@ pub enum Expr {
         kwargs_unpack: Vec<Expr>,
     },
     Yield(Option<Box<Expr>>),
+    YieldFrom(Box<Expr>),
+    IfExp {
+        test: Box<Expr>,
+        body: Box<Expr>,
+        orelse: Box<Expr>,
+    },
     Comprehension {
         kind: CompKind,
         elt: Box<Expr>,
         key: Option<Box<Expr>>,
         target: Box<Expr>,
         iter: Box<Expr>,
+        ifs: Vec<Expr>,
     },
     Lambda {
         params: Vec<String>,
+        posonly_params: Vec<String>,
+        kwonly_params: Vec<String>,
         vararg: Option<String>,
         kwarg: Option<String>,
         body: Box<Expr>,
+    },
+    Starred {
+        value: Box<Expr>,
     },
     Await(Box<Expr>),
     FString(Vec<FStringSegment>),
@@ -120,12 +135,16 @@ pub enum UnaryOpKind {
 pub enum Stmt {
     FunctionDef {
         name: String,
+        posonly_params: Vec<String>,
         params: Vec<String>,
+        kwonly_params: Vec<String>,
+        defaults: Vec<Option<Expr>>,
         vararg: Option<String>,
         kwarg: Option<String>,
         body: Vec<Stmt>,
         decorators: Vec<Expr>,
         is_async: bool,
+        returns: Option<Box<Expr>>,
     },
     ClassDef {
         name: String,
@@ -135,12 +154,13 @@ pub enum Stmt {
     },
     Try {
         body: Vec<Stmt>,
-        handlers: Vec<(Option<String>, Vec<Stmt>)>,
+        handlers: Vec<(Option<String>, Option<String>, Vec<Stmt>)>,
         else_body: Option<Vec<Stmt>>,
         finally_body: Option<Vec<Stmt>>,
     },
     Raise {
-        exc: Box<Expr>,
+        exc: Option<Box<Expr>>,
+        cause: Option<Box<Expr>>,
     },
     Return {
         value: Option<Expr>,
@@ -160,11 +180,12 @@ pub enum Stmt {
         iter: Expr,
         body: Vec<Stmt>,
         orelse: Vec<Stmt>,
+        is_async: bool,
     },
     With {
-        context_expr: Expr,
-        optional_vars: Option<Expr>,
+        items: Vec<WithItem>,
         body: Vec<Stmt>,
+        is_async: bool,
     },
     Assign {
         targets: Vec<Expr>,
@@ -174,6 +195,11 @@ pub enum Stmt {
         target: Box<Expr>,
         op: BinOpKind,
         value: Expr,
+    },
+    AnnAssign {
+        target: Box<Expr>,
+        annotation: Box<Expr>,
+        value: Option<Box<Expr>>,
     },
     Break,
     Continue,
@@ -215,6 +241,8 @@ pub enum Pattern {
     Capture(String),
     Or(Vec<Pattern>),
     Sequence(Vec<Pattern>),
+    Mapping(Vec<(Expr, Pattern)>),
+    Class(String, Vec<Pattern>, Vec<(String, Pattern)>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -228,6 +256,12 @@ pub struct MatchCase {
 pub struct Alias {
     pub name: String,
     pub asname: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WithItem {
+    pub context_expr: Expr,
+    pub optional_vars: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

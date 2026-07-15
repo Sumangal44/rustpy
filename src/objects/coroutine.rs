@@ -44,10 +44,10 @@ impl PyObject for PyCoroutine {
 
     fn get_next(&self) -> Result<Option<Rc<dyn PyObject>>, String> {
         let mut vm = crate::vm::VirtualMachine::new();
-        let mut frame = self.frame.borrow_mut();
-        match vm.run(&mut frame) {
+        let res = vm.run(&mut self.frame.borrow_mut());
+        match res {
             Ok(Some(val)) => {
-                if frame.return_value.is_some() {
+                if self.frame.borrow().return_value.is_some() {
                     Ok(None)
                 } else {
                     Ok(Some(val))

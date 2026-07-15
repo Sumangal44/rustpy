@@ -46,8 +46,53 @@ impl PyObject for PyList {
         out
     }
 
+    fn add(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(other_list) = other.as_any().downcast_ref::<PyList>() {
+            let elements = self.elements.borrow();
+            let other_elements = other_list.elements.borrow();
+            let mut new_elements = elements.clone();
+            new_elements.extend(other_elements.iter().cloned());
+            Some(Rc::new(PyList::new(new_elements)))
+        } else {
+            None
+        }
+    }
+
+    fn mul(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        if let Some(n) = other.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+            let count = n.as_i64().unwrap_or(0);
+            if count <= 0 {
+                return Some(Rc::new(PyList::new(Vec::new())));
+            }
+            let elements = self.elements.borrow();
+            let mut new_elements = Vec::with_capacity(elements.len() * count as usize);
+            for _ in 0..count {
+                new_elements.extend(elements.iter().cloned());
+            }
+            Some(Rc::new(PyList::new(new_elements)))
+        } else {
+            None
+        }
+    }
+
     fn is_truthy(&self) -> bool {
         !self.elements.borrow().is_empty()
+    }
+
+    fn del_item(&self, key: Rc<dyn PyObject>) -> Result<(), String> {
+        if let Some(idx_obj) = key.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+            let mut elements = self.elements.borrow_mut();
+            let i = idx_obj.as_i64().unwrap_or(0);
+            let idx = if i < 0 { (elements.len() as i64 + i) as usize } else { i as usize };
+            if idx < elements.len() {
+                elements.remove(idx);
+                Ok(())
+            } else {
+                Err("IndexError: list assignment index out of range".to_string())
+            }
+        } else {
+            Err("TypeError: list indices must be integers or slices, not ...".to_string())
+        }
     }
 
     fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
@@ -272,6 +317,22 @@ impl PyObject for PyListIterator {
             Ok(Some(item))
         } else {
             Ok(None)
+        }
+    }
+
+    fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        match attr {
+            "__next__" => {
+                let it = self.clone();
+                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: __next__() takes no arguments".to_string()); }
+                    match it.get_next()? {
+                        Some(val) => Ok(val),
+                        None => Err("StopIteration".to_string()),
+                    }
+                })))
+            }
+            _ => Err(format!("AttributeError: '{}' object has no attribute '{}'", self.get_type(), attr)),
         }
     }
 }

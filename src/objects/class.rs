@@ -106,8 +106,20 @@ impl PyObject for PyClass {
     }
 
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        if attr == "__name__" {
+            return Ok(Rc::new(crate::objects::string::PyString::new(self.name.clone())));
+        }
+
         let attrs = self.attributes.borrow();
         if let Some(val) = attrs.get(attr) {
+            if let Some(sm) = val.as_any().downcast_ref::<crate::objects::staticmethod::PyStaticMethod>() {
+                return Ok(Rc::clone(&sm.func));
+            }
+            if let Some(_cm) = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>() {
+                let cm = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>().unwrap();
+                let cls_rc: Rc<dyn PyObject> = Rc::new(self.clone()) as Rc<dyn PyObject>;
+                return Ok(Rc::new(crate::objects::bound_method::PyBoundMethod::new(cls_rc, Rc::clone(&cm.func))));
+            }
             return Ok(Rc::clone(val));
         }
         
@@ -115,6 +127,14 @@ impl PyObject for PyClass {
             let base_class = base.as_any().downcast_ref::<PyClass>().unwrap();
             let base_attrs = base_class.attributes.borrow();
             if let Some(val) = base_attrs.get(attr) {
+                if let Some(sm) = val.as_any().downcast_ref::<crate::objects::staticmethod::PyStaticMethod>() {
+                    return Ok(Rc::clone(&sm.func));
+                }
+                if let Some(_cm) = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>() {
+                    let cm = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>().unwrap();
+                    let cls_rc: Rc<dyn PyObject> = Rc::new(base_class.clone()) as Rc<dyn PyObject>;
+                    return Ok(Rc::new(crate::objects::bound_method::PyBoundMethod::new(cls_rc, Rc::clone(&cm.func))));
+                }
                 return Ok(Rc::clone(val));
             }
         }
@@ -188,7 +208,7 @@ impl PyObject for PySuper {
                     if val.as_any().is::<crate::objects::function::PyFunction>()
                         || val.as_any().is::<crate::objects::native_function::PyNativeFunction>()
                     {
-                        let bound = crate::objects::bound_method::PyBoundMethod::new(self.obj.as_ref().clone(), Rc::clone(val));
+                        let bound = crate::objects::bound_method::PyBoundMethod::new(Rc::new(self.obj.as_ref().clone()) as Rc<dyn PyObject>, Rc::clone(val));
                         return Ok(Rc::new(bound));
                     }
                     return Ok(Rc::clone(val));

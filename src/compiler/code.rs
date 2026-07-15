@@ -12,6 +12,9 @@ pub struct CodeObject {
     pub is_generator: bool,
     pub is_async: bool,
     pub arg_count: usize,
+    pub default_count: usize,
+    pub posonly_count: usize,
+    pub kwonly_params: Vec<String>,
     pub vararg: Option<String>,
     pub kwarg: Option<String>,
 }
@@ -26,6 +29,9 @@ impl CodeObject {
             is_generator: false,
             is_async: false,
             arg_count: 0,
+            default_count: 0,
+            posonly_count: 0,
+            kwonly_params: Vec::new(),
             vararg: None,
             kwarg: None,
         }

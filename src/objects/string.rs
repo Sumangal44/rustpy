@@ -25,7 +25,18 @@ impl PyObject for PyString {
     }
 
     fn repr(&self) -> String {
-        format!("'{}'", self.value)
+        let mut escaped = String::new();
+        for c in self.value.chars() {
+            match c {
+                '\n' => escaped.push_str("\\n"),
+                '\r' => escaped.push_str("\\r"),
+                '\t' => escaped.push_str("\\t"),
+                '\'' => escaped.push_str("\\'"),
+                '\\' => escaped.push_str("\\\\"),
+                _ => escaped.push(c),
+            }
+        }
+        format!("'{}'", escaped)
     }
 
     fn str(&self) -> String {
@@ -893,6 +904,22 @@ impl PyObject for PyStringIterator {
             Ok(Some(item))
         } else {
             Ok(None)
+        }
+    }
+
+    fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
+        match attr {
+            "__next__" => {
+                let it = self.clone();
+                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), move |args| {
+                    if args.len() != 0 { return Err("TypeError: __next__() takes no arguments".to_string()); }
+                    match it.get_next()? {
+                        Some(val) => Ok(val),
+                        None => Err("StopIteration".to_string()),
+                    }
+                })))
+            }
+            _ => Err(format!("AttributeError: '{}' object has no attribute '{}'", self.get_type(), attr)),
         }
     }
 }

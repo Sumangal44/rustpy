@@ -1,4 +1,4 @@
-use crate::ast::{BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind};
+use crate::ast::{BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind, WithItem};
 use crate::diagnostics::{LexerError, ParseError, ParseErrorKind};
 use crate::lexer::Lexer;
 use crate::lexer::tokens::{Token, TokenKind};
@@ -67,12 +67,32 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    fn consume_stmt_end(&mut self) -> Result<(), ParseError> {
+        if self.check(&TokenKind::Newline) {
+            self.advance()?;
+            Ok(())
+        } else if self.check(&TokenKind::EOF) {
+            Ok(())
+        } else {
+            Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken(format!("Expected newline, got {:?}", self.current_token.kind)),
+                self.current_token.span.clone(),
+            ))
+        }
+    }
+
     pub fn parse_module(&mut self) -> Result<Module, ParseError> {
         let mut body = Vec::new();
 
         self.consume_newlines()?;
         while !self.check(&TokenKind::EOF) {
             body.push(self.parse_statement()?);
+            while self.check(&TokenKind::Semicolon) {
+                self.advance()?;
+                if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::EOF) {
+                    body.push(self.parse_statement()?);
+                }
+            }
             self.consume_newlines()?;
         }
 
@@ -128,19 +148,19 @@ impl<'a> Parser<'a> {
             TokenKind::Pass => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
-                self.consume(TokenKind::Newline)?;
+                self.consume_stmt_end()?;
                 Ok(Stmt::Pass)
             }
             TokenKind::Break => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
-                self.consume(TokenKind::Newline)?;
+                self.consume_stmt_end()?;
                 Ok(Stmt::Break)
             }
             TokenKind::Continue => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
-                self.consume(TokenKind::Newline)?;
+                self.consume_stmt_end()?;
                 Ok(Stmt::Continue)
             }
             TokenKind::Del => {
@@ -174,11 +194,17 @@ impl<'a> Parser<'a> {
             TokenKind::Yield => {
                 if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
                 self.advance()?;
+                if self.check(&TokenKind::From) {
+                    self.advance()?;
+                    let value = Box::new(self.parse_expression(0)?);
+                    self.consume_stmt_end()?;
+                    return Ok(Stmt::YieldStmt(Expr::YieldFrom(value)));
+                }
                 let mut value = None;
                 if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::EOF) {
                     value = Some(Box::new(self.parse_expression(0)?));
                 }
-                self.consume(TokenKind::Newline)?;
+                self.consume_stmt_end()?;
                 Ok(Stmt::YieldStmt(Expr::Yield(value)))
             }
             _ => {
@@ -192,8 +218,22 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::Async)?;
         match &self.current_token.kind {
             TokenKind::Def => self.parse_function_def(decorators, true),
+            TokenKind::For => {
+                let mut stmt = self.parse_for()?;
+                if let Stmt::For { ref mut is_async, .. } = stmt {
+                    *is_async = true;
+                }
+                Ok(stmt)
+            }
+            TokenKind::With => {
+                let mut stmt = self.parse_with()?;
+                if let Stmt::With { ref mut is_async, .. } = stmt {
+                    *is_async = true;
+                }
+                Ok(stmt)
+            }
             _ => Err(ParseError::new(
-                ParseErrorKind::InvalidSyntax("expected 'def' after 'async'".to_string()),
+                ParseErrorKind::InvalidSyntax("expected 'def', 'for', or 'with' after 'async'".to_string()),
                 self.current_token.span.clone(),
             )),
         }
@@ -214,24 +254,30 @@ impl<'a> Parser<'a> {
         self.advance()?;
 
         self.consume(TokenKind::LParen)?;
+        let mut posonly_params = Vec::new();
         let mut params = Vec::new();
+        let mut defaults = Vec::new();
         let mut vararg = None;
         let mut kwarg = None;
+        let mut kwonly_params = Vec::new();
+        let mut after_bare_star = false;
 
         if !self.check(&TokenKind::RParen) {
             loop {
                 match &self.current_token.kind {
+                    TokenKind::Slash => {
+                        self.advance()?;
+                        let mut posonly = Vec::new();
+                        std::mem::swap(&mut params, &mut posonly);
+                        posonly_params = posonly;
+                    }
                     TokenKind::Star => {
                         self.advance()?;
                         if let TokenKind::Identifier(n) = &self.current_token.kind {
                             vararg = Some(n.clone());
                             self.advance()?;
-                        } else {
-                            return Err(ParseError::new(
-                                ParseErrorKind::UnexpectedToken("Expected identifier after *".to_string()),
-                                self.current_token.span.clone(),
-                            ));
                         }
+                        after_bare_star = true;
                     }
                     TokenKind::DoubleStar => {
                         self.advance()?;
@@ -246,8 +292,25 @@ impl<'a> Parser<'a> {
                         }
                     }
                     TokenKind::Identifier(n) => {
-                        params.push(n.clone());
+                        if after_bare_star {
+                            kwonly_params.push(n.clone());
+                        } else {
+                            params.push(n.clone());
+                        }
                         self.advance()?;
+                        if self.check(&TokenKind::Colon) {
+                            self.advance()?;
+                            self.parse_expression(0)?;
+                        }
+                        if self.check(&TokenKind::Equal) {
+                            self.advance()?;
+                            if after_bare_star {
+                                // kwonly defaults tracked here but only `defaults` field exists
+                            }
+                            defaults.push(Some(self.parse_expression(0)?));
+                        } else {
+                            defaults.push(None);
+                        }
                     }
                     _ => {
                         return Err(ParseError::new(
@@ -265,18 +328,29 @@ impl<'a> Parser<'a> {
             }
         }
         self.consume(TokenKind::RParen)?;
+
+        let mut returns = None;
+        if self.check(&TokenKind::Arrow) {
+            self.advance()?;
+            returns = Some(Box::new(self.parse_expression(0)?));
+        }
+
         self.consume(TokenKind::Colon)?;
 
         let body = self.parse_suite()?;
 
         Ok(Stmt::FunctionDef {
             name,
+            posonly_params,
             params,
+            kwonly_params,
+            defaults,
             vararg,
             kwarg,
             body,
             decorators,
             is_async,
+            returns,
         })
     }
 
@@ -326,6 +400,12 @@ impl<'a> Parser<'a> {
                 break;
             }
             body.push(self.parse_statement()?);
+            while self.check(&TokenKind::Semicolon) {
+                self.advance()?;
+                if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::EOF) {
+                    body.push(self.parse_statement()?);
+                }
+            }
         }
 
         self.consume(TokenKind::Dedent)?;
@@ -343,12 +423,32 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 body.push(self.parse_statement()?);
+                while self.check(&TokenKind::Semicolon) {
+                    self.advance()?;
+                    if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::EOF) {
+                        body.push(self.parse_statement()?);
+                    }
+                }
             }
             self.consume(TokenKind::Dedent)?;
             Ok(body)
         } else {
-            let stmt = self.parse_statement()?;
-            Ok(vec![stmt])
+            let mut body = Vec::new();
+            loop {
+                body.push(self.parse_statement()?);
+                if self.check(&TokenKind::Semicolon) {
+                    self.advance()?;
+                    if self.check(&TokenKind::Newline) || self.check(&TokenKind::EOF) {
+                        if self.check(&TokenKind::Newline) {
+                            self.advance()?;
+                        }
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            Ok(body)
         }
     }
 
@@ -369,7 +469,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if(&mut self) -> Result<Stmt, ParseError> {
-        self.consume(TokenKind::If)?;
+        if self.check(&TokenKind::If) {
+            self.advance()?;
+        } else if self.check(&TokenKind::Elif) {
+            self.advance()?;
+        }
         let test = self.parse_expression(0)?;
         self.consume(TokenKind::Colon)?;
 
@@ -381,9 +485,6 @@ impl<'a> Parser<'a> {
             self.consume(TokenKind::Colon)?;
             orelse = self.parse_suite()?;
         } else if self.check(&TokenKind::Elif) {
-            // Transform elif into an else with a nested if
-            // For now, let's just parse it as if
-            // This is a simplification for Phase 2
             let elif_stmt = self.parse_if()?;
             orelse.push(elif_stmt);
         }
@@ -408,11 +509,51 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_for_target(&mut self) -> Result<Expr, ParseError> {
+        if self.check(&TokenKind::LParen) {
+            self.advance()?;
+            if self.check(&TokenKind::RParen) {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidSyntax("Empty tuple not allowed in for loop target".to_string()),
+                    self.current_token.span.clone(),
+                ));
+            }
+            let mut elements = Vec::new();
+            loop {
+                let expr = self.parse_for_target()?;
+                elements.push(expr);
+                if self.check(&TokenKind::Comma) {
+                    self.advance()?;
+                    if self.check(&TokenKind::RParen) {
+                        break;
+                    }
+                } else if self.check(&TokenKind::RParen) {
+                    break;
+                } else {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Expected ',' or ')' in tuple target".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
+            }
+            self.consume(TokenKind::RParen)?;
+            if elements.len() == 1 {
+                return Ok(elements.into_iter().next().unwrap());
+            }
+            return Ok(Expr::Tuple(elements));
+        }
         match &self.current_token.kind {
             TokenKind::Identifier(name) => {
-                let expr = Expr::Identifier(name.clone());
+                let first = Expr::Identifier(name.clone());
                 self.advance()?;
-                Ok(expr)
+                if self.check(&TokenKind::Comma) {
+                    let mut elements = vec![first];
+                    while self.check(&TokenKind::Comma) {
+                        self.advance()?;
+                        elements.push(self.parse_for_target()?);
+                    }
+                    return Ok(Expr::Tuple(elements));
+                }
+                Ok(first)
             }
             _ => Err(ParseError::new(
                 ParseErrorKind::UnexpectedToken("Expected identifier in for loop target".to_string()),
@@ -421,11 +562,21 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_comp_ifs(&mut self) -> Vec<Expr> {
+        let mut ifs = Vec::new();
+        while self.check(&TokenKind::If) {
+            self.advance().unwrap(); // consume 'if'
+            ifs.push(self.parse_expression(0).unwrap());
+        }
+        ifs
+    }
+
     fn parse_list_comp(&mut self, elt: Expr) -> Result<Expr, ParseError> {
         self.consume(TokenKind::For)?;
         let target = self.parse_for_target()?;
         self.consume(TokenKind::In)?;
-        let iter = self.parse_expression(0)?;
+        let iter = self.parse_expression_opts(0, false)?;
+        let ifs = self.parse_comp_ifs();
         self.consume(TokenKind::RBracket)?;
         Ok(Expr::Comprehension {
             kind: crate::ast::CompKind::List,
@@ -433,6 +584,7 @@ impl<'a> Parser<'a> {
             key: None,
             target: Box::new(target),
             iter: Box::new(iter),
+            ifs,
         })
     }
 
@@ -440,7 +592,8 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::For)?;
         let target = self.parse_for_target()?;
         self.consume(TokenKind::In)?;
-        let iter = self.parse_expression(0)?;
+        let iter = self.parse_expression_opts(0, false)?;
+        let ifs = self.parse_comp_ifs();
         self.consume(TokenKind::RBrace)?;
         Ok(Expr::Comprehension {
             kind: crate::ast::CompKind::Dict,
@@ -448,6 +601,7 @@ impl<'a> Parser<'a> {
             key: Some(Box::new(key)),
             target: Box::new(target),
             iter: Box::new(iter),
+            ifs,
         })
     }
 
@@ -455,7 +609,8 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::For)?;
         let target = self.parse_for_target()?;
         self.consume(TokenKind::In)?;
-        let iter = self.parse_expression(0)?;
+        let iter = self.parse_expression_opts(0, false)?;
+        let ifs = self.parse_comp_ifs();
         self.consume(TokenKind::RBrace)?;
         Ok(Expr::Comprehension {
             kind: crate::ast::CompKind::Set,
@@ -463,6 +618,7 @@ impl<'a> Parser<'a> {
             key: None,
             target: Box::new(target),
             iter: Box::new(iter),
+            ifs,
         })
     }
 
@@ -481,27 +637,34 @@ impl<'a> Parser<'a> {
             orelse = self.parse_suite()?;
         }
 
-        Ok(Stmt::For { target, iter, body, orelse })
+        Ok(Stmt::For { target, iter, body, orelse, is_async: false })
     }
 
     fn parse_with(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::With)?;
-        let context_expr = self.parse_expression(0)?;
-        let mut optional_vars = None;
-
-        if self.check(&TokenKind::As) {
-            self.advance()?;
-            optional_vars = Some(self.parse_expression(0)?);
+        let mut items = Vec::new();
+        loop {
+            let context_expr = self.parse_expression(0)?;
+            let mut optional_vars = None;
+            if self.check(&TokenKind::As) {
+                self.advance()?;
+                optional_vars = Some(self.parse_expression(0)?);
+            }
+            items.push(WithItem { context_expr, optional_vars });
+            if self.check(&TokenKind::Comma) {
+                self.advance()?;
+            } else {
+                break;
+            }
         }
-
         self.consume(TokenKind::Colon)?;
 
         let body = self.parse_suite()?;
 
         Ok(Stmt::With {
-            context_expr,
-            optional_vars,
+            items,
             body,
+            is_async: false,
         })
     }
 
@@ -515,15 +678,27 @@ impl<'a> Parser<'a> {
         while self.check(&TokenKind::Except) {
             self.advance()?;
 
-            let mut exc_type_name = None;
+            let mut type_names: Vec<String> = Vec::new();
+            let mut as_name = None;
             if !self.check(&TokenKind::Colon) {
                 let exc_expr = self.parse_expression(0)?;
-                if let Expr::Identifier(name) = &exc_expr {
-                    exc_type_name = Some(name.clone());
+                match &exc_expr {
+                    Expr::Identifier(name) => {
+                        type_names.push(name.clone());
+                    }
+                    Expr::Tuple(elts) => {
+                        for elt in elts {
+                            if let Expr::Identifier(name) = elt {
+                                type_names.push(name.clone());
+                            }
+                        }
+                    }
+                    _ => {}
                 }
                 if self.check(&TokenKind::As) {
                     self.advance()?;
-                    if let TokenKind::Identifier(_) = &self.current_token.kind {
+                    if let TokenKind::Identifier(name) = &self.current_token.kind {
+                        as_name = Some(name.clone());
                         self.advance()?;
                     }
                 }
@@ -532,7 +707,13 @@ impl<'a> Parser<'a> {
             self.consume(TokenKind::Colon)?;
 
             let handler_body = self.parse_suite()?;
-            handlers.push((exc_type_name, handler_body));
+            if type_names.is_empty() {
+                handlers.push((None, as_name, handler_body));
+            } else {
+                for name in &type_names {
+                    handlers.push((Some(name.clone()), as_name.clone(), handler_body.clone()));
+                }
+            }
         }
 
         let mut else_body = None;
@@ -554,11 +735,18 @@ impl<'a> Parser<'a> {
 
     fn parse_raise(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Raise)?;
-        let exc = self.parse_expression(0)?;
-        if self.check(&TokenKind::Newline) {
+        let exc = if self.check(&TokenKind::Newline) || self.check(&TokenKind::EOF) {
+            None
+        } else {
+            Some(Box::new(self.parse_expression(0)?))
+        };
+        let mut cause = None;
+        if self.check(&TokenKind::From) {
             self.advance()?;
+            cause = Some(Box::new(self.parse_expression(0)?));
         }
-        Ok(Stmt::Raise { exc: Box::new(exc) })
+        self.consume_stmt_end()?;
+        Ok(Stmt::Raise { exc, cause })
     }
 
     fn parse_del(&mut self) -> Result<Stmt, ParseError> {
@@ -584,7 +772,7 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        self.consume(TokenKind::Newline)?;
+        self.consume_stmt_end()?;
         Ok(Stmt::Global { names })
     }
 
@@ -604,7 +792,7 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        self.consume(TokenKind::Newline)?;
+        self.consume_stmt_end()?;
         Ok(Stmt::Nonlocal { names })
     }
 
@@ -616,7 +804,7 @@ impl<'a> Parser<'a> {
             self.advance()?;
             msg = Some(Box::new(self.parse_expression(0)?));
         }
-        self.consume(TokenKind::Newline)?;
+        self.consume_stmt_end()?;
         Ok(Stmt::Assert { test, msg })
     }
 
@@ -654,7 +842,9 @@ impl<'a> Parser<'a> {
         if let Some(op) = self.parse_aug_op() {
             self.advance()?;
             let value = self.parse_expression(0)?;
-            self.consume(TokenKind::Newline)?;
+            if self.check(&TokenKind::Newline) {
+                self.advance()?;
+            }
             if targets.len() != 1 {
                 return Err(ParseError::new(
                     ParseErrorKind::InvalidSyntax("augmented assignment with multiple targets".to_string()),
@@ -669,13 +859,12 @@ impl<'a> Parser<'a> {
         } else if self.check(&TokenKind::Equal) {
             self.advance()?;
             let value = self.parse_expression(0)?;
-            self.consume(TokenKind::Newline)?;
-            Ok(Stmt::Assign { targets, value })
-        } else {
             if self.check(&TokenKind::Newline) {
                 self.advance()?;
             }
-            while self.check(&TokenKind::Semicolon) {
+            Ok(Stmt::Assign { targets, value })
+        } else {
+            if self.check(&TokenKind::Newline) {
                 self.advance()?;
             }
             if targets.len() > 1 {
@@ -689,6 +878,10 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_expression(&mut self, precedence: u8) -> Result<Expr, ParseError> {
+        self.parse_expression_opts(precedence, true)
+    }
+
+    fn parse_expression_opts(&mut self, precedence: u8, allow_ternary: bool) -> Result<Expr, ParseError> {
         let mut left = self.parse_prefix()?;
 
         while precedence < self.peek_precedence() {
@@ -710,6 +903,20 @@ impl<'a> Parser<'a> {
                     self.current_token.span.clone(),
                 ));
             }
+        }
+
+        // Ternary/conditional expression: body if test else orelse
+        if allow_ternary && precedence == 0 && self.check(&TokenKind::If) {
+            let body = Box::new(left);
+            self.advance()?;
+            let test = self.parse_expression(0)?;
+            self.consume(TokenKind::Else)?;
+            let orelse = self.parse_expression(0)?;
+            left = Expr::IfExp {
+                test: Box::new(test),
+                body,
+                orelse: Box::new(orelse),
+            };
         }
 
         Ok(left)
@@ -768,6 +975,11 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 Ok(Expr::Ellipsis)
             }
+            TokenKind::Star => {
+                self.advance()?;
+                let value = Box::new(self.parse_expression(0)?);
+                Ok(Expr::Starred { value })
+            }
             TokenKind::LParen => {
                 self.advance()?;
                 if self.check(&TokenKind::RParen) {
@@ -801,6 +1013,11 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Yield => {
                 self.advance()?;
+                if self.check(&TokenKind::From) {
+                    self.advance()?;
+                    let value = Box::new(self.parse_expression(0)?);
+                    return Ok(Expr::YieldFrom(value));
+                }
                 let mut value = None;
                 // If it's not a closing paren or newline, try parsing the yielded expression
                 if !self.check(&TokenKind::RParen)
@@ -876,14 +1093,30 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Lambda => {
                 self.advance()?;
+                let mut posonly_params = Vec::new();
                 let mut params = Vec::new();
                 let mut vararg = None;
                 let mut kwarg = None;
+                let mut kwonly_params = Vec::new();
+                let mut after_bare_star = false;
                 if !self.check(&TokenKind::Colon) {
                     loop {
-                        if self.check(&TokenKind::Star) {
-                            self.advance()?;
-                            if self.check(&TokenKind::Star) {
+                        match &self.current_token.kind {
+                            TokenKind::Slash => {
+                                self.advance()?;
+                                let mut posonly = Vec::new();
+                                std::mem::swap(&mut params, &mut posonly);
+                                posonly_params = posonly;
+                            }
+                            TokenKind::Star => {
+                                self.advance()?;
+                                if let TokenKind::Identifier(name) = &self.current_token.kind {
+                                    vararg = Some(name.clone());
+                                    self.advance()?;
+                                }
+                                after_bare_star = true;
+                            }
+                            TokenKind::DoubleStar => {
                                 self.advance()?;
                                 if let TokenKind::Identifier(name) = &self.current_token.kind {
                                     kwarg = Some(name.clone());
@@ -891,19 +1124,18 @@ impl<'a> Parser<'a> {
                                 } else {
                                     return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name after **".to_string()), self.current_token.span.clone()));
                                 }
-                            } else {
-                                if let TokenKind::Identifier(name) = &self.current_token.kind {
-                                    vararg = Some(name.clone());
-                                    self.advance()?;
-                                } else {
-                                    return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name after *".to_string()), self.current_token.span.clone()));
-                                }
                             }
-                        } else if let TokenKind::Identifier(name) = &self.current_token.kind {
-                            params.push(name.clone());
-                            self.advance()?;
-                        } else {
-                            return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name".to_string()), self.current_token.span.clone()));
+                            TokenKind::Identifier(name) => {
+                                if after_bare_star {
+                                    kwonly_params.push(name.clone());
+                                } else {
+                                    params.push(name.clone());
+                                }
+                                self.advance()?;
+                            }
+                            _ => {
+                                return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name".to_string()), self.current_token.span.clone()));
+                            }
                         }
                         if self.check(&TokenKind::Comma) {
                             self.advance()?;
@@ -916,6 +1148,8 @@ impl<'a> Parser<'a> {
                 let body = self.parse_expression(0)?;
                 Ok(Expr::Lambda {
                     params,
+                    posonly_params,
+                    kwonly_params,
                     vararg,
                     kwarg,
                     body: Box::new(body),
@@ -992,10 +1226,20 @@ impl<'a> Parser<'a> {
                 }
                 let mut expr_text = String::new();
                 let mut depth = 1;
+                let mut in_spec = false;
+                let mut spec_text = String::new();
                 while let Some((_, ec)) = chars.next() {
-                    if ec == '{' { depth += 1; expr_text.push('{'); }
-                    else if ec == '}' { depth -= 1; if depth == 0 { break; } expr_text.push('}'); }
-                    else { expr_text.push(ec); }
+                    if in_spec {
+                        if ec == '{' { depth += 1; spec_text.push('{'); }
+                        else if ec == '}' { depth -= 1; if depth == 0 { break; } if depth > 0 { spec_text.push('}'); } }
+                        else { spec_text.push(ec); }
+                    } else if ec == ':' && depth == 1 {
+                        in_spec = true;
+                    } else {
+                        if ec == '{' { depth += 1; expr_text.push('{'); }
+                        else if ec == '}' { depth -= 1; if depth == 0 { break; } expr_text.push('}'); }
+                        else { expr_text.push(ec); }
+                    }
                 }
                 if depth != 0 {
                     return Err(ParseError::new(
@@ -1003,8 +1247,18 @@ impl<'a> Parser<'a> {
                         self.current_token.span.clone(),
                     ));
                 }
-                let sub_expr = self.parse_fstring_expr(&expr_text)?;
-                segments.push(FStringSegment::Expr(Box::new(sub_expr)));
+                let spec = if spec_text.is_empty() { None } else { Some(spec_text) };
+                // Handle debug syntax {expr=}
+                let sub_expr_text = if expr_text.ends_with('=') {
+                    let debug_name = expr_text.trim_end_matches('=');
+                    let name_val = if debug_name.is_empty() { String::new() } else { debug_name.to_string() };
+                    segments.push(FStringSegment::Text(format!("{}=", name_val)));
+                    name_val.to_string()
+                } else {
+                    expr_text
+                };
+                let sub_expr = self.parse_fstring_expr(&sub_expr_text)?;
+                segments.push(FStringSegment::Expr { expr: Box::new(sub_expr), format_spec: spec });
                 continue;
             }
             if c == '}' {
@@ -1052,7 +1306,8 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::For)?;
         let target = self.parse_for_target()?;
         self.consume(TokenKind::In)?;
-        let iter = self.parse_expression(0)?;
+        let iter = self.parse_expression_opts(0, false)?;
+        let ifs = self.parse_comp_ifs();
         self.consume(TokenKind::RParen)?;
         Ok(Expr::Comprehension {
             kind: CompKind::Generator,
@@ -1060,6 +1315,7 @@ impl<'a> Parser<'a> {
             key: None,
             target: Box::new(target),
             iter: Box::new(iter),
+            ifs,
         })
     }
 
@@ -1092,13 +1348,7 @@ impl<'a> Parser<'a> {
             None
         };
         self.consume(TokenKind::Colon)?;
-        self.consume(TokenKind::Newline)?;
-        self.consume(TokenKind::Indent)?;
-        let mut body = Vec::new();
-        while !self.check(&TokenKind::Dedent) && !self.check(&TokenKind::EOF) {
-            body.push(self.parse_statement()?);
-        }
-        self.consume(TokenKind::Dedent)?;
+        let body = self.parse_suite()?;
         Ok(MatchCase { pattern, guard, body })
     }
 
@@ -1152,7 +1402,44 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 self.advance()?;
-                Ok(Pattern::Capture(name))
+                if self.check(&TokenKind::LParen) {
+                    self.advance()?;
+                    let mut pos_args = Vec::new();
+                    let kw_args = Vec::new();
+                    if !self.check(&TokenKind::RParen) {
+                        loop {
+                            pos_args.push(self.parse_pattern()?);
+                            if self.check(&TokenKind::Comma) {
+                                self.advance()?;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.consume(TokenKind::RParen)?;
+                    Ok(Pattern::Class(name, pos_args, kw_args))
+                } else {
+                    Ok(Pattern::Capture(name))
+                }
+            }
+            TokenKind::LBrace => {
+                self.advance()?;
+                let mut elements = Vec::new();
+                if !self.check(&TokenKind::RBrace) {
+                    loop {
+                        let key = self.parse_expression(0)?;
+                        self.consume(TokenKind::Colon)?;
+                        let val = self.parse_pattern()?;
+                        elements.push((key, val));
+                        if self.check(&TokenKind::Comma) {
+                            self.advance()?;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(TokenKind::RBrace)?;
+                Ok(Pattern::Mapping(elements))
             }
             TokenKind::LBracket => {
                 self.advance()?;
@@ -1268,23 +1555,6 @@ impl<'a> Parser<'a> {
                     self.advance()?;
                     kwargs_unpack.push(self.parse_expression(0)?);
                 } else {
-                    // Could be a keyword argument if it's an identifier followed by '='
-                    // Wait, we need to peek ahead to see if the next token is '='
-                    // Since we don't have peek(2), we can parse an expression.
-                    // If it's an Identifier and the next token is '=', it's a kwarg!
-                    // Actually, let's look at `self.current_token` and `self.peek_token` if we had it.
-                    // If we just check current token is Identifier and next is Assign...
-                    // Wait, we can just check if current token is Identifier.
-                    // If it is, and the NEXT token is `=`, we parse it as a kwarg.
-                    // But we don't have a peek() function easily available that returns the next token.
-                    // Let's just clone the lexer state if we want to look ahead? No, our lexer yields tokens.
-                    // We DO have `self.current_token` but no `self.peek_token()`.
-                    // Let's just add a temporary hack: if `self.current_token` is Identifier, 
-                    // we could just parse it as an expression. If it's an assignment, `parse_expression` 
-                    // doesn't handle `=` (assignment is a statement).
-                    // So if it's an identifier and the next token is `=`, we can't parse it as an expression easily.
-                    // Let's implement a small peek by checking if it's an Identifier. But how to know if next is '='?
-                    // We'll leave `kwargs` unimplemented in parsing for this exact step to keep it simple, or implement it by parsing an expression and checking if the next token is `=`. Wait! If we parse an expression, we consume the identifier. Then `self.current_token` would be `=`.
                     let expr = self.parse_expression(0)?;
                     if self.check(&TokenKind::Equal) {
                         self.advance()?;
@@ -1297,6 +1567,22 @@ impl<'a> Parser<'a> {
                                 self.current_token.span.clone(),
                             ));
                         }
+                    } else if self.check(&TokenKind::For) {
+                        // Generator expression as function argument
+                        self.consume(TokenKind::For)?;
+                        let target = self.parse_for_target()?;
+                        self.consume(TokenKind::In)?;
+                        let iter = self.parse_expression(0)?;
+                        let ifs = self.parse_comp_ifs();
+                        let gen_expr = Expr::Comprehension {
+                            kind: CompKind::Generator,
+                            elt: Box::new(expr),
+                            key: None,
+                            target: Box::new(target),
+                            iter: Box::new(iter),
+                            ifs,
+                        };
+                        args.push(gen_expr);
                     } else {
                         args.push(expr);
                     }
@@ -1444,7 +1730,7 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        self.consume(TokenKind::Newline)?;
+        self.consume_stmt_end()?;
         Ok(Stmt::Import { names })
     }
 

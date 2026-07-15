@@ -228,6 +228,9 @@ pub fn create_os_module() -> Rc<PyModule> {
         Ok(Rc::new(PyList::new(result)) as Rc<dyn PyObject>)
     })) as Rc<dyn PyObject>);
 
+    // os.name
+    module.set_attr_inner("name", Rc::new(PyString::new("posix".to_string())) as Rc<dyn PyObject>);
+
     module
 }
 

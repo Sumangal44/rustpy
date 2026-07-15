@@ -2,11 +2,15 @@
 pub enum Opcode {
     // Stack manipulation
     PopTop,
+    RotTwo,
+    RotThree,
 
     // Variables and Constants
     LoadConst(usize), // index into constants pool
     LoadName(usize),  // index into names pool
     StoreName(usize), // index into names pool
+    LoadGlobal(usize), // index into names pool
+    StoreGlobal(usize), // index into names pool
     DeleteName(usize), // index into names pool
     DeleteAttr(String), // pops object, deletes attribute
     DeleteSubscript, // pops key, pops collection, deletes item
@@ -44,6 +48,10 @@ pub enum Opcode {
     CompareNotIn,
     CompareIs,
     CompareIsNot,
+    MatchMapping,
+    MatchClassCheck,
+    MatchClassGetPos(usize),
+    CheckSequence(usize),
 
     // Control flow
     #[allow(dead_code)]
@@ -75,6 +83,7 @@ pub enum Opcode {
     BinarySubscript,  // pops index, pops collection, pushes item
     StoreSubscript,   // pops value, pops index, pops collection, stores item
     UnpackSequence(usize), // pops sequence, pushes individual items in reverse order
+    UnpackEx(usize, usize), // (items_before_star, items_after_star) for starred assignment
 
     // Control Flow
     GetIter,        // pops collection, pushes iterator

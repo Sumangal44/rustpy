@@ -11,6 +11,10 @@ pub struct PyFunction {
     pub params: Vec<String>,
     pub code: CodeObject,
     pub env: Rc<RefCell<Environment>>,
+    pub defaults: Vec<Rc<dyn PyObject>>,
+    pub posonly_count: usize,
+    pub kwonly_params: Vec<String>,
+    pub kwonly_defaults: Vec<Rc<dyn PyObject>>,
 }
 
 impl PyFunction {
@@ -19,12 +23,20 @@ impl PyFunction {
         params: Vec<String>,
         code: CodeObject,
         env: Rc<RefCell<Environment>>,
+        defaults: Vec<Rc<dyn PyObject>>,
+        posonly_count: usize,
+        kwonly_params: Vec<String>,
+        kwonly_defaults: Vec<Rc<dyn PyObject>>,
     ) -> Self {
         Self {
             name,
             params,
             code,
             env,
+            defaults,
+            posonly_count,
+            kwonly_params,
+            kwonly_defaults,
         }
     }
 }

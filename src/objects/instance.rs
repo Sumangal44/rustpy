@@ -27,7 +27,7 @@ impl PyInstance {
     }
 
     fn bind_function(&self, func: Rc<dyn PyObject>) -> Rc<dyn PyObject> {
-        let bound = PyBoundMethod::new(self.clone(), Rc::clone(&func));
+        let bound = PyBoundMethod::new(Rc::new(self.clone()) as Rc<dyn PyObject>, Rc::clone(&func));
         Rc::new(bound)
     }
 
@@ -43,7 +43,8 @@ impl PyInstance {
         }
         if let Some(_cm) = val.as_any().downcast_ref::<PyClassMethod>() {
             let cm = val.as_any().downcast_ref::<PyClassMethod>().unwrap();
-            return Ok(self.bind_function(Rc::clone(&cm.func)));
+            let cls_rc: Rc<dyn PyObject> = Rc::clone(&self.class) as Rc<dyn PyObject>;
+            return Ok(Rc::new(PyBoundMethod::new(cls_rc, Rc::clone(&cm.func))));
         }
 
         if val.as_any().is::<crate::objects::function::PyFunction>()
@@ -59,7 +60,7 @@ impl PyInstance {
         let method = self.get_attr(name)?;
         if let Some(bound) = method.as_any().downcast_ref::<PyBoundMethod>() {
             if let Some(native) = bound.func.as_any().downcast_ref::<PyNativeFunction>() {
-                let mut all_args = vec![Rc::new(self.clone()) as Rc<dyn PyObject>];
+                let mut all_args = vec![Rc::clone(&bound.instance)];
                 all_args.extend(args);
                 return (native.func)(all_args, std::collections::HashMap::new());
             }

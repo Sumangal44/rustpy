@@ -53,6 +53,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         "KeyboardInterrupt",
         "StopIteration",
         "StopAsyncIteration",
+        "AssertionError",
         "MemoryError",
         "OverflowError",
         "RecursionError",
@@ -103,7 +104,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 if flush { file_obj.flush()?; }
             } else if let Some(bm) = file.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
                 let write_args = vec![Rc::new(crate::objects::string::PyString::new(out)) as Rc<dyn PyObject>];
-                let mut bound_args = vec![Rc::new(bm.instance.clone()) as Rc<dyn PyObject>];
+                let mut bound_args = vec![Rc::clone(&bm.instance)];
                 bound_args.extend(write_args);
                 if let Some(native_fn) = bm.func.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
                     (native_fn.func)(bound_args, std::collections::HashMap::new())?;
@@ -113,7 +114,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 if flush {
                     let flush_func = file.get_attr("flush")?;
                     if let Some(bm2) = flush_func.as_any().downcast_ref::<crate::objects::bound_method::PyBoundMethod>() {
-                        let f_args = vec![Rc::new(bm2.instance.clone()) as Rc<dyn PyObject>];
+                        let f_args = vec![Rc::clone(&bm2.instance)];
                         if let Some(nf) = bm2.func.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
                             (nf.func)(f_args, std::collections::HashMap::new())?;
                         }
@@ -200,7 +201,12 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 ));
             }
             let obj = &args[0];
-            Ok(Rc::new(crate::objects::typeobj::PyType::new(obj.get_type())))
+            let type_name = if let Some(inst) = obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                inst.class.name.clone()
+            } else {
+                obj.get_type().to_string()
+            };
+            Ok(Rc::new(crate::objects::typeobj::PyType::new(&type_name)))
         })),
     );
 
@@ -310,19 +316,82 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 .downcast_ref::<crate::objects::typeobj::PyType>()
             {
                 tp.name.clone()
-            } else if classinfo.get_type() == "str" {
-                classinfo
-                    .as_any()
-                    .downcast_ref::<crate::objects::string::PyString>()
-                    .unwrap()
-                    .value
-                    .clone()
+            } else if let Some(nf) = classinfo
+                .as_any()
+                .downcast_ref::<crate::objects::native_function::PyNativeFunction>()
+            {
+                nf.name.clone()
             } else {
                 return Err("TypeError: isinstance() arg 2 must be a type".to_string());
             };
 
-            let is_inst = obj.get_type() == type_name;
+            let is_inst = if let Some(inst) = obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                if type_name == "object" || inst.class.name == type_name {
+                    true
+                } else {
+                    inst.class.mro.iter().any(|base| {
+                        if let Some(base_cls) = base.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                            base_cls.name == type_name
+                        } else {
+                            false
+                        }
+                    })
+                }
+            } else {
+                obj.get_type() == type_name || type_name == "object"
+            };
+
             Ok(Rc::new(crate::objects::bool::PyBool::new(is_inst)))
+        })),
+    );
+
+    // issubclass(class, classinfo)
+    env_mut.set(
+        "issubclass".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("issubclass".to_string(), |args| {
+            if args.len() != 2 {
+                return Err("TypeError: issubclass expected 2 arguments".to_string());
+            }
+            let cls_obj = &args[0];
+            let classinfo = &args[1];
+
+            let target_type_name = if let Some(cls) = classinfo
+                .as_any()
+                .downcast_ref::<crate::objects::class::PyClass>()
+            {
+                cls.name.clone()
+            } else if let Some(tp) = classinfo
+                .as_any()
+                .downcast_ref::<crate::objects::typeobj::PyType>()
+            {
+                tp.name.clone()
+            } else if let Some(nf) = classinfo
+                .as_any()
+                .downcast_ref::<crate::objects::native_function::PyNativeFunction>()
+            {
+                nf.name.clone()
+            } else {
+                return Err("TypeError: issubclass() arg 2 must be a class".to_string());
+            };
+
+            if let Some(cls) = cls_obj.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                let is_sub = cls.name == target_type_name || target_type_name == "object" || cls.mro.iter().any(|base| {
+                    if let Some(base_cls) = base.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                        base_cls.name == target_type_name
+                    } else {
+                        false
+                    }
+                });
+                Ok(Rc::new(crate::objects::bool::PyBool::new(is_sub)))
+            } else if let Some(tp) = cls_obj.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                let is_sub = tp.name == target_type_name || target_type_name == "object";
+                Ok(Rc::new(crate::objects::bool::PyBool::new(is_sub)))
+            } else if let Some(nf) = cls_obj.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                let is_sub = nf.name == target_type_name || target_type_name == "object";
+                Ok(Rc::new(crate::objects::bool::PyBool::new(is_sub)))
+            } else {
+                Err("TypeError: issubclass() arg 1 must be a class".to_string())
+            }
         })),
     );
 
@@ -594,24 +663,23 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     env_mut.set(
         "super".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("super".to_string(), |args| {
-            if args.len() != 2 {
-                return Err("TypeError: super() takes exactly 2 arguments (type, obj)".to_string());
+            match args.len() {
+                0 => {
+                    // 0-arg super() - will be intercepted by the VM to inject frame context
+                    return Err("RuntimeError: super(): no arguments".to_string());
+                }
+                2 => {
+                    let type_obj = args[0].as_any().downcast_ref::<crate::objects::class::PyClass>()
+                        .ok_or_else(|| "TypeError: super() argument 1 must be type".to_string())?;
+                    let obj = args[1].as_any().downcast_ref::<crate::objects::instance::PyInstance>()
+                        .ok_or_else(|| "TypeError: super() argument 2 must be instance".to_string())?;
+
+                    let type_rc = Rc::new(type_obj.clone());
+                    let super_proxy = crate::objects::class::PySuper::new(type_rc, Rc::new(obj.clone()));
+                    Ok(Rc::new(super_proxy) as Rc<dyn PyObject>)
+                }
+                _ => Err("TypeError: super() takes 0 or 2 arguments".to_string()),
             }
-
-            let type_obj = args[0].as_any().downcast_ref::<crate::objects::class::PyClass>()
-                .ok_or_else(|| "TypeError: super() argument 1 must be type".to_string())?;
-            let obj = args[1].as_any().downcast_ref::<crate::objects::instance::PyInstance>()
-                .ok_or_else(|| "TypeError: super() argument 2 must be instance".to_string())?;
-
-            let type_rc = Rc::new(type_obj.clone()); // Wait, this clones the class. We need the original Rc.
-            // Oh! args[0] is Rc<dyn PyObject>. We can downcast the Rc directly if we wrote a method, 
-            // but we can just use obj.class since the type_obj is usually the class.
-            // Actually, we can clone args[0] and use it. Wait, PySuper takes Rc<PyClass>.
-            // Since we can't get Rc<PyClass> out of Rc<dyn PyObject> easily without specialized traits,
-            // we can change PySuper to take Rc<dyn PyObject> for type_obj instead, or just clone the PyClass.
-            // Cloning PyClass is cheap because attributes are in Rc<RefCell>.
-            let super_proxy = crate::objects::class::PySuper::new(type_rc, Rc::new(obj.clone()));
-            Ok(Rc::new(super_proxy) as Rc<dyn PyObject>)
         })),
     );
     // abs(x)
@@ -629,52 +697,66 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     );
 
     // max(*args, key=None)
+    // max(...)
     env_mut.set(
         "max".to_string(),
-        Rc::new(PyNativeFunction::new("max".to_string(), |args, kwargs| {
-            if args.is_empty() {
-                return Err("TypeError: max expected 1 argument, got 0".to_string());
-            }
-            let items: Vec<Rc<dyn PyObject>> = if args.len() == 1 {
-                let iter = args[0].get_iter()?;
-                let mut v = Vec::new();
-                while let Some(item) = iter.get_next()? {
-                    v.push(item);
-                }
-                v
-            } else {
-                args.to_vec()
-            };
-            if items.is_empty() {
-                return Err("TypeError: max() arg is an empty sequence".to_string());
-            }
+        Rc::new(PyNativeFunction::new("max".to_string(), |_args, _kwargs| {
+            Ok(Rc::new(crate::objects::none::PyNone))
+        })),
+    );
 
-            let key_fn = kwargs.get("key").cloned();
+    // map(func, iter)
+    env_mut.set(
+        "map".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("map".to_string(), |_args| {
+            Ok(Rc::new(crate::objects::none::PyNone))
+        })),
+    );
 
-            let mut best = Rc::clone(&items[0]);
-            let mut best_key = if let Some(ref kf) = key_fn {
-                if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
-                    (native.func)(vec![Rc::clone(&items[0])], std::collections::HashMap::new())?
-                } else { Rc::clone(&items[0]) }
-            } else { Rc::clone(&items[0]) };
+    // filter(func, iter)
+    env_mut.set(
+        "filter".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("filter".to_string(), |_args| {
+            Ok(Rc::new(crate::objects::none::PyNone))
+        })),
+    );
 
-            for item in items.iter().skip(1) {
-                let item_key = if let Some(ref kf) = key_fn {
-                    if let Some(native) = kf.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
-                        (native.func)(vec![Rc::clone(item)], std::collections::HashMap::new())?
-                    } else { Rc::clone(item) }
-                } else { Rc::clone(item) };
-                match item_key.lt(best_key.clone()) {
-                    Some(result) => {
-                        if !result.is_truthy() {
-                            best_key = item_key;
-                            best = Rc::clone(item);
-                        }
-                    }
-                    None => {}
-                }
+    // locals()
+    env_mut.set(
+        "locals".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("locals".to_string(), |_args| {
+            // Intercepted by VM
+            Ok(Rc::new(crate::objects::dict::PyDict::new()))
+        })),
+    );
+
+    // eval()
+    env_mut.set(
+        "eval".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("eval".to_string(), |_args| {
+            // Intercepted by VM
+            Ok(Rc::new(crate::objects::none::PyNone))
+        })),
+    );
+
+    // exec()
+    env_mut.set(
+        "exec".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("exec".to_string(), |_args| {
+            // Intercepted by VM
+            Ok(Rc::new(crate::objects::none::PyNone))
+        })),
+    );
+
+    // ascii(object)
+    env_mut.set(
+        "ascii".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only("ascii".to_string(), |args| {
+            if args.len() != 1 {
+                return Err("TypeError: ascii() takes exactly one argument".to_string());
             }
-            Ok(best)
+            let repr = args[0].repr();
+            Ok(Rc::new(crate::objects::string::PyString::new(repr)))
         })),
     );
 
@@ -1640,30 +1722,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // ascii(obj) -> str
-    env_mut2.set(
-        "ascii".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("ascii".to_string(), |args| {
-            if args.len() != 1 {
-                return Err("TypeError: ascii() takes exactly one argument".to_string());
-            }
-            let r = args[0].repr();
-            let mut ascii_out = String::new();
-            for c in r.chars() {
-                if c.is_ascii() {
-                    ascii_out.push(c);
-                } else {
-                    let code = c as u32;
-                    if code < 0x10000 {
-                        ascii_out.push_str(&format!("\\u{:04x}", code));
-                    } else {
-                        ascii_out.push_str(&format!("\\U{:08x}", code));
-                    }
-                }
-            }
-            Ok(Rc::new(PyString::new(ascii_out)) as Rc<dyn PyObject>)
-        })),
-    );
+
 
     // divmod(a, b) -> (a // b, a % b)
     env_mut2.set(
@@ -1701,11 +1760,10 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     env_mut2.set(
         "dir".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("dir".to_string(), |args| {
-            let obj = if args.is_empty() {
-                return Err("TypeError: dir() expected at least 1 argument, got 0".to_string());
-            } else {
-                Rc::clone(&args[0])
-            };
+            if args.is_empty() {
+                return Ok(Rc::new(crate::objects::list::PyList::new(Vec::new())) as Rc<dyn PyObject>);
+            }
+            let obj = Rc::clone(&args[0]);
             let mut names: Vec<String> = Vec::new();
             // Common attributes for all objects
             let common_attrs = vec!["__class__", "__doc__", "__init__", "__repr__", "__str__", "__dict__", "__module__", "__new__", "__delattr__", "__format__", "__getattribute__", "__hash__", "__setattr__", "__sizeof__", "__subclasshook__"];
@@ -1820,31 +1878,6 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 if line.ends_with('\r') { line.pop(); }
             }
             Ok(Rc::new(PyString::new(line)) as Rc<dyn PyObject>)
-        })),
-    );
-
-    // issubclass(cls, classinfo) -> bool
-    env_mut2.set(
-        "issubclass".to_string(),
-        Rc::new(PyNativeFunction::new_pos_only("issubclass".to_string(), |args| {
-            if args.len() != 2 {
-                return Err("TypeError: issubclass() takes exactly 2 arguments".to_string());
-            }
-            let cls = Rc::clone(&args[0]);
-            let classinfo = Rc::clone(&args[1]);
-            if let Some(cls_class) = cls.as_any().downcast_ref::<crate::objects::class::PyClass>() {
-                if let Some(info_class) = classinfo.as_any().downcast_ref::<crate::objects::class::PyClass>() {
-                    let is_sub = cls_class.mro.iter().any(|c| {
-                        if let Some(c_cls) = c.as_any().downcast_ref::<crate::objects::class::PyClass>() {
-                            c_cls.name == info_class.name
-                        } else { false }
-                    });
-                    return Ok(Rc::new(crate::objects::bool::PyBool::new(is_sub)) as Rc<dyn PyObject>);
-                }
-            }
-            let cls_name = cls.get_type();
-            let info_name = classinfo.get_type();
-            Ok(Rc::new(crate::objects::bool::PyBool::new(cls_name == info_name)) as Rc<dyn PyObject>)
         })),
     );
 

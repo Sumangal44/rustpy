@@ -509,7 +509,41 @@ impl<'a> Lexer<'a> {
         start_col: usize,
         quote: char,
     ) -> Result<Token, LexerError> {
-        self.advance(); // consume quote
+        self.advance(); // consume first quote
+
+        // Check for triple-quoted string
+        if self.current == Some(quote) && self.peek() == Some(quote) {
+            self.advance(); // consume second quote
+            self.advance(); // consume third quote
+            let mut value = String::new();
+            let mut quote_count = 0;
+            loop {
+                match self.current {
+                    Some(c) if c == quote => {
+                        quote_count += 1;
+                        self.advance();
+                        if quote_count == 3 {
+                            return Ok(self.make_token(TokenKind::StringLiteral(value), start_pos, start_col));
+                        }
+                    }
+                    Some(c) => {
+                        for _ in 0..quote_count {
+                            value.push(quote);
+                        }
+                        quote_count = 0;
+                        value.push(c);
+                        self.advance();
+                    }
+                    None => {
+                        return Err(LexerError::new(
+                            LexerErrorKind::UnterminatedString,
+                            self.span(start_pos, start_col),
+                        ));
+                    }
+                }
+            }
+        }
+
         let mut value = String::new();
         let mut escape = false;
 
