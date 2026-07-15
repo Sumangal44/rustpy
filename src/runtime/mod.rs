@@ -51,6 +51,18 @@ impl Environment {
         }
     }
 
+    pub fn set_nonlocal(&mut self, name: String, value: Rc<dyn PyObject>) {
+        if let Some(parent) = &self.parent {
+            if parent.borrow().variables.contains_key(&name) {
+                parent.borrow_mut().variables.insert(name, value);
+            } else {
+                parent.borrow_mut().set_nonlocal(name, value);
+            }
+        } else {
+            self.variables.insert(name, value);
+        }
+    }
+
     pub fn set_root(&mut self, name: String, value: Rc<dyn PyObject>) {
         if let Some(parent) = &self.parent {
             parent.borrow_mut().set_root(name, value);

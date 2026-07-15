@@ -9,6 +9,7 @@ pub struct CodeObject {
     pub constants: Vec<Rc<dyn PyObject>>,
     pub names: Vec<String>,
     pub name: String,
+    pub filename: String,
     pub is_generator: bool,
     pub is_async: bool,
     pub arg_count: usize,
@@ -17,12 +18,14 @@ pub struct CodeObject {
     pub kwonly_params: Vec<String>,
     pub vararg: Option<String>,
     pub kwarg: Option<String>,
+    pub nonlocal_names: Vec<String>,
 }
 
 impl CodeObject {
     pub fn new(name: String) -> Self {
         Self {
             name,
+            filename: String::new(),
             instructions: Vec::new(),
             constants: Vec::new(),
             names: Vec::new(),
@@ -34,6 +37,7 @@ impl CodeObject {
             kwonly_params: Vec::new(),
             vararg: None,
             kwarg: None,
+            nonlocal_names: Vec::new(),
         }
     }
 }

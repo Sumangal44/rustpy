@@ -458,7 +458,7 @@ impl<'a> Parser<'a> {
         let value = if self.check(&TokenKind::Newline) || self.check(&TokenKind::EOF) {
             None
         } else {
-            Some(self.parse_expression(0)?)
+            Some(self.parse_expression_list()?)
         };
 
         if self.check(&TokenKind::Newline) {
@@ -858,7 +858,7 @@ impl<'a> Parser<'a> {
             })
         } else if self.check(&TokenKind::Equal) {
             self.advance()?;
-            let value = self.parse_expression(0)?;
+            let value = self.parse_expression_list()?;
             if self.check(&TokenKind::Newline) {
                 self.advance()?;
             }
@@ -874,6 +874,23 @@ impl<'a> Parser<'a> {
                 ));
             }
             Ok(Stmt::ExprStmt { value: targets.into_iter().next().unwrap() })
+        }
+    }
+
+    pub fn parse_expression_list(&mut self) -> Result<Expr, ParseError> {
+        let first = self.parse_expression(0)?;
+        if self.check(&TokenKind::Comma) {
+            let mut elements = vec![first];
+            while self.check(&TokenKind::Comma) {
+                self.advance()?;
+                if self.check(&TokenKind::Newline) || self.check(&TokenKind::EOF) || self.check(&TokenKind::Equal) || self.check(&TokenKind::RParen) || self.check(&TokenKind::RBracket) || self.check(&TokenKind::RBrace) || self.check(&TokenKind::Colon) {
+                    break;
+                }
+                elements.push(self.parse_expression(0)?);
+            }
+            Ok(Expr::Tuple(elements))
+        } else {
+            Ok(first)
         }
     }
 
@@ -1405,10 +1422,27 @@ impl<'a> Parser<'a> {
                 if self.check(&TokenKind::LParen) {
                     self.advance()?;
                     let mut pos_args = Vec::new();
-                    let kw_args = Vec::new();
+                    let mut kw_args: Vec<(String, Pattern)> = Vec::new();
                     if !self.check(&TokenKind::RParen) {
                         loop {
-                            pos_args.push(self.parse_pattern()?);
+                            // Check if this is a keyword pattern: identifier = pattern
+                            let is_kw = match &self.current_token.kind {
+                                TokenKind::Identifier(_) => self.peek_token.kind == TokenKind::Equal,
+                                _ => false,
+                            };
+                            if is_kw {
+                                // keyword pattern: name=subpattern
+                                let kw_name = match &self.current_token.kind {
+                                    TokenKind::Identifier(n) => n.clone(),
+                                    _ => unreachable!(),
+                                };
+                                self.advance()?; // consume identifier
+                                self.consume(TokenKind::Equal)?; // consume '='
+                                let subpat = self.parse_pattern()?;
+                                kw_args.push((kw_name, subpat));
+                            } else {
+                                pos_args.push(self.parse_pattern()?);
+                            }
                             if self.check(&TokenKind::Comma) {
                                 self.advance()?;
                             } else {
@@ -1736,6 +1770,11 @@ impl<'a> Parser<'a> {
 
     fn parse_import_from(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::From)?;
+        let mut level = 0;
+        while self.check(&TokenKind::Dot) {
+            level += 1;
+            self.advance()?;
+        }
         let mut module = String::new();
         // Parse module name (possibly dotted)
         if let TokenKind::Identifier(n) = &self.current_token.kind {
@@ -1753,15 +1792,6 @@ impl<'a> Parser<'a> {
                         self.current_token.span.clone(),
                     ));
                 }
-            }
-        } else {
-            // Relative imports with dots
-            while self.check(&TokenKind::Dot) {
-                self.advance()?;
-            }
-            if let TokenKind::Identifier(n) = &self.current_token.kind {
-                module = n.clone();
-                self.advance()?;
             }
         }
 
@@ -1810,7 +1840,7 @@ impl<'a> Parser<'a> {
         Ok(Stmt::ImportFrom {
             module,
             names,
-            level: 0,
+            level,
         })
     }
 

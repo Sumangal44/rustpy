@@ -847,10 +847,119 @@ impl PyObject for PyString {
                 Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
                     let spec = if args.is_empty() { String::new() } else { args[0].str() };
                     if spec.is_empty() {
-                        Ok(Rc::new(PyString::new(val.clone())))
-                    } else {
-                        Err(format!("ValueError: Unknown format code '{}' for object of type 'str'", spec))
+                        return Ok(Rc::new(PyString::new(val.clone())));
                     }
+                    // Handle alignment specs like <, >, ^, fill char + alignment
+                    let bytes = spec.as_bytes();
+                    let (fill, align, rest) = if bytes.len() >= 2 && (bytes[1] == b'<' || bytes[1] == b'>' || bytes[1] == b'^') {
+                        (bytes[0] as char, bytes[1] as char, &spec[2..])
+                    } else if !bytes.is_empty() && (bytes[0] == b'<' || bytes[0] == b'>' || bytes[0] == b'^') {
+                        (' ', bytes[0] as char, &spec[1..])
+                    } else {
+                        (' ', '<', spec.as_str())
+                    };
+                    if let Ok(width) = rest.parse::<usize>() {
+                        let len = val.chars().count();
+                        if len >= width {
+                            return Ok(Rc::new(PyString::new(val.clone())));
+                        }
+                        let padding = width - len;
+                        let result = match align {
+                            '>' => format!("{}{}", fill.to_string().repeat(padding), val),
+                            '^' => {
+                                let left = padding / 2;
+                                let right = padding - left;
+                                format!("{}{}{}", fill.to_string().repeat(left), val, fill.to_string().repeat(right))
+                            }
+                            _ => format!("{}{}", val, fill.to_string().repeat(padding)),
+                        };
+                        return Ok(Rc::new(PyString::new(result)));
+                    }
+                    Ok(Rc::new(PyString::new(val.clone())))
+                })))
+            }
+            "format" => {
+                let val = self.value.clone();
+                Ok(Rc::new(PyNativeFunction::new("format".to_string(), move |args, kwargs| {
+                    // Python str.format(*args, **kwargs)
+                    // Parse the format string and replace placeholders
+                    let mut result = String::new();
+                    let mut chars = val.chars().peekable();
+                    let mut auto_index: usize = 0;
+
+                    while let Some(c) = chars.next() {
+                        if c == '{' {
+                            if chars.peek() == Some(&'{') {
+                                chars.next();
+                                result.push('{');
+                                continue;
+                            }
+                            // Collect field spec up to matching }
+                            let mut field = String::new();
+                            for fc in chars.by_ref() {
+                                if fc == '}' { break; }
+                                field.push(fc);
+                            }
+                            // Split field_name and format_spec
+                            let (field_name, fmt_spec) = if let Some(pos) = field.find(':') {
+                                (&field[..pos], &field[pos+1..])
+                            } else {
+                                (field.as_str(), "")
+                            };
+                            // Split field_name and conversion (!r, !s, !a)
+                            let (field_key, conv) = if let Some(pos) = field_name.rfind('!') {
+                                (&field_name[..pos], Some(&field_name[pos+1..]))
+                            } else {
+                                (field_name, None)
+                            };
+                            // Resolve the value
+                            let value_obj: Option<Rc<dyn PyObject>> = if field_key.is_empty() {
+                                // Auto-numbering {}
+                                let v = args.get(auto_index).cloned();
+                                auto_index += 1;
+                                v
+                            } else if let Ok(idx) = field_key.parse::<usize>() {
+                                args.get(idx).cloned()
+                            } else {
+                                // Handle dotted/bracketed access: "name.attr" or "name[0]"
+                                let base_key = field_key.split(|c| c == '.' || c == '[').next().unwrap_or(field_key);
+                                kwargs.get(base_key).cloned()
+                            };
+                            let value_obj = value_obj.ok_or_else(|| format!("IndexError: positional argument out of range or unknown key '{}'", field_key))?;
+                            // Apply conversion
+                            let converted = match conv {
+                                Some("r") => value_obj.repr(),
+                                Some("s") => value_obj.str(),
+                                Some("a") => value_obj.repr(), // ascii - simplified
+                                _ => value_obj.str(),
+                            };
+                            // Apply format spec
+                            if fmt_spec.is_empty() {
+                                result.push_str(&converted);
+                            } else {
+                                // Try __format__ on the object
+                                let formatted = if let Ok(fmt_fn) = value_obj.get_attr("__format__") {
+                                    if let Some(native) = fmt_fn.as_any().downcast_ref::<PyNativeFunction>() {
+                                        let spec_obj = Rc::new(PyString::new(fmt_spec.to_string())) as Rc<dyn PyObject>;
+                                        (native.func)(vec![spec_obj], std::collections::HashMap::new())?.str()
+                                    } else {
+                                        converted
+                                    }
+                                } else {
+                                    converted
+                                };
+                                result.push_str(&formatted);
+                            }
+                        } else if c == '}' {
+                            if chars.peek() == Some(&'}') {
+                                chars.next();
+                                result.push('}');
+                            }
+                        } else {
+                            result.push(c);
+                        }
+                    }
+                    Ok(Rc::new(PyString::new(result)) as Rc<dyn PyObject>)
                 })))
             }
             _ => Err(format!("AttributeError: 'str' object has no attribute '{}'", attr)),
@@ -923,3 +1032,73 @@ impl PyObject for PyStringIterator {
         }
     }
 }
+
+pub fn format_align_width(val_str: &str, spec: &str, default_align: char) -> Result<String, String> {
+    let bytes = spec.as_bytes();
+    if bytes.is_empty() {
+        return Ok(val_str.to_string());
+    }
+
+    let mut fill = ' ';
+    let mut align = default_align;
+    let mut rest = spec;
+
+    if bytes.len() >= 2 && (bytes[1] == b'<' || bytes[1] == b'>' || bytes[1] == b'^' || bytes[1] == b'=') {
+        fill = bytes[0] as char;
+        align = bytes[1] as char;
+        rest = &spec[2..];
+    } else if !bytes.is_empty() && (bytes[0] == b'<' || bytes[0] == b'>' || bytes[0] == b'^' || bytes[0] == b'=') {
+        align = bytes[0] as char;
+        rest = &spec[1..];
+    }
+
+    let mut type_char = None;
+    if let Some(last_byte) = rest.as_bytes().last() {
+        let c = *last_byte as char;
+        if c.is_alphabetic() {
+            type_char = Some(c);
+            rest = &rest[..rest.len() - 1];
+        }
+    }
+
+    if let Some(dot_idx) = rest.find('.') {
+        rest = &rest[..dot_idx];
+    }
+
+    let mut zero_pad = false;
+    if rest.starts_with('0') {
+        zero_pad = true;
+        rest = &rest[1..];
+    }
+
+    let width = if rest.is_empty() {
+        0
+    } else if let Ok(w) = rest.parse::<usize>() {
+        w
+    } else {
+        0
+    };
+
+    if zero_pad && align == default_align {
+        fill = '0';
+        align = '>';
+    }
+
+    let len = val_str.chars().count();
+    if len >= width {
+        Ok(val_str.to_string())
+    } else {
+        let padding = width - len;
+        let fill_str = fill.to_string().repeat(padding);
+        match align {
+            '>' | '=' => Ok(format!("{}{}", fill_str, val_str)),
+            '^' => {
+                let left = padding / 2;
+                let right = padding - left;
+                Ok(format!("{}{}{}", fill.to_string().repeat(left), val_str, fill.to_string().repeat(right)))
+            }
+            _ => Ok(format!("{}{}", val_str, fill_str)),
+        }
+    }
+}
+

@@ -158,6 +158,47 @@ impl PyObject for PyInstance {
     }
 
     fn set_attr(&self, attr: &str, value: Rc<dyn PyObject>) -> Result<(), String> {
+        // Check __slots__ on class and its MRO
+        let slots_violation = {
+            let class_slots = &self.class.slots;
+            if let Some(slots) = class_slots {
+                if !slots.contains(&attr.to_string()) {
+                    Some(format!("AttributeError: '{}' object has no attribute '{}'", self.class.name, attr))
+                } else {
+                    None
+                }
+            } else {
+                // Check MRO for __slots__
+                let mro_has_slots = self.class.mro.iter().any(|base| {
+                    if let Some(cls) = base.as_any().downcast_ref::<PyClass>() {
+                        cls.slots.is_some()
+                    } else {
+                        false
+                    }
+                });
+                if mro_has_slots {
+                    // Check if any base class has this slot
+                    let in_mro_slot = self.class.mro.iter().any(|base| {
+                        if let Some(cls) = base.as_any().downcast_ref::<PyClass>() {
+                            if let Some(slots) = &cls.slots {
+                                return slots.contains(&attr.to_string());
+                            }
+                        }
+                        false
+                    });
+                    if !in_mro_slot {
+                        Some(format!("AttributeError: '{}' object has no attribute '{}'", self.class.name, attr))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(err) = slots_violation {
+            return Err(err);
+        }
         self.attributes.borrow_mut().insert(attr.to_string(), value);
         Ok(())
     }

@@ -207,23 +207,78 @@ impl PyObject for PyFloat {
                 Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
                     let spec = if args.is_empty() { String::new() } else { args[0].str() };
                     if spec.is_empty() {
-                        Ok(Rc::new(crate::objects::string::PyString::new({
+                        let r = format!("{}", val);
+                        let final_r = if !r.contains('.') && !r.contains('e') && !r.contains('E') {
+                            format!("{}.0", r)
+                        } else { r };
+                        return Ok(Rc::new(crate::objects::string::PyString::new(final_r)));
+                    }
+
+                    // Extract type character if any (last char in spec)
+                    let mut type_char = 'g';
+                    if let Some(last_char) = spec.chars().last() {
+                        if last_char.is_alphabetic() || last_char == '%' {
+                            type_char = last_char;
+                        }
+                    }
+
+                    // Find if precision (.num) is present in spec
+                    let mut precision = None;
+                    if let Some(dot_idx) = spec.find('.') {
+                        // Extract digits after dot until type_char
+                        let end_idx = if spec.chars().last().map(|c| c.is_alphabetic() || c == '%').unwrap_or(false) {
+                            spec.len() - 1
+                        } else {
+                            spec.len()
+                        };
+                        if end_idx > dot_idx + 1 {
+                            if let Ok(prec) = spec[dot_idx + 1..end_idx].parse::<usize>() {
+                                precision = Some(prec);
+                            }
+                        }
+                    }
+
+                    let raw_str = match type_char {
+                        'f' | 'F' => {
+                            if let Some(prec) = precision {
+                                format!("{:.*}", prec, val)
+                            } else {
+                                format!("{:.6}", val) // default precision in python is 6 for f
+                            }
+                        }
+                        'e' => {
+                            if let Some(prec) = precision {
+                                format!("{:.*e}", prec, val)
+                            } else {
+                                format!("{:e}", val)
+                            }
+                        }
+                        'E' => {
+                            if let Some(prec) = precision {
+                                format!("{:.*E}", prec, val)
+                            } else {
+                                format!("{:E}", val)
+                            }
+                        }
+                        '%' => {
+                            if let Some(prec) = precision {
+                                format!("{:.*}%", prec, val * 100.0)
+                            } else {
+                                format!("{}%", val * 100.0)
+                            }
+                        }
+                        _ => {
+                            // Default formatting
                             let r = format!("{}", val);
                             if !r.contains('.') && !r.contains('e') && !r.contains('E') {
                                 format!("{}.0", r)
                             } else { r }
-                        })))
-                    } else {
-                        if spec.starts_with('.') && spec.ends_with('f') {
-                            if let Ok(prec) = spec[1..spec.len()-1].parse::<usize>() {
-                                return Ok(Rc::new(crate::objects::string::PyString::new(format!("{:.*}", prec, val))));
-                            }
                         }
-                        match spec.as_str() {
-                            "f" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{}", val)))),
-                            "e" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:e}", val)))),
-                            _ => Err(format!("ValueError: Unknown format code '{}' for object of type 'float'", spec)),
-                        }
+                    };
+
+                    match crate::objects::string::format_align_width(&raw_str, &spec, '>') {
+                        Ok(res) => Ok(Rc::new(crate::objects::string::PyString::new(res))),
+                        Err(e) => Err(e),
                     }
                 })))
             }

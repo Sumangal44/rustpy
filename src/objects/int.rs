@@ -331,15 +331,30 @@ impl PyObject for PyInt {
                 let val = self.value.clone();
                 Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
                     let spec = if args.is_empty() { String::new() } else { args[0].str() };
-                    if spec.is_empty() || spec == "d" {
-                        Ok(Rc::new(crate::objects::string::PyString::new(val.to_string())))
-                    } else {
-                        match spec.as_str() {
-                            "x" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:x}", val)))),
-                            "o" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:o}", val)))),
-                            "b" => Ok(Rc::new(crate::objects::string::PyString::new(format!("{:b}", val)))),
-                            _ => Err(format!("ValueError: Unknown format code '{}' for object of type 'int'", spec)),
+                    if spec.is_empty() {
+                        return Ok(Rc::new(crate::objects::string::PyString::new(val.to_string())));
+                    }
+
+                    // Extract type character if any (last char in spec)
+                    let mut type_char = 'd';
+                    if let Some(last_char) = spec.chars().last() {
+                        if last_char.is_alphabetic() {
+                            type_char = last_char;
                         }
+                    }
+
+                    let raw_str = match type_char {
+                        'x' => format!("{:x}", val),
+                        'X' => format!("{:X}", val),
+                        'o' => format!("{:o}", val),
+                        'b' => format!("{:b}", val),
+                        'd' | 'n' => val.to_string(),
+                        _ => return Err(format!("ValueError: Unknown format code '{}' for object of type 'int'", type_char)),
+                    };
+
+                    match crate::objects::string::format_align_width(&raw_str, &spec, '>') {
+                        Ok(res) => Ok(Rc::new(crate::objects::string::PyString::new(res))),
+                        Err(e) => Err(e),
                     }
                 })))
             }

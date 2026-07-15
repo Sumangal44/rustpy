@@ -66,6 +66,9 @@ impl<'a> Lexer<'a> {
             return Ok(self.pending_tokens.remove(0));
         }
 
+        if self.at_line_start {
+            self.skip_blank_and_comment_lines();
+        }
         self.skip_whitespace_and_comments();
 
         let start_pos = self.pos;
@@ -169,6 +172,40 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 _ => break,
+            }
+        }
+    }
+
+    fn skip_blank_and_comment_lines(&mut self) {
+        loop {
+            let mut chars_clone = self.chars.clone();
+            let mut next_char = self.current;
+            let mut is_blank_or_comment = true;
+            
+            while let Some(c) = next_char {
+                if c == '\n' {
+                    break;
+                }
+                if c == '#' {
+                    break;
+                }
+                if c != ' ' && c != '\t' && c != '\r' {
+                    is_blank_or_comment = false;
+                    break;
+                }
+                next_char = chars_clone.next();
+            }
+            
+            if is_blank_or_comment && self.current.is_some() {
+                while let Some(c) = self.current {
+                    self.advance();
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                self.at_line_start = true;
+            } else {
+                break;
             }
         }
     }

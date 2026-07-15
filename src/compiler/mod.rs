@@ -16,14 +16,18 @@ pub struct Compiler {
     code: CodeObject,
     loop_stack: Vec<LoopInfo>,
     global_names: Vec<String>,
+    filename: String,
 }
 
 impl Compiler {
-    pub fn new(name: String) -> Self {
+    pub fn new(filename: String) -> Self {
+        let mut code = CodeObject::new(filename.clone());
+        code.filename = filename.clone();
         Self {
-            code: CodeObject::new(name),
+            code,
             loop_stack: Vec::new(),
             global_names: Vec::new(),
+            filename,
         }
     }
 
@@ -110,15 +114,27 @@ impl Compiler {
                 } else if star_count == 0 && targets.len() > 1 {
                     self.emit(Opcode::UnpackSequence(targets.len()));
                     for target in targets.iter() {
-                        if let Expr::Identifier(name) = target {
-                            let name_idx = self.get_or_add_name(name);
-                            if self.global_names.contains(name) {
-                                self.emit(Opcode::StoreGlobal(name_idx));
-                            } else {
-                                self.emit(Opcode::StoreName(name_idx));
+                        match target {
+                            Expr::Identifier(name) => {
+                                let name_idx = self.get_or_add_name(name);
+                                if self.global_names.contains(name) {
+                                    self.emit(Opcode::StoreGlobal(name_idx));
+                                } else {
+                                    self.emit(Opcode::StoreName(name_idx));
+                                }
                             }
-                        } else {
-                            return Err("CompilerError: Unsupported unpack target".to_string());
+                            Expr::Attribute { value, attr } => {
+                                self.compile_expr(value)?;
+                                self.emit(Opcode::StoreAttr(attr.clone()));
+                            }
+                            Expr::Subscript { value, slice } => {
+                                self.compile_expr(value)?;
+                                self.compile_expr(slice)?;
+                                self.emit(Opcode::StoreSubscript);
+                            }
+                            _ => {
+                                return Err("CompilerError: Unsupported unpack target".to_string());
+                            }
                         }
                     }
                 } else if star_count == 1 {
@@ -136,16 +152,35 @@ impl Compiler {
                                     self.emit(Opcode::StoreName(name_idx));
                                 }
                             }
+                            Expr::Attribute { value, attr } => {
+                                self.compile_expr(value)?;
+                                self.emit(Opcode::StoreAttr(attr.clone()));
+                            }
+                            Expr::Subscript { value, slice } => {
+                                self.compile_expr(value)?;
+                                self.compile_expr(slice)?;
+                                self.emit(Opcode::StoreSubscript);
+                            }
                             Expr::Starred { value } => {
-                                if let Expr::Identifier(name) = value.as_ref() {
-                                    let name_idx = self.get_or_add_name(name);
-                                    if self.global_names.contains(name) {
-                                        self.emit(Opcode::StoreGlobal(name_idx));
-                                    } else {
-                                        self.emit(Opcode::StoreName(name_idx));
+                                match value.as_ref() {
+                                    Expr::Identifier(name) => {
+                                        let name_idx = self.get_or_add_name(name);
+                                        if self.global_names.contains(name) {
+                                            self.emit(Opcode::StoreGlobal(name_idx));
+                                        } else {
+                                            self.emit(Opcode::StoreName(name_idx));
+                                        }
                                     }
-                                } else {
-                                    return Err("CompilerError: Starred target must be an identifier".to_string());
+                                    Expr::Attribute { value, attr } => {
+                                        self.compile_expr(value)?;
+                                        self.emit(Opcode::StoreAttr(attr.clone()));
+                                    }
+                                    Expr::Subscript { value, slice } => {
+                                        self.compile_expr(value)?;
+                                        self.compile_expr(slice)?;
+                                        self.emit(Opcode::StoreSubscript);
+                                    }
+                                    _ => return Err("CompilerError: Unsupported starred target".to_string()),
                                 }
                             }
                             _ => return Err("CompilerError: Unsupported assignment target".to_string()),
@@ -226,6 +261,7 @@ impl Compiler {
             Stmt::Nonlocal { names } => {
                 for name in names {
                     self.get_or_add_name(name);
+                    self.code.nonlocal_names.push(name.clone());
                 }
             }
             Stmt::Match { subject, cases } => {
@@ -572,10 +608,13 @@ impl Compiler {
                         }
                     }
 
-                    // Pop remaining exception if no handler matched (shouldn't happen if last is bare)
-                    let after_all_handlers = self.code.instructions.len();
+                    // If no handler matched, re-raise the exception
+                    let _after_all_handlers = self.code.instructions.len();
+                    self.emit(Opcode::Raise);
+
+                    let end_of_try = self.code.instructions.len();
                     for jmp in &handler_end_jumps {
-                        self.code.instructions[*jmp] = Opcode::JumpAbsolute(after_all_handlers);
+                        self.code.instructions[*jmp] = Opcode::JumpAbsolute(end_of_try);
                     }
 
                     if has_finally {
@@ -797,7 +836,7 @@ impl Compiler {
                     self.emit(Opcode::StoreName(store_idx));
                 }
             }
-            Stmt::ImportFrom { module, names, level: _level } => {
+            Stmt::ImportFrom { module, names, level } => {
                 let mut from_names: Vec<Rc<dyn PyObject>> = Vec::new();
                 let is_star = names.len() == 1 && names[0].name == "*";
 
@@ -812,8 +851,8 @@ impl Compiler {
                     }
                 }
 
-                // Push level, fromlist
-                let level_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(0)));
+                // Push level, fromlist (level > 0 means relative import)
+                let level_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(*level as i64)));
                 self.emit(Opcode::LoadConst(level_idx));
                 let fromlist = Rc::new(crate::objects::tuple::PyTuple::new(from_names));
                 let fromlist_idx = self.add_constant(fromlist);
@@ -979,42 +1018,50 @@ impl Compiler {
                 let end_target = self.code.instructions.len();
                 self.code.instructions[success_jump] = Opcode::JumpAbsolute(end_target);
             }
-            Pattern::Class(name, pos, _kw) => {
+            Pattern::Class(name, pos, kw) => {
                 let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::LoadName(name_idx)); // push class
                 self.emit(Opcode::MatchClassCheck); // stack: subj, is_match
-                
+
                 let fail_jump = self.emit(Opcode::PopJumpIfFalse(0)); // stack: subj
-                
+
                 let mut sub_fails = Vec::new();
+
+                // Handle positional patterns via __match_args__
                 for (i, subpattern) in pos.iter().enumerate() {
                     self.emit(Opcode::DupTop); // stack: subj, subj
                     self.emit(Opcode::MatchClassGetPos(i)); // stack: subj, attr, has_attr
-                    
+
                     let has_attr_jump = self.emit(Opcode::PopJumpIfFalse(0)); // stack: subj, attr
-                    
+
                     self.compile_pattern(subpattern)?; // stack: subj, is_match
                     sub_fails.push(self.emit(Opcode::PopJumpIfFalse(0))); // stack: subj
-                    
+
                     let success_continue = self.emit(Opcode::JumpAbsolute(0));
-                    
+
                     let attr_target = self.code.instructions.len();
                     self.code.instructions[has_attr_jump] = Opcode::PopJumpIfFalse(attr_target);
                     self.emit(Opcode::PopTop); // pop dummy attr
                     sub_fails.push(self.emit(Opcode::JumpAbsolute(0))); // jump to fail_target
-                    
+
                     let continue_target = self.code.instructions.len();
                     self.code.instructions[success_continue] = Opcode::JumpAbsolute(continue_target);
                 }
-                
-                // For keyword arguments, similar logic can be added later
-                // For now, we assume kw is empty as per test case
-                
+
+                // Handle keyword patterns: case Point(x=val_pattern, y=val_pattern)
+                // These match obj.attr against the sub-pattern
+                for (attr_name, subpattern) in kw {
+                    self.emit(Opcode::DupTop); // stack: ..., subj, subj
+                    self.emit(Opcode::LoadAttr(attr_name.clone())); // stack: ..., subj, subj.attr_name
+                    self.compile_pattern(subpattern)?; // stack: ..., subj, is_match
+                    sub_fails.push(self.emit(Opcode::PopJumpIfFalse(0))); // stack: ..., subj
+                }
+
                 self.emit(Opcode::PopTop); // pop subj
                 let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
                 self.emit(Opcode::LoadConst(true_idx)); // stack: True
                 let success_jump = self.emit(Opcode::JumpAbsolute(0));
-                
+
                 let fail_target = self.code.instructions.len();
                 self.code.instructions[fail_jump] = Opcode::PopJumpIfFalse(fail_target);
                 for sub_fail in sub_fails {
@@ -1024,11 +1071,11 @@ impl Compiler {
                         self.code.instructions[sub_fail] = Opcode::JumpAbsolute(fail_target);
                     }
                 }
-                
+
                 self.emit(Opcode::PopTop); // pop subj
                 let false_idx = self.add_constant(Rc::new(PyBool::new(false)));
                 self.emit(Opcode::LoadConst(false_idx)); // stack: False
-                
+
                 let end_target = self.code.instructions.len();
                 self.code.instructions[success_jump] = Opcode::JumpAbsolute(end_target);
             }

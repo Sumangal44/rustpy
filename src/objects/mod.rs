@@ -183,6 +183,8 @@ pub mod generator;
 pub mod instance;
 pub mod int;
 pub mod list;
+pub mod map;
+pub mod memoryview;
 pub mod module;
 pub mod native_function;
 pub mod none;

@@ -158,6 +158,8 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 Ok(Rc::new(PyInt::from_i64(r.len() as i64)))
             } else if let Some(inst) = obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
                 Ok(Rc::new(PyInt::from_i64(inst.len()? as i64)))
+            } else if let Some(mv) = obj.as_any().downcast_ref::<crate::objects::memoryview::PyMemoryView>() {
+                Ok(Rc::new(PyInt::from_i64(mv.length as i64)))
             } else {
                 Err(format!(
                     "TypeError: object of type '{}' has no len()",
@@ -1676,8 +1678,52 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 let name = args[0].as_any().downcast_ref::<PyString>()
                     .map(|s| s.value.clone())
                     .ok_or_else(|| "TypeError: __import__() argument 1 must be str".to_string())?;
-                let result = import_system_for_import.import_module(&name)?;
-                Ok(result)
+
+                // args[1] = globals dict, args[4] = level
+                let level = args.get(4)
+                    .and_then(|l| l.as_any().downcast_ref::<crate::objects::int::PyInt>())
+                    .and_then(|i| i.as_i64())
+                    .unwrap_or(0);
+
+
+
+                let resolved_name = if level > 0 {
+                    // Relative import: resolve using __file__ from globals
+                    let globals = args.get(1);
+                    let file_path = globals.and_then(|g| {
+                        if let Some(d) = g.as_any().downcast_ref::<crate::objects::dict::PyDict>() {
+                            let key = Rc::new(PyString::new("__file__".to_string())) as Rc<dyn PyObject>;
+                            d.get_item_value(&key).ok()
+                                .and_then(|f| f.as_any().downcast_ref::<PyString>().map(|s| s.value.clone()))
+                        } else {
+                            None
+                        }
+                    });
+
+                    if let Some(file) = file_path {
+                        let mut dir = std::path::Path::new(&file)
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_default();
+                        // Navigate up (level - 1) additional directories
+                        for _ in 0..(level - 1) {
+                            dir = dir.parent().map(|p| p.to_path_buf()).unwrap_or(dir);
+                        }
+                        if name.is_empty() {
+                            // "from . import x" — import the package itself
+                            dir.to_string_lossy().to_string()
+                        } else {
+                            // "from .mod import x"
+                            dir.join(&name).to_string_lossy().to_string()
+                        }
+                    } else {
+                        name.clone()
+                    }
+                } else {
+                    name.clone()
+                };
+
+                import_system_for_import.import_module(&resolved_name)
             },
         )),
     );
@@ -1938,8 +1984,15 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             if args.len() != 1 {
                 return Err("TypeError: memoryview() takes exactly one argument".to_string());
             }
-            // Basic implementation: return a proxy object
-            Err("NotImplementedError: memoryview() is not yet implemented".to_string())
+            let obj = &args[0];
+            // Extract bytes from bytes or bytearray
+            if let Some(b) = obj.as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                Ok(Rc::new(crate::objects::memoryview::PyMemoryView::from_bytes(b.value.clone(), true)) as Rc<dyn PyObject>)
+            } else if let Some(ba) = obj.as_any().downcast_ref::<crate::objects::bytearray::PyByteArray>() {
+                Ok(Rc::new(crate::objects::memoryview::PyMemoryView::from_bytes(ba.value.borrow().clone(), false)) as Rc<dyn PyObject>)
+            } else {
+                Err(format!("TypeError: memoryview: a bytes-like object is required, not '{}'", obj.get_type()))
+            }
         })),
     );
 }

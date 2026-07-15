@@ -12,6 +12,28 @@ use std::rc::Rc;
 
 pub const RECURSION_LIMIT: usize = 100;
 
+/// Extract the Python exception type name from an error string.
+/// e.g. "AttributeError: 'Foo' object has no attribute 'z'" -> "AttributeError"
+/// Falls back to "RuntimeError" for unrecognized patterns.
+fn extract_exception_type(e: &str) -> String {
+    // Known Python exception types
+    const KNOWN: &[&str] = &[
+        "AttributeError", "TypeError", "ValueError", "KeyError", "IndexError",
+        "NameError", "ImportError", "ModuleNotFoundError", "RuntimeError", "StopIteration",
+        "ZeroDivisionError", "OverflowError", "RecursionError", "NotImplementedError",
+        "AssertionError", "IOError", "OSError", "FileNotFoundError", "PermissionError",
+        "GeneratorExit", "SystemExit", "KeyboardInterrupt", "ArithmeticError",
+        "MemoryError", "LookupError", "Exception", "BaseException",
+        "UnicodeError", "UnicodeDecodeError", "UnicodeEncodeError",
+    ];
+    for known in KNOWN {
+        if e.starts_with(known) {
+            return known.to_string();
+        }
+    }
+    "RuntimeError".to_string()
+}
+
 pub struct VirtualMachine {
     pub last_exception: Option<Rc<dyn PyObject>>,
     pub frames: Vec<Frame>,
@@ -166,6 +188,48 @@ impl VirtualMachine {
             return Err("RecursionError: maximum recursion depth exceeded".to_string());
         }
 
+        // Check if there's an exception already pending in the frame (e.g. from generator.throw())
+        if let Some(exc) = frame.pending_exception.take() {
+            let (exc_obj, exc_msg) = if let Some(py_exc) = exc.as_any().downcast_ref::<crate::objects::exception::PyException>() {
+                let msg = format!("{}: {}", py_exc.exc_type, py_exc.message.as_deref().unwrap_or(""));
+                (Rc::clone(&exc), msg)
+            } else {
+                let exc_msg = exc.str();
+                let exc_type = extract_exception_type(&exc_msg);
+                let exc_body = if let Some(pos) = exc_msg.find(": ") { exc_msg[pos+2..].to_string() } else { exc_msg.clone() };
+                let full_msg = format!("{}: {}", exc_type, exc_body);
+                (Rc::new(crate::objects::exception::PyException::new(
+                    exc_type,
+                    Some(exc_body),
+                )) as Rc<dyn PyObject>, full_msg)
+            };
+            self.last_exception = Some(exc_obj.clone());
+            let mut handled = false;
+            while let Some(block) = frame.block_stack.pop() {
+                match block {
+                    crate::vm::frame::Block::SetupExcept { handler_ip, stack_size } => {
+                        frame.stack.truncate(stack_size);
+                        frame.push(exc_obj.clone());
+                        frame.ip = handler_ip;
+                        handled = true;
+                        break;
+                    }
+                    crate::vm::frame::Block::SetupFinally { handler_ip, stack_size } => {
+                        frame.stack.truncate(stack_size);
+                        frame.pending_exception = Some(exc_obj.clone());
+                        frame.ip = handler_ip;
+                        handled = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if !handled {
+                self.recursion_depth -= 1;
+                return Err(exc_msg);
+            }
+        }
+
         while frame.ip < frame.code.instructions.len() {
             let opcode = frame.code.instructions[frame.ip].clone();
             frame.ip += 1;
@@ -180,9 +244,18 @@ impl VirtualMachine {
                     frame.pending_exception = None;
 
                     let exc_obj = self.last_exception.take().unwrap_or_else(|| {
+                        // Extract exception type from error strings like "AttributeError: ..."
+                        // Known exception types to check for
+                        let exc_type = extract_exception_type(&e);
+                        let message = if let Some(colon) = e.find(": ") {
+                            // message is everything after "TypeName: "
+                            e[colon + 2..].to_string()
+                        } else {
+                            e.clone()
+                        };
                         Rc::new(crate::objects::exception::PyException::new(
-                            "RuntimeError".to_string(),
-                            Some(e.clone()),
+                            exc_type,
+                            Some(message),
                         ))
                     });
                     self.last_exception = Some(exc_obj.clone());
@@ -279,7 +352,11 @@ impl VirtualMachine {
             Opcode::StoreName(idx) => {
                 let name = frame.code.names[*idx].clone();
                 let obj = frame.pop()?;
-                frame.env.borrow_mut().set(name, obj);
+                if frame.code.nonlocal_names.contains(&name) {
+                    frame.env.borrow_mut().set_nonlocal(name, obj);
+                } else {
+                    frame.env.borrow_mut().set(name, obj);
+                }
             }
             Opcode::LoadGlobal(idx) => {
                 let name = &frame.code.names[*idx];
@@ -1001,7 +1078,23 @@ impl VirtualMachine {
             Opcode::CompareEq => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
-                if let Some(result) = left.eq(Rc::clone(&right)) {
+                let is_type_nf = if left.get_type() == "type" && right.get_type() == "builtin_function_or_method" {
+                    if let Some(t) = left.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                        if let Some(nf) = right.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                            t.name == nf.name
+                        } else { false }
+                    } else { false }
+                } else if left.get_type() == "builtin_function_or_method" && right.get_type() == "type" {
+                    if let Some(nf) = left.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                        if let Some(t) = right.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                            nf.name == t.name
+                        } else { false }
+                    } else { false }
+                } else { false };
+
+                if is_type_nf {
+                    frame.push(Rc::new(crate::objects::bool::PyBool::new(true)));
+                } else if let Some(result) = left.eq(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
                     frame.push(Rc::new(crate::objects::bool::PyBool::new(false)));
@@ -1010,7 +1103,23 @@ impl VirtualMachine {
             Opcode::CompareNotEq => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
-                if let Some(result) = left.ne(Rc::clone(&right)) {
+                let is_type_nf = if left.get_type() == "type" && right.get_type() == "builtin_function_or_method" {
+                    if let Some(t) = left.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                        if let Some(nf) = right.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                            t.name == nf.name
+                        } else { false }
+                    } else { false }
+                } else if left.get_type() == "builtin_function_or_method" && right.get_type() == "type" {
+                    if let Some(nf) = left.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                        if let Some(t) = right.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                            nf.name == t.name
+                        } else { false }
+                    } else { false }
+                } else { false };
+
+                if is_type_nf {
+                    frame.push(Rc::new(crate::objects::bool::PyBool::new(false)));
+                } else if let Some(result) = left.ne(Rc::clone(&right)) {
                     frame.push(result);
                 } else {
                     frame.push(Rc::new(crate::objects::bool::PyBool::new(true)));
@@ -1087,12 +1196,50 @@ impl VirtualMachine {
             Opcode::CompareIs => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
-                frame.push(Rc::new(crate::objects::bool::PyBool::new(Rc::ptr_eq(&left, &right))));
+                let is_eq = if left.get_type() == "NoneType" && right.get_type() == "NoneType" {
+                    true
+                } else if left.get_type() == "bool" && right.get_type() == "bool" {
+                    left.is_truthy() == right.is_truthy()
+                } else if left.get_type() == "type" && right.get_type() == "builtin_function_or_method" {
+                    if let Some(t) = left.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                        if let Some(nf) = right.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                            t.name == nf.name
+                        } else { false }
+                    } else { false }
+                } else if left.get_type() == "builtin_function_or_method" && right.get_type() == "type" {
+                    if let Some(nf) = left.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                        if let Some(t) = right.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                            nf.name == t.name
+                        } else { false }
+                    } else { false }
+                } else {
+                    Rc::ptr_eq(&left, &right)
+                };
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(is_eq)));
             }
             Opcode::CompareIsNot => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
-                frame.push(Rc::new(crate::objects::bool::PyBool::new(!Rc::ptr_eq(&left, &right))));
+                let is_eq = if left.get_type() == "NoneType" && right.get_type() == "NoneType" {
+                    true
+                } else if left.get_type() == "bool" && right.get_type() == "bool" {
+                    left.is_truthy() == right.is_truthy()
+                } else if left.get_type() == "type" && right.get_type() == "builtin_function_or_method" {
+                    if let Some(t) = left.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                        if let Some(nf) = right.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                            t.name == nf.name
+                        } else { false }
+                    } else { false }
+                } else if left.get_type() == "builtin_function_or_method" && right.get_type() == "type" {
+                    if let Some(nf) = left.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+                        if let Some(t) = right.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+                            nf.name == t.name
+                        } else { false }
+                    } else { false }
+                } else {
+                    Rc::ptr_eq(&left, &right)
+                };
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(!is_eq)));
             }
             Opcode::JumpForward(offset) => {
                 frame.ip += offset;
@@ -1204,7 +1351,7 @@ impl VirtualMachine {
 
                 let name_obj = Rc::new(PyString::new(name.clone())) as Rc<dyn PyObject>;
 
-                // globals = current env's locals
+                // globals = current env's locals (includes __file__ if set)
                 let globals_dict = {
                     let env = frame.env.borrow();
                     let mut pairs = Vec::new();
@@ -1213,6 +1360,12 @@ impl VirtualMachine {
                             Rc::new(PyString::new(k)) as Rc<dyn PyObject>,
                             v,
                         ));
+                    }
+                    // Also include __file__ from the code object filename
+                    if !frame.code.filename.is_empty() {
+                        let file_key = Rc::new(PyString::new("__file__".to_string())) as Rc<dyn PyObject>;
+                        let file_val = Rc::new(PyString::new(frame.code.filename.clone())) as Rc<dyn PyObject>;
+                        pairs.push((file_key, file_val));
                     }
                     crate::objects::dict::PyDict::from_pairs(pairs)
                 };
@@ -1230,7 +1383,75 @@ impl VirtualMachine {
                 // After: ... , module, attr (module below attr)
                 let module = frame.pop()?;
                 let attr_name = &frame.code.names[*idx];
-                let attr_val = module.get_attr(attr_name)?;
+                let attr_val = match module.get_attr(attr_name) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        // Check if it is a submodule in the package
+                        let has_submodule = if let Ok(file_obj) = module.get_attr("__file__") {
+                            let file_str = file_obj.str();
+                            let path = std::path::Path::new(&file_str);
+                            let pkg_dir = if file_str.ends_with("__init__.py") {
+                                path.parent()
+                            } else if path.is_dir() {
+                                Some(path)
+                            } else {
+                                None
+                            };
+
+                            if let Some(dir) = pkg_dir {
+                                let py_file = dir.join(format!("{}.py", attr_name));
+                                let subpkg = dir.join(attr_name).join("__init__.py");
+                                py_file.exists() || subpkg.exists()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if has_submodule {
+                            // Call __import__(attr_name, globals, locals, None, 1)
+                            let import_func = frame.env.borrow().get("__import__").ok_or_else(|| {
+                                "NameError: name '__import__' is not defined".to_string()
+                            })?;
+                            let name_obj = Rc::new(PyString::new(attr_name.clone())) as Rc<dyn PyObject>;
+                            // globals
+                            let globals_dict = {
+                                let env = frame.env.borrow();
+                                let mut pairs = Vec::new();
+                                for (k, v) in env.get_all_locals() {
+                                    pairs.push((Rc::new(PyString::new(k)) as Rc<dyn PyObject>, v));
+                                }
+                                if let Ok(file_obj) = module.get_attr("__file__") {
+                                    pairs.push((
+                                        Rc::new(PyString::new("__file__".to_string())) as Rc<dyn PyObject>,
+                                        file_obj
+                                    ));
+                                } else if !frame.code.filename.is_empty() {
+                                    pairs.push((
+                                        Rc::new(PyString::new("__file__".to_string())) as Rc<dyn PyObject>,
+                                        Rc::new(PyString::new(frame.code.filename.clone())) as Rc<dyn PyObject>
+                                    ));
+                                }
+                                crate::objects::dict::PyDict::from_pairs(pairs)
+                            };
+                            let none = Rc::new(crate::objects::none::PyNone) as Rc<dyn PyObject>;
+                            let level_obj = Rc::new(crate::objects::int::PyInt::from_i64(1)) as Rc<dyn PyObject>;
+
+                            let submodule = self.invoke(
+                                import_func,
+                                vec![name_obj, Rc::new(globals_dict) as Rc<dyn PyObject>, none.clone(), none, level_obj],
+                                std::collections::HashMap::new(),
+                            )?;
+
+                            // Set submodule as attribute on module
+                            module.set_attr(attr_name, Rc::clone(&submodule))?;
+                            submodule
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                };
                 frame.push(module); // Push module back first
                 frame.push(attr_val); // Then push attr on top
             }

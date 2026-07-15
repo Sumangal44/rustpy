@@ -11,6 +11,8 @@ pub struct PyClass {
     #[allow(dead_code)]
     pub bases: Vec<Rc<dyn PyObject>>,
     pub mro: Vec<Rc<dyn PyObject>>, // MRO excluding self
+    /// If Some, this class uses __slots__ and only these attrs are allowed
+    pub slots: Option<Vec<String>>,
 }
 
 fn is_same_class(a: &Rc<dyn PyObject>, b: &Rc<dyn PyObject>) -> bool {
@@ -77,11 +79,31 @@ impl PyClass {
             c3_merge(lists)?
         };
 
+        // Extract __slots__ if defined
+        let slots = attributes.get("__slots__").and_then(|slots_obj| {
+            // slots can be a list, tuple, or string
+            if let Some(s) = slots_obj.as_any().downcast_ref::<crate::objects::string::PyString>() {
+                Some(vec![s.value.clone()])
+            } else {
+                let mut names = Vec::new();
+                let iter = slots_obj.get_iter().ok()?;
+                loop {
+                    match iter.get_next() {
+                        Ok(Some(item)) => names.push(item.str()),
+                        Ok(None) => break,
+                        Err(_) => break,
+                    }
+                }
+                if names.is_empty() { None } else { Some(names) }
+            }
+        });
+
         Ok(Self {
             name,
             attributes: Rc::new(RefCell::new(attributes)),
             bases,
             mro,
+            slots,
         })
     }
 }
