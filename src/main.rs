@@ -101,7 +101,22 @@ fn execute(source: &str, env: Rc<RefCell<Environment>>, filename: &str) {
                                 Ok(_) => {
                                     // Execution succeeded
                                 }
-                                Err(e) => eprintln!("RuntimeError: {}", e),
+                                Err(e) => {
+                                    let final_err = if e.starts_with("Traceback (most recent call last):\n") {
+                                        let mut lines: Vec<String> = e.split('\n').map(|s| s.to_string()).collect();
+                                        let last_line = lines.pop().unwrap_or_default();
+                                        lines.insert(1, format!("  File \"{}\", in <module>", frame.code.filename));
+                                        lines.push(last_line);
+                                        lines.join("\n")
+                                    } else {
+                                        format!(
+                                            "Traceback (most recent call last):\n  File \"{}\", in <module>\n{}",
+                                            frame.code.filename,
+                                            e
+                                        )
+                                    };
+                                    eprintln!("{}", final_err);
+                                }
                             }
                         }
                         Err(e) => eprintln!("CompilerError: {}", e),
@@ -989,6 +1004,24 @@ mod tests {
     fn test_fstring_empty() {
         let env = execute_source("result = f\"\"\n");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "''");
+    }
+
+    #[test]
+    fn test_fstring_advanced() {
+        let env = execute_source("x = 3.14159\nresult = f\"{x:.2f}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'3.14'");
+
+        let env = execute_source("x = 42\nresult = f\"{x:>10}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'        42'");
+
+        let env = execute_source("x = 42\nresult = f\"{x=}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'x=42'");
+
+        let env = execute_source("x = 10\nresult = f\"{{{x}}}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'{10}'");
+
+        let env = execute_source("x = 3\ny = 4\nresult = f\"{x+y=}\"\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "'x+y=7'");
     }
 
     #[test]

@@ -34,6 +34,39 @@ fn extract_exception_type(e: &str) -> String {
     "RuntimeError".to_string()
 }
 
+fn is_exception_subclass(sub: &str, parent: &str) -> bool {
+    if sub == parent {
+        return true;
+    }
+    if parent == "BaseException" {
+        return true;
+    }
+    if parent == "Exception" {
+        return sub != "BaseException" && sub != "KeyboardInterrupt" && sub != "SystemExit" && sub != "GeneratorExit";
+    }
+    
+    let mut current = sub;
+    while current != "BaseException" && current != "Exception" && !current.is_empty() {
+        if current == parent {
+            return true;
+        }
+        current = match current {
+            "TypeError" | "ValueError" | "NameError" | "AttributeError" | "AssertionError" | "MemoryError" | "StopIteration" | "StopAsyncIteration" | "RuntimeError" | "LookupError" | "ImportError" | "OSError" | "IOError" | "ArithmeticError" => {
+                "Exception"
+            }
+            "UnicodeError" => "ValueError",
+            "UnicodeDecodeError" | "UnicodeEncodeError" => "UnicodeError",
+            "RecursionError" | "NotImplementedError" => "RuntimeError",
+            "IndexError" | "KeyError" => "LookupError",
+            "ModuleNotFoundError" => "ImportError",
+            "FileNotFoundError" | "PermissionError" => "OSError",
+            "ZeroDivisionError" | "OverflowError" => "ArithmeticError",
+            _ => "",
+        };
+    }
+    current == parent
+}
+
 pub struct VirtualMachine {
     pub last_exception: Option<Rc<dyn PyObject>>,
     pub frames: Vec<Frame>,
@@ -519,6 +552,75 @@ impl VirtualMachine {
                 if let Some(res) = self.intercept_native_function(&func_obj, &args, &std::collections::HashMap::new(), frame)? {
                     frame.push(res);
                     return Ok(None);
+                }
+
+                if frame.ip < frame.code.instructions.len() && frame.code.instructions[frame.ip] == Opcode::ReturnValue {
+                    if let Some(func) = func_obj.as_any().downcast_ref::<PyFunction>() {
+                        if func.code.name == frame.code.name {
+                            let new_env = Environment::new_enclosed(Rc::clone(&func.env));
+                            let mut vararg_extra = Vec::new();
+                            let param_count = func.params.len();
+
+                            for (i, arg) in args.iter().enumerate() {
+                                if i < param_count {
+                                    new_env.borrow_mut().set(func.params[i].clone(), Rc::clone(arg));
+                                } else if func.code.vararg.is_some() {
+                                    vararg_extra.push(Rc::clone(arg));
+                                } else {
+                                    return Err(format!("TypeError: {}() takes {} positional arguments but {} were given", func.code.name, param_count, args.len()));
+                                }
+                            }
+
+                            if let Some(vararg) = &func.code.vararg {
+                                let tup = Rc::new(crate::objects::tuple::PyTuple::new(vararg_extra));
+                                new_env.borrow_mut().set(vararg.clone(), tup);
+                            }
+
+                            let default_count = func.defaults.len();
+                            let pos_count = args.len().min(param_count);
+                            let mandatory_count = param_count.saturating_sub(default_count);
+                            if pos_count < param_count {
+                                for i in pos_count..param_count {
+                                    if i >= mandatory_count {
+                                        let default_idx = i - mandatory_count;
+                                        if default_idx < default_count {
+                                            new_env.borrow_mut().set(func.params[i].clone(), Rc::clone(&func.defaults[default_idx]));
+                                        }
+                                    }
+                                }
+                            }
+
+                            let kw_default_offset = func.kwonly_params.len().saturating_sub(func.kwonly_defaults.len());
+                            for (i, param) in func.kwonly_params.iter().enumerate() {
+                                if new_env.borrow().get(param).is_none() {
+                                    if i >= kw_default_offset {
+                                        let kw_idx = i - kw_default_offset;
+                                        if kw_idx < func.kwonly_defaults.len() {
+                                            new_env.borrow_mut().set(param.clone(), Rc::clone(&func.kwonly_defaults[kw_idx]));
+                                            continue;
+                                        }
+                                    }
+                                    return Err(format!("TypeError: missing required keyword-only argument '{}'", param));
+                                }
+                            }
+
+                            if let Some(kwarg) = &func.code.kwarg {
+                                let dict = Rc::new(crate::objects::dict::PyDict::new());
+                                new_env.borrow_mut().set(kwarg.clone(), dict);
+                            }
+
+                            for i in 0..param_count {
+                                if new_env.borrow().get(&func.params[i]).is_none() {
+                                    return Err(format!("TypeError: missing required positional argument '{}'", func.params[i]));
+                                }
+                            }
+
+                            frame.env = new_env;
+                            frame.ip = 0;
+                            frame.stack.clear();
+                            return Ok(None);
+                        }
+                    }
                 }
 
                 let result = self.invoke(func_obj, args, std::collections::HashMap::new())?;
@@ -1277,6 +1379,23 @@ impl VirtualMachine {
                     return Err(msg);
                 }
             }
+            Opcode::ExceptionMatch(target_type_name) => {
+                let exc_obj = frame.pop()?;
+                let is_match = if let Some(py_exc) = exc_obj.as_any().downcast_ref::<crate::objects::exception::PyException>() {
+                    is_exception_subclass(&py_exc.exc_type, target_type_name)
+                } else if let Some(inst) = exc_obj.as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                    inst.class.name == *target_type_name || inst.class.mro.iter().any(|base| {
+                        if let Some(base_cls) = base.as_any().downcast_ref::<crate::objects::class::PyClass>() {
+                            base_cls.name == *target_type_name
+                        } else {
+                            false
+                        }
+                    }) || target_type_name == "Exception" || target_type_name == "BaseException"
+                } else {
+                    false
+                };
+                frame.push(Rc::new(crate::objects::bool::PyBool::new(is_match)));
+            }
             Opcode::TryEnd => {}
             Opcode::Raise => {
                 let exc = if frame.stack.len() >= 2 {
@@ -1727,10 +1846,33 @@ impl VirtualMachine {
             } else if func.code.is_generator {
                 Ok(Rc::new(crate::objects::generator::PyGenerator::new(new_frame)))
             } else {
-                if let Some(result) = self.run(&mut new_frame)? {
-                    Ok(result)
-                } else {
-                    Err("Function returned without a value".to_string())
+                let run_res = self.run(&mut new_frame);
+                match run_res {
+                    Ok(result) => {
+                        if let Some(res) = result {
+                            Ok(res)
+                        } else {
+                            Err("Function returned without a value".to_string())
+                        }
+                    }
+                    Err(e) => {
+                        let traceback_started = e.starts_with("Traceback (most recent call last):\n");
+                        let new_err = if traceback_started {
+                            let mut lines: Vec<String> = e.split('\n').map(|s| s.to_string()).collect();
+                            let last_line = lines.pop().unwrap_or_default();
+                            lines.insert(1, format!("  File \"{}\", in {}", new_frame.code.filename, new_frame.code.name));
+                            lines.push(last_line);
+                            lines.join("\n")
+                        } else {
+                            format!(
+                                "Traceback (most recent call last):\n  File \"{}\", in {}\n{}",
+                                new_frame.code.filename,
+                                new_frame.code.name,
+                                e
+                            )
+                        };
+                        Err(new_err)
+                    }
                 }
             }
         } else if let Some(native_func) = func_obj.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {

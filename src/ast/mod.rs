@@ -124,7 +124,7 @@ pub enum BinOpKind {
     RShift,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOpKind {
     Plus,
     Minus,

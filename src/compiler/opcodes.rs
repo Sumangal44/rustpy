@@ -101,6 +101,7 @@ pub enum Opcode {
     PopFinally,          // pops a finally block from block stack
     EndFinally,          // end of finally block; re-raises pending exception if any
     Raise,              // pops an object, raises it as an exception
+    ExceptionMatch(String), // checks if exception matches class name
     #[allow(dead_code)]
     TryEnd,             // marker for end of try structure
 

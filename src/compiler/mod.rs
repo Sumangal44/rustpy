@@ -1,7 +1,7 @@
 pub mod code;
 pub mod opcodes;
 
-use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, Module, Pattern, Stmt};
+use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, Module, Pattern, Stmt, UnaryOpKind};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
@@ -18,6 +18,18 @@ pub struct Compiler {
     loop_stack: Vec<LoopInfo>,
     global_names: Vec<String>,
     filename: String,
+}
+
+fn parse_bigint(val: &str) -> Option<num_bigint::BigInt> {
+    if val.starts_with("0x") || val.starts_with("0X") {
+        num_bigint::BigInt::parse_bytes(&val.as_bytes()[2..], 16)
+    } else if val.starts_with("0o") || val.starts_with("0O") {
+        num_bigint::BigInt::parse_bytes(&val.as_bytes()[2..], 8)
+    } else if val.starts_with("0b") || val.starts_with("0B") {
+        num_bigint::BigInt::parse_bytes(&val.as_bytes()[2..], 2)
+    } else {
+        val.parse().ok()
+    }
 }
 
 impl Compiler {
@@ -453,6 +465,8 @@ impl Compiler {
                 }
 
                 let mut class_compiler = Compiler::new(name.clone());
+                class_compiler.code.filename = self.filename.clone();
+                class_compiler.filename = self.filename.clone();
                 for s in body {
                     class_compiler.compile_stmt(s)?;
                 }
@@ -553,54 +567,25 @@ impl Compiler {
 
                     let mut handler_end_jumps = Vec::new();
 
-                    for (i, (exc_type_opt, as_name_opt, handler_body)) in handlers.iter().enumerate() {
+                    for (exc_type_opt, as_name_opt, handler_body) in handlers.iter() {
                         if let Some(exc_type) = exc_type_opt {
-                            if i == 0 {
-                                // First handler: exception from SetupExcept is on stack
-                                self.emit(Opcode::DupTop);
-                                self.emit(Opcode::LoadAttr("__class__".to_string()));
-                                self.emit(Opcode::LoadAttr("__name__".to_string()));
-                                let type_const_idx = self.add_constant(Rc::new(PyString::new(exc_type.clone())));
-                                self.emit(Opcode::LoadConst(type_const_idx));
-                                self.emit(Opcode::CompareEq);
-                                let type_mismatch_jump = self.emit(Opcode::PopJumpIfFalse(0));
-                                // The original exception is on stack for binding
-                                if let Some(as_name) = as_name_opt {
-                                    let as_idx = self.get_or_add_name(as_name);
-                                    self.emit(Opcode::StoreName(as_idx));
-                                } else {
-                                    self.emit(Opcode::PopTop);
-                                }
-                                for s in handler_body {
-                                    self.compile_stmt(s)?;
-                                }
-                                handler_end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
-
-                                let next_handler = self.code.instructions.len();
-                                self.code.instructions[type_mismatch_jump] = Opcode::PopJumpIfFalse(next_handler);
+                            self.emit(Opcode::DupTop);
+                            self.emit(Opcode::ExceptionMatch(exc_type.clone()));
+                            let type_mismatch_jump = self.emit(Opcode::PopJumpIfFalse(0));
+                            // The original exception is on stack for binding
+                            if let Some(as_name) = as_name_opt {
+                                let as_idx = self.get_or_add_name(as_name);
+                                self.emit(Opcode::StoreName(as_idx));
                             } else {
-                                self.emit(Opcode::DupTop);
-                                self.emit(Opcode::LoadAttr("__class__".to_string()));
-                                self.emit(Opcode::LoadAttr("__name__".to_string()));
-                                let type_const_idx = self.add_constant(Rc::new(PyString::new(exc_type.clone())));
-                                self.emit(Opcode::LoadConst(type_const_idx));
-                                self.emit(Opcode::CompareEq);
-                                let type_mismatch_jump = self.emit(Opcode::PopJumpIfFalse(0));
-                                // The original exception is on stack for binding
-                                if let Some(as_name) = as_name_opt {
-                                    let as_idx = self.get_or_add_name(as_name);
-                                    self.emit(Opcode::StoreName(as_idx));
-                                } else {
-                                    self.emit(Opcode::PopTop);
-                                }
-                                for s in handler_body {
-                                    self.compile_stmt(s)?;
-                                }
-                                handler_end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
-
-                                let next_handler = self.code.instructions.len();
-                                self.code.instructions[type_mismatch_jump] = Opcode::PopJumpIfFalse(next_handler);
+                                self.emit(Opcode::PopTop);
                             }
+                            for s in handler_body {
+                                self.compile_stmt(s)?;
+                            }
+                            handler_end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
+
+                            let next_handler = self.code.instructions.len();
+                            self.code.instructions[type_mismatch_jump] = Opcode::PopJumpIfFalse(next_handler);
                         } else {
                             // Bare except - always matches
                             if let Some(as_name) = as_name_opt {
@@ -755,6 +740,8 @@ impl Compiler {
                 }
 
                 let mut child_compiler = Compiler::new(name.clone());
+                child_compiler.code.filename = self.filename.clone();
+                child_compiler.filename = self.filename.clone();
                 child_compiler.code.arg_count = posonly_params.len() + params.len();
                 child_compiler.code.posonly_count = posonly_params.len();
                 child_compiler.code.kwonly_params = kwonly_params.clone();
@@ -1124,7 +1111,111 @@ impl Compiler {
         Ok(())
     }
 
+    fn fold_binop(&self, left: &Expr, op: BinOpKind, right: &Expr) -> Option<Expr> {
+        match (left, right) {
+            (Expr::IntLiteral(l_str), Expr::IntLiteral(r_str)) => {
+                let l_val = parse_bigint(l_str)?;
+                let r_val = parse_bigint(r_str)?;
+                let result = match op {
+                    BinOpKind::Add => l_val + r_val,
+                    BinOpKind::Sub => l_val - r_val,
+                    BinOpKind::Mult => l_val * r_val,
+                    BinOpKind::FloorDiv if r_val != num_bigint::BigInt::from(0) => l_val / r_val,
+                    BinOpKind::Mod if r_val != num_bigint::BigInt::from(0) => l_val % r_val,
+                    _ => return None,
+                };
+                Some(Expr::IntLiteral(result.to_string()))
+            }
+            (Expr::FloatLiteral(l_val), Expr::FloatLiteral(r_val)) => {
+                let result = match op {
+                    BinOpKind::Add => l_val + r_val,
+                    BinOpKind::Sub => l_val - r_val,
+                    BinOpKind::Mult => l_val * r_val,
+                    BinOpKind::Div if *r_val != 0.0 => l_val / r_val,
+                    _ => return None,
+                };
+                Some(Expr::FloatLiteral(result))
+            }
+            (Expr::StringLiteral(l_val), Expr::StringLiteral(r_val)) if op == BinOpKind::Add => {
+                Some(Expr::StringLiteral(format!("{}{}", l_val, r_val)))
+            }
+            _ => None
+        }
+    }
+
+    fn fold_unaryop(&self, op: UnaryOpKind, operand: &Expr) -> Option<Expr> {
+        match operand {
+            Expr::IntLiteral(val_str) => {
+                let val = parse_bigint(val_str)?;
+                match op {
+                    UnaryOpKind::Minus => Some(Expr::IntLiteral((-val).to_string())),
+                    UnaryOpKind::Plus => Some(Expr::IntLiteral(val.to_string())),
+                    UnaryOpKind::Not => Some(Expr::BooleanLiteral(val == num_bigint::BigInt::from(0))),
+                    _ => None,
+                }
+            }
+            Expr::FloatLiteral(val) => {
+                match op {
+                    UnaryOpKind::Minus => Some(Expr::FloatLiteral(-val)),
+                    UnaryOpKind::Plus => Some(Expr::FloatLiteral(*val)),
+                    UnaryOpKind::Not => Some(Expr::BooleanLiteral(*val == 0.0)),
+                    _ => None,
+                }
+            }
+            Expr::BooleanLiteral(val) => {
+                match op {
+                    UnaryOpKind::Not => Some(Expr::BooleanLiteral(!val)),
+                    _ => None,
+                }
+            }
+            _ => None
+        }
+    }
+
+    fn try_fold_expr(&self, expr: &Expr) -> Option<Expr> {
+        match expr {
+            Expr::BinOp { left, op, right } => {
+                let folded_left = self.try_fold_expr(left);
+                let folded_right = self.try_fold_expr(right);
+                
+                let l = folded_left.as_ref().unwrap_or(left.as_ref());
+                let r = folded_right.as_ref().unwrap_or(right.as_ref());
+                
+                if let Some(folded_binop) = self.fold_binop(l, *op, r) {
+                    Some(folded_binop)
+                } else if folded_left.is_some() || folded_right.is_some() {
+                    Some(Expr::BinOp {
+                        left: Box::new(folded_left.unwrap_or_else(|| *left.clone())),
+                        op: *op,
+                        right: Box::new(folded_right.unwrap_or_else(|| *right.clone())),
+                    })
+                } else {
+                    None
+                }
+            }
+            Expr::UnaryOp { op, operand } => {
+                let folded_operand = self.try_fold_expr(operand);
+                let o = folded_operand.as_ref().unwrap_or(operand.as_ref());
+                
+                if let Some(folded_unaryop) = self.fold_unaryop(*op, o) {
+                    Some(folded_unaryop)
+                } else if folded_operand.is_some() {
+                    Some(Expr::UnaryOp {
+                        op: *op,
+                        operand: Box::new(folded_operand.unwrap()),
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None
+        }
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), String> {
+        if let Some(folded) = self.try_fold_expr(expr) {
+            return self.compile_expr(&folded);
+        }
         match expr {
             Expr::IntLiteral(val) => {
                 let bigint = if val.starts_with("0x") || val.starts_with("0X") {
@@ -1338,6 +1429,8 @@ impl Compiler {
             }
             Expr::Lambda { params, posonly_params, kwonly_params, vararg, kwarg, body } => {
                 let mut child_compiler = Compiler::new("<lambda>".to_string());
+                child_compiler.code.filename = self.filename.clone();
+                child_compiler.filename = self.filename.clone();
                 child_compiler.code.arg_count = params.len() + posonly_params.len();
                 child_compiler.code.vararg = vararg.clone();
                 child_compiler.code.kwarg = kwarg.clone();
@@ -1537,6 +1630,8 @@ impl Compiler {
                     }
                     CompKind::Generator => {
                         let mut child = Compiler::new("<genexpr>".to_string());
+                        child.code.filename = self.filename.clone();
+                        child.filename = self.filename.clone();
                         child.code.is_generator = true;
 
                         child.compile_expr(iter)?;

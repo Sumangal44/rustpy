@@ -716,7 +716,7 @@ ERROR_TESTS = [
     ("import_error", "import nonexistent_module", "ModuleNotFoundError"),
     ("stop_iteration", "iter([]).__next__()", "StopIteration"),
     ("zero_division_mod", "5%0", "ZeroDivisionError"),
-    ("recursion_error", "def f(): return f()\nf()", "RecursionError"),
+    ("recursion_error", "def f(): return f() + 1\nf()", "RecursionError"),
     ("assertion_error", "assert False", "AssertionError"),
     ("runtime_error", "raise RuntimeError('boom')", "RuntimeError"),
 ]

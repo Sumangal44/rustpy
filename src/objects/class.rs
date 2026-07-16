@@ -16,9 +16,25 @@ pub struct PyClass {
 }
 
 fn is_same_class(a: &Rc<dyn PyObject>, b: &Rc<dyn PyObject>) -> bool {
-    let a_class = a.as_any().downcast_ref::<PyClass>().unwrap();
-    let b_class = b.as_any().downcast_ref::<PyClass>().unwrap();
-    a_class.name == b_class.name
+    let a_name = if let Some(a_class) = a.as_any().downcast_ref::<PyClass>() {
+        a_class.name.clone()
+    } else if let Some(a_type) = a.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+        a_type.name.clone()
+    } else if let Some(a_nf) = a.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+        a_nf.name.clone()
+    } else {
+        a.repr()
+    };
+    let b_name = if let Some(b_class) = b.as_any().downcast_ref::<PyClass>() {
+        b_class.name.clone()
+    } else if let Some(b_type) = b.as_any().downcast_ref::<crate::objects::typeobj::PyType>() {
+        b_type.name.clone()
+    } else if let Some(b_nf) = b.as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
+        b_nf.name.clone()
+    } else {
+        b.repr()
+    };
+    a_name == b_name
 }
 
 fn c3_merge(mut lists: Vec<Vec<Rc<dyn PyObject>>>) -> Result<Vec<Rc<dyn PyObject>>, String> {
@@ -64,9 +80,10 @@ impl PyClass {
         // Calculate MRO for bases
         let mut lists = Vec::new();
         for base in &bases {
-            let base_class = base.as_any().downcast_ref::<PyClass>().unwrap();
             let mut mro = vec![Rc::clone(base)];
-            mro.extend(base_class.mro.iter().cloned());
+            if let Some(base_class) = base.as_any().downcast_ref::<PyClass>() {
+                mro.extend(base_class.mro.iter().cloned());
+            }
             lists.push(mro);
         }
         if !bases.is_empty() {
@@ -146,18 +163,23 @@ impl PyObject for PyClass {
         }
         
         for base in &self.mro {
-            let base_class = base.as_any().downcast_ref::<PyClass>().unwrap();
-            let base_attrs = base_class.attributes.borrow();
-            if let Some(val) = base_attrs.get(attr) {
-                if let Some(sm) = val.as_any().downcast_ref::<crate::objects::staticmethod::PyStaticMethod>() {
-                    return Ok(Rc::clone(&sm.func));
+            if let Some(base_class) = base.as_any().downcast_ref::<PyClass>() {
+                let base_attrs = base_class.attributes.borrow();
+                if let Some(val) = base_attrs.get(attr) {
+                    if let Some(sm) = val.as_any().downcast_ref::<crate::objects::staticmethod::PyStaticMethod>() {
+                        return Ok(Rc::clone(&sm.func));
+                    }
+                    if let Some(_cm) = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>() {
+                        let cm = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>().unwrap();
+                        let cls_rc: Rc<dyn PyObject> = Rc::new(base_class.clone()) as Rc<dyn PyObject>;
+                        return Ok(Rc::new(crate::objects::bound_method::PyBoundMethod::new(cls_rc, Rc::clone(&cm.func))));
+                    }
+                    return Ok(Rc::clone(val));
                 }
-                if let Some(_cm) = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>() {
-                    let cm = val.as_any().downcast_ref::<crate::objects::classmethod::PyClassMethod>().unwrap();
-                    let cls_rc: Rc<dyn PyObject> = Rc::new(base_class.clone()) as Rc<dyn PyObject>;
-                    return Ok(Rc::new(crate::objects::bound_method::PyBoundMethod::new(cls_rc, Rc::clone(&cm.func))));
+            } else {
+                if let Ok(val) = base.get_attr(attr) {
+                    return Ok(val);
                 }
-                return Ok(Rc::clone(val));
             }
         }
 
@@ -223,17 +245,28 @@ impl PyObject for PySuper {
 
         if let Some(idx) = start_idx {
             for cls in full_mro.iter().skip(idx) {
-                let pyclass = cls.as_any().downcast_ref::<PyClass>().unwrap();
-                let attrs = pyclass.attributes.borrow();
-                if let Some(val) = attrs.get(attr) {
-                    // Bind to the original object!
-                    if val.as_any().is::<crate::objects::function::PyFunction>()
-                        || val.as_any().is::<crate::objects::native_function::PyNativeFunction>()
-                    {
-                        let bound = crate::objects::bound_method::PyBoundMethod::new(Rc::new(self.obj.as_ref().clone()) as Rc<dyn PyObject>, Rc::clone(val));
-                        return Ok(Rc::new(bound));
+                if let Some(pyclass) = cls.as_any().downcast_ref::<PyClass>() {
+                    let attrs = pyclass.attributes.borrow();
+                    if let Some(val) = attrs.get(attr) {
+                        // Bind to the original object!
+                        if val.as_any().is::<crate::objects::function::PyFunction>()
+                            || val.as_any().is::<crate::objects::native_function::PyNativeFunction>()
+                        {
+                            let bound = crate::objects::bound_method::PyBoundMethod::new(Rc::new(self.obj.as_ref().clone()) as Rc<dyn PyObject>, Rc::clone(val));
+                            return Ok(Rc::new(bound));
+                        }
+                        return Ok(Rc::clone(val));
                     }
-                    return Ok(Rc::clone(val));
+                } else {
+                    if let Ok(val) = cls.get_attr(attr) {
+                        if val.as_any().is::<crate::objects::function::PyFunction>()
+                            || val.as_any().is::<crate::objects::native_function::PyNativeFunction>()
+                        {
+                            let bound = crate::objects::bound_method::PyBoundMethod::new(Rc::new(self.obj.as_ref().clone()) as Rc<dyn PyObject>, Rc::clone(&val));
+                            return Ok(Rc::new(bound));
+                        }
+                        return Ok(val);
+                    }
                 }
             }
         }

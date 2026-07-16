@@ -431,7 +431,6 @@ impl<'a> Lexer<'a> {
 
         while let Some(c) = self.current {
             if escape {
-                value.push('\\');
                 value.push(c);
                 escape = false;
                 self.advance();

@@ -36,7 +36,7 @@
 - [x] Generator `.throw()`, `.close()`
 - [x] Relative imports (`from . import x`)
 - [x] Complete `__format__` on all types
-- [ ] Full exception hierarchy (not flat)
+- [x] Full exception hierarchy (not flat)
 - [x] `del` with multiple targets: `del a, b`
 - [x] `@=` augmented assignment
 
@@ -51,7 +51,7 @@
 - [x] Negative/advanced slice handling in `slice()` builtin
 - [x] `open()` encoding parameter support
 - [x] `bytes.decode()` with non-utf-8 encodings
-- [ ] Better error messages with tracebacks
+- [x] Better error messages with tracebacks
 
 ## Session 5 (Jul 16) — Phase 3 Completion + Python callables in builtins
 - [x] `del a, b, c`: multiple comma-separated targets (AST: `Del { targets: Vec<Expr> }`)
@@ -66,8 +66,8 @@
 - [x] All 13 test suites pass: `cargo test` 259/259, `compat_test.py` 410/410 (was 405), `tier3_test.py` 22/22, `run_all_tests.py` 13/13
 
 ## Phase 4 — Performance & Scale (Future)
-- [ ] Recursion limit / stack overflow handling (done)
-- [ ] Reference counting / GC correctness
-- [ ] Bytecode optimizations (constant folding, peephole)
-- [ ] Tail call optimization
-- [ ] Large program stress testing
+- [x] Recursion limit / stack overflow handling (done)
+- [x] Reference counting / GC correctness
+- [x] Bytecode optimizations (constant folding, peephole)
+- [x] Tail call optimization
+- [x] Large program stress testing

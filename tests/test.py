@@ -1,1 +1,1 @@
-print(ascii('hello\n'))
+print(undefined_var)
