@@ -1,6 +1,7 @@
 mod ast;
 mod compiler;
 mod diagnostics;
+mod encoding;
 mod lexer;
 mod objects;
 mod parser;

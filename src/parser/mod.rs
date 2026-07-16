@@ -751,9 +751,17 @@ impl<'a> Parser<'a> {
 
     fn parse_del(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Del)?;
-        let target = self.parse_expression(0)?;
-        self.consume(TokenKind::Newline)?;
-        Ok(Stmt::Del { target: Box::new(target) })
+        let mut targets = Vec::new();
+        loop {
+            targets.push(self.parse_expression(0)?);
+            if self.check(&TokenKind::Comma) {
+                self.advance()?;
+            } else {
+                break;
+            }
+        }
+        self.consume_stmt_end()?;
+        Ok(Stmt::Del { targets })
     }
 
     fn parse_global(&mut self) -> Result<Stmt, ParseError> {
@@ -822,6 +830,7 @@ impl<'a> Parser<'a> {
             TokenKind::CaretEqual => Some(BinOpKind::BitXor),
             TokenKind::LeftShiftEqual => Some(BinOpKind::LShift),
             TokenKind::RightShiftEqual => Some(BinOpKind::RShift),
+            TokenKind::AtEqual => Some(BinOpKind::MatMul),
             _ => None,
         }
     }
@@ -1266,7 +1275,8 @@ impl<'a> Parser<'a> {
                 }
                 let spec = if spec_text.is_empty() { None } else { Some(spec_text) };
                 // Handle debug syntax {expr=}
-                let sub_expr_text = if expr_text.ends_with('=') {
+                let is_debug = expr_text.ends_with('=');
+                let sub_expr_text = if is_debug {
                     let debug_name = expr_text.trim_end_matches('=');
                     let name_val = if debug_name.is_empty() { String::new() } else { debug_name.to_string() };
                     segments.push(FStringSegment::Text(format!("{}=", name_val)));
@@ -1275,7 +1285,7 @@ impl<'a> Parser<'a> {
                     expr_text
                 };
                 let sub_expr = self.parse_fstring_expr(&sub_expr_text)?;
-                segments.push(FStringSegment::Expr { expr: Box::new(sub_expr), format_spec: spec });
+                segments.push(FStringSegment::Expr { expr: Box::new(sub_expr), format_spec: spec, debug: is_debug });
                 continue;
             }
             if c == '}' {

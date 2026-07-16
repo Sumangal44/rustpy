@@ -413,6 +413,8 @@ TUPLE_METHOD_TESTS = [
 
 BYTES_METHOD_TESTS = [
     ("bytes_decode", "print(b'hello'.decode())", "hello"),
+    ("bytes_decode_ascii", "print(b'hello'.decode('ascii'))", "hello"),
+    ("bytes_decode_latin1", "print(b'\\xff\\xfe'.decode('latin-1'))", "ÿþ"),
     ("bytes_hex", "print(b'\\x00\\x01'.hex())", "0001"),
     ("bytes_upper", "print(b'hello'.upper())", "b'HELLO'"),
     ("bytes_lower", "print(b'HELLO'.lower())", "b'hello'"),
@@ -442,6 +444,7 @@ BYTEARRAY_METHOD_TESTS = [
     ("bytearray_clear", "b=bytearray(b'ab')\nb.clear()\nprint(b)", "bytearray(b'')"),
     ("bytearray_reverse", "b=bytearray(b'abc')\nb.reverse()\nprint(b)", "bytearray(b'cba')"),
     ("bytearray_decode", "print(bytearray(b'hello').decode())", "hello"),
+    ("bytearray_decode_ascii", "print(bytearray(b'world').decode('ascii'))", "world"),
     ("bytearray_slice", "print(bytearray(b'hello')[1:3])", "bytearray(b'el')"),
 ]
 
@@ -503,6 +506,22 @@ print(asyncio.run(foo()))
 ]
 
 FILE_IO_TESTS = [
+    ("open_encoding_utf8", """
+f = open("/tmp/rustpy_compat_enc.txt", "w", encoding="utf-8")
+f.write("héllo")
+f.close()
+f = open("/tmp/rustpy_compat_enc.txt", "r", encoding="utf-8")
+print(f.read())
+f.close()
+""".strip(), "héllo"),
+    ("open_encoding_ascii", """
+f = open("/tmp/rustpy_compat_enc2.txt", "w", encoding="ascii")
+f.write("hello")
+f.close()
+f = open("/tmp/rustpy_compat_enc2.txt", "r", encoding="ascii")
+print(f.read())
+f.close()
+""".strip(), "hello"),
     ("file_write_read", """
 f = open("/tmp/rustpy_compat_file.txt", "w")
 f.write("hello")
@@ -562,6 +581,9 @@ f.close()
 BUILTIN_TESTS = [
     ("len_list", "print(len([1,2,3]))", "3"),
     ("len_str", "print(len('hello'))", "5"),
+    ("str_encode_ascii", "print('hello'.encode('ascii'))", "b'hello'"),
+    ("str_encode_utf8", "print('héllo'.encode('utf-8'))", "b'h\\xc3\\xa9llo'"),
+    ("str_encode_latin1", "print('ÿþ'.encode('latin-1'))", "b'\\xff\\xfe'"),
     ("len_tuple", "print(len((1,2)))", "2"),
     ("len_dict", "print(len({'a':1,'b':2}))", "2"),
     ("len_set", "print(len({1,2,3}))", "3"),
@@ -636,6 +658,7 @@ AUGMENTED_TESTS = [
     ("aug_xor", "x=5\nx^=3\nprint(x)", "6"),
     ("aug_lshift", "x=1\nx<<=3\nprint(x)", "8"),
     ("aug_rshift", "x=8\nx>>=2\nprint(x)", "2"),
+    ("aug_matmul", "x=[[1,0],[0,1]]\ntry:\n    x @= [1,2]\nexcept TypeError as e:\n    print('type')\nprint('ok')", "type\nok"),
 ]
 
 WALRUS_TESTS = [
@@ -648,9 +671,13 @@ MISC_TESTS = [
     ("del_variable", "x=42\ndel x\nprint('x' in dir())\n", "False"),
     ("del_list_item", "a=[1,2,3]\ndel a[1]\nprint(a)", "[1, 3]"),
     ("del_dict_item", "d={'a':1,'b':2}\ndel d['a']\nprint(d)", "{'b': 2}"),
+    ("del_multi_var", "a=1;b=2;c=3\ndel a,b,c\nprint('a' in dir(),'b' in dir(),'c' in dir())", "False False False"),
+    ("del_multi_mixed", "a=[1,2];b={'x':1};c=3\ndel a[1],b['x'],c\nprint(a,b,'c' in dir())", "[1] {} False"),
     ("slice_basic", "print(slice(1,3))", "slice(1, 3, None)"),
     ("slice_full", "print(slice(1,5,2))", "slice(1, 5, 2)"),
     ("fstring_debug", "x=42\nprint(f'{x=}')", "x=42"),
+    ("fstring_debug_str", "x='hello'\nprint(f'{x=}')", "x='hello'"),
+    ("fstring_debug_format", "x=42\nprint(f'{x=:>10}')", "x=        42"),
     ("fstring_float_format", "x=3.14159\nprint(f'{x:.2f}')", "3.14"),
     ("for_with_else", "for i in []:\n    pass\nelse:\n    print('else')", "else"),
     ("while_with_else", "i=0\nwhile False:\n    pass\nelse:\n    print('else')", "else"),

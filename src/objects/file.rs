@@ -27,6 +27,7 @@ pub struct PyFileInner {
     pub kind: PyFileKind,
     pub path: String,
     pub mode: String,
+    pub encoding: String,
     pub closed: bool,
     pub eof: bool,
 }
@@ -50,12 +51,13 @@ impl Clone for PyFile {
 }
 
 impl PyFile {
-    pub fn from_file(path: String, mode: String, file: std::fs::File) -> Self {
+    pub fn from_file(path: String, mode: String, encoding: String, file: std::fs::File) -> Self {
         Self {
             inner: Rc::new(RefCell::new(PyFileInner {
                 kind: PyFileKind::File(file),
                 path,
                 mode,
+                encoding,
                 closed: false,
                 eof: false,
             })),
@@ -68,6 +70,7 @@ impl PyFile {
                 kind: PyFileKind::Stdin,
                 path: "<stdin>".to_string(),
                 mode: "r".to_string(),
+                encoding: "utf-8".to_string(),
                 closed: false,
                 eof: false,
             })),
@@ -80,6 +83,7 @@ impl PyFile {
                 kind: PyFileKind::Stdout,
                 path: "<stdout>".to_string(),
                 mode: "w".to_string(),
+                encoding: "utf-8".to_string(),
                 closed: false,
                 eof: false,
             })),
@@ -94,6 +98,7 @@ impl PyFile {
                 mode: "w".to_string(),
                 closed: false,
                 eof: false,
+                encoding: "utf-8".to_string(),
             })),
         }
     }
@@ -118,6 +123,7 @@ fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn
     check_closed(inner)?;
     let mut inner_mut = inner.borrow_mut();
     let is_binary = inner_mut.mode.contains('b');
+    let encoding = inner_mut.encoding.clone();
     let is_readable = !inner_mut.mode.contains('w')
         && !inner_mut.mode.contains('a')
         && !inner_mut.mode.contains('x')
@@ -152,13 +158,13 @@ fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn
                     if nread == 0 {
                         inner_mut.eof = true;
                     }
-                    let s =
-                        String::from_utf8(buf).map_err(|e| format!("UnicodeDecodeError: {}", e))?;
+                    let s = crate::encoding::decode(&buf, &encoding)?;
                     Ok(Rc::new(PyString::new(s)))
                 } else {
-                    let mut s = String::new();
-                    f.read_to_string(&mut s).map_err(|e| format!("OSError: {}", e))?;
+                    let mut buf = Vec::new();
+                    f.read_to_end(&mut buf).map_err(|e| format!("OSError: {}", e))?;
                     inner_mut.eof = true;
+                    let s = crate::encoding::decode(&buf, &encoding)?;
                     Ok(Rc::new(PyString::new(s)))
                 }
             }
@@ -259,6 +265,7 @@ fn readline_impl(
 ) -> Result<Rc<dyn PyObject>, String> {
     check_closed(inner)?;
     let is_binary = inner.borrow().mode.contains('b');
+    let encoding = inner.borrow().encoding.clone();
     let raw = readline_raw(inner, size)?;
 
     if raw.is_empty() {
@@ -273,7 +280,7 @@ fn readline_impl(
     if is_binary {
         Ok(Rc::new(PyBytes::new(raw)))
     } else {
-        let s = String::from_utf8(raw).map_err(|e| format!("UnicodeDecodeError: {}", e))?;
+        let s = crate::encoding::decode(&raw, &encoding)?;
         Ok(Rc::new(PyString::new(s)))
     }
 }
@@ -326,10 +333,12 @@ fn write_impl(inner: &RefCell<PyFileInner>, data: &str) -> Result<Rc<dyn PyObjec
     if !is_writable {
         return Err("io.UnsupportedOperation: not writable".to_string());
     }
+    let encoding = inner_mut.encoding.clone();
     match &mut inner_mut.kind {
         PyFileKind::File(f) => {
+            let bytes = crate::encoding::encode(data, &encoding)?;
             let n = f
-                .write(data.as_bytes())
+                .write(&bytes)
                 .map_err(|e| format!("OSError: {}", e))?;
             Ok(Rc::new(PyInt::from_i64(n as i64)))
         }

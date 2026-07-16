@@ -1295,42 +1295,39 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         })),
     );
 
-    // map(func, iterable) -> list (eager; only native functions for now)
+    // map(func, iterable) -> list (eager)
     env_mut.set(
         "map".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("map".to_string(), |args| {
             if args.len() != 2 { return Err("TypeError: map() takes exactly 2 arguments".to_string()); }
-            if let Some(native) = args[0].as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
-                let iter = args[1].get_iter()?;
-                let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
-                while let Some(item) = iter.get_next()? {
-                    result.push((native.func)(vec![item], std::collections::HashMap::new())?);
-                }
-                Ok(Rc::new(crate::objects::list::PyList::new(result)))
-            } else {
-                Err("TypeError: map() currently only supports native functions".to_string())
+            let func = Rc::clone(&args[0]);
+            let iter = args[1].get_iter()?;
+            let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
+            let mut vm = crate::vm::VirtualMachine::new();
+            while let Some(item) = iter.get_next()? {
+                let val = vm.invoke(Rc::clone(&func), vec![item], std::collections::HashMap::new())?;
+                result.push(val);
             }
+            Ok(Rc::new(crate::objects::list::PyList::new(result)))
         })),
     );
 
-    // filter(func, iterable) -> list (eager; only native functions for now)
+    // filter(func, iterable) -> list (eager)
     env_mut.set(
         "filter".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("filter".to_string(), |args| {
             if args.len() != 2 { return Err("TypeError: filter() takes exactly 2 arguments".to_string()); }
-            if let Some(native) = args[0].as_any().downcast_ref::<crate::objects::native_function::PyNativeFunction>() {
-                let iter = args[1].get_iter()?;
-                let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
-                while let Some(item) = iter.get_next()? {
-                    let should_keep = (native.func)(vec![Rc::clone(&item)], std::collections::HashMap::new())?;
-                    if should_keep.is_truthy() {
-                        result.push(item);
-                    }
+            let func = Rc::clone(&args[0]);
+            let iter = args[1].get_iter()?;
+            let mut result: Vec<Rc<dyn PyObject>> = Vec::new();
+            let mut vm = crate::vm::VirtualMachine::new();
+            while let Some(item) = iter.get_next()? {
+                let should_keep = vm.invoke(Rc::clone(&func), vec![Rc::clone(&item)], std::collections::HashMap::new())?;
+                if should_keep.is_truthy() {
+                    result.push(item);
                 }
-                Ok(Rc::new(crate::objects::list::PyList::new(result)))
-            } else {
-                Err("TypeError: filter() currently only supports native functions".to_string())
             }
+            Ok(Rc::new(crate::objects::list::PyList::new(result)))
         })),
     );
 
@@ -1505,6 +1502,15 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             } else {
                 "r".to_string()
             };
+            let encoding = if let Some(v) = kwargs.get("encoding") {
+                let enc = v.str().to_lowercase();
+                if enc.is_empty() {
+                    return Err("ValueError: invalid encoding: ''".to_string());
+                }
+                enc
+            } else {
+                "utf-8".to_string()
+            };
             // Validate mode
             if mode.is_empty() {
                 return Err("ValueError: empty mode".to_string());
@@ -1549,7 +1555,7 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             }
 
             match opts.open(&path) {
-                Ok(file) => Ok(Rc::new(crate::objects::file::PyFile::from_file(path, mode, file)) as Rc<dyn PyObject>),
+                Ok(file) => Ok(Rc::new(crate::objects::file::PyFile::from_file(path, mode, encoding, file)) as Rc<dyn PyObject>),
                 Err(e) => {
                     let msg = format!("{}", e);
                     if msg.contains("No such file or directory") {

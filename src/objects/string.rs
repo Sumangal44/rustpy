@@ -167,15 +167,14 @@ impl PyObject for PyString {
                     i = (i as i64 + step) as usize;
                 }
             } else if step < 0 {
-                let start = if slice.start.is_some() { raw_start } else { length - 1 };
-                let stop = if slice.stop.is_some() { raw_stop } else { 0 };
+                let start = if slice.start.is_some() { raw_start as i64 } else { length as i64 - 1 };
+                let stop = if slice.stop.is_some() { raw_stop as i64 } else { -1i64 };
                 let mut i = start;
-                loop {
-                    result.push(chars[i]);
-                    if i == stop { break; }
-                    let next = i as i64 + step;
+                while i > stop {
+                    result.push(chars[i as usize]);
+                    let next = i + step;
                     if next < 0 || next as usize >= length { break; }
-                    i = next as usize;
+                    i = next;
                 }
             }
             Ok(Rc::new(PyString::new(result)))
@@ -476,10 +475,7 @@ impl PyObject for PyString {
                 Ok(Rc::new(PyNativeFunction::new_pos_only("encode".to_string(), move |args| {
                     if args.len() > 2 { return Err("TypeError: encode() takes at most 2 arguments ({} given)".to_string()); }
                     let encoding = if args.is_empty() { "utf-8".to_string() } else { args[0].str() };
-                    if encoding != "utf-8" && encoding != "utf8" {
-                        return Err(format!("LookupError: unknown encoding: '{}'", encoding));
-                    }
-                    Ok(Rc::new(crate::objects::bytes::PyBytes::new(val.as_bytes().to_vec())))
+                    crate::encoding::encode(&val, &encoding).map(|b| Rc::new(crate::objects::bytes::PyBytes::new(b)) as Rc<dyn PyObject>)
                 })))
             }
             "expandtabs" => {

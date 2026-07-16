@@ -165,15 +165,14 @@ impl PyObject for PyBytes {
                     i = (i as i64 + step) as usize;
                 }
             } else if step < 0 {
-                let start = if slice.start.is_some() { raw_start } else { length - 1 };
-                let stop = if slice.stop.is_some() { raw_stop } else { 0 };
+                let start = if slice.start.is_some() { raw_start as i64 } else { length as i64 - 1 };
+                let stop = if slice.stop.is_some() { raw_stop as i64 } else { -1i64 };
                 let mut i = start;
-                loop {
-                    result.push(self.value[i]);
-                    if i == stop { break; }
-                    let next = i as i64 + step;
+                while i > stop {
+                    result.push(self.value[i as usize]);
+                    let next = i + step;
                     if next < 0 || next as usize >= length { break; }
-                    i = next as usize;
+                    i = next;
                 }
             }
             Ok(Rc::new(PyBytes::new(result)))
@@ -286,10 +285,9 @@ impl PyObject for PyBytes {
                     if args.len() > 2 {
                         return Err("TypeError: decode() takes at most 2 arguments ({} given)".to_string());
                     }
-                    match String::from_utf8(val.clone()) {
-                        Ok(s) => Ok(Rc::new(PyString::new(s))),
-                        Err(e) => Err(format!("UnicodeDecodeError: 'utf-8' codec cannot decode byte at position {}", e.utf8_error().valid_up_to())),
-                    }
+                    let encoding = if args.is_empty() { "utf-8".to_string() } else { args[0].str() };
+                    let bytes = val.clone();
+                    crate::encoding::decode(&bytes, &encoding).map(|s| Rc::new(PyString::new(s)) as Rc<dyn PyObject>)
                 })))
             }
             "endswith" => {

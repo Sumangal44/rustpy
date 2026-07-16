@@ -234,23 +234,25 @@ impl Compiler {
                 })?.start;
                 self.emit(Opcode::JumpAbsolute(start));
             }
-            Stmt::Del { target } => {
-                match target.as_ref() {
-                    Expr::Identifier(name) => {
-                        let name_idx = self.get_or_add_name(name);
-                        self.emit(Opcode::DeleteName(name_idx));
-                    }
-                    Expr::Attribute { value: obj, attr } => {
-                        self.compile_expr(obj)?;
-                        self.emit(Opcode::DeleteAttr(attr.clone()));
-                    }
-                    Expr::Subscript { value, slice } => {
-                        self.compile_expr(value)?;
-                        self.compile_expr(slice)?;
-                        self.emit(Opcode::DeleteSubscript);
-                    }
-                    _ => {
-                        return Err("CompilerError: Unsupported del target".to_string());
+            Stmt::Del { targets } => {
+                for target in targets {
+                    match target {
+                        Expr::Identifier(name) => {
+                            let name_idx = self.get_or_add_name(&name);
+                            self.emit(Opcode::DeleteName(name_idx));
+                        }
+                        Expr::Attribute { value: obj, attr } => {
+                            self.compile_expr(obj)?;
+                            self.emit(Opcode::DeleteAttr(attr.clone()));
+                        }
+                        Expr::Subscript { value, slice } => {
+                            self.compile_expr(value)?;
+                            self.compile_expr(slice)?;
+                            self.emit(Opcode::DeleteSubscript);
+                        }
+                        _ => {
+                            return Err("CompilerError: Unsupported del target".to_string());
+                        }
                     }
                 }
             }
@@ -1386,8 +1388,21 @@ impl Compiler {
                             let idx = self.add_constant(Rc::new(PyString::new(text.clone())));
                             self.emit(Opcode::LoadConst(idx));
                         }
-                        FStringSegment::Expr { expr, format_spec } => {
-                            if let Some(spec) = format_spec {
+                        FStringSegment::Expr { expr, format_spec, debug } => {
+                            if *debug {
+                                let repr_idx = self.get_or_add_name("repr");
+                                self.emit(Opcode::LoadName(repr_idx));
+                                self.compile_expr(expr)?;
+                                self.emit(Opcode::CallFunction(1));
+                                if let Some(spec) = format_spec {
+                                    let format_idx = self.get_or_add_name("format");
+                                    self.emit(Opcode::LoadName(format_idx));
+                                    self.emit(Opcode::RotTwo);
+                                    let spec_idx = self.add_constant(Rc::new(PyString::new(spec.clone())));
+                                    self.emit(Opcode::LoadConst(spec_idx));
+                                    self.emit(Opcode::CallFunction(2));
+                                }
+                            } else if let Some(spec) = format_spec {
                                 let format_idx = self.get_or_add_name("format");
                                 self.emit(Opcode::LoadName(format_idx));
                                 self.compile_expr(expr)?;

@@ -21,27 +21,27 @@ impl PySlice {
                     let adjusted = length as i64 + s;
                     if adjusted < 0 { 0 } else { adjusted as usize }
                 } else {
-                    s as usize
+                    (s as usize).min(length)
                 }
             }
             None => {
-                if step > 0 { 0 } else { length - 1 }
+                if step > 0 { 0 } else { length.saturating_sub(1) }
             }
         };
         let stop = match self.stop {
             Some(s) => {
                 if s < 0 {
                     let adjusted = length as i64 + s;
-                    if adjusted < 0 { 0 } else { adjusted as usize }
+                    if adjusted < 0 { 0 } else { adjusted.min(length as i64) as usize }
                 } else {
-                    s as usize
+                    (s as usize).min(length)
                 }
             }
             None => {
                 if step > 0 { length } else { 0 }
             }
         };
-        (start.min(length), stop.min(length).max(1), step)
+        (start, stop, step)
     }
 }
 

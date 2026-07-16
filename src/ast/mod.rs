@@ -4,6 +4,7 @@ pub enum FStringSegment {
     Expr {
         expr: Box<Expr>,
         format_spec: Option<String>,
+        debug: bool,
     },
 }
 
@@ -204,7 +205,7 @@ pub enum Stmt {
     Break,
     Continue,
     Del {
-        target: Box<Expr>,
+        targets: Vec<Expr>,
     },
     Global {
         names: Vec<String>,

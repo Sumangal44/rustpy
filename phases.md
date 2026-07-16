@@ -33,25 +33,37 @@
 - [x] C3 linearization for proper MRO
 
 ### Priority B (important but less blocking)
-- [ ] Generator `.throw()`, `.close()`
-- [ ] Relative imports (`from . import x`)
-- [ ] Complete `__format__` on all types
+- [x] Generator `.throw()`, `.close()`
+- [x] Relative imports (`from . import x`)
+- [x] Complete `__format__` on all types
 - [ ] Full exception hierarchy (not flat)
-- [ ] `del` with multiple targets: `del a, b`
-- [ ] `@=` augmented assignment
+- [x] `del` with multiple targets: `del a, b`
+- [x] `@=` augmented assignment
 
-## Phase 3 — Polish & Hardening (Future)
-- [ ] `__slots__`
-- [ ] `memoryview`
-- [ ] Match keyword patterns: `case Point(x=1):`
-- [ ] Walrus operator in nested expressions
-- [ ] `map()` / `filter()` with Python functions (not just native)
+## Phase 3 — Polish & Hardening (Complete)
+- [x] `__slots__`
+- [x] `memoryview`
+- [x] Match keyword patterns: `case Point(x=1):`
+- [x] Walrus operator in nested expressions
+- [x] `map()` / `filter()` with Python functions (not just native)
+- [x] f-string `=` debug format for complex expressions
+- [x] `super()` outside of methods
+- [x] Negative/advanced slice handling in `slice()` builtin
+- [x] `open()` encoding parameter support
+- [x] `bytes.decode()` with non-utf-8 encodings
 - [ ] Better error messages with tracebacks
-- [ ] f-string `=` debug format for complex expressions
-- [ ] `super()` outside of methods
-- [ ] Negative/advanced slice handling in `slice()` builtin
-- [ ] `open()` encoding parameter support
-- [ ] `bytes.decode()` with non-utf-8 encodings
+
+## Session 5 (Jul 16) — Phase 3 Completion + Python callables in builtins
+- [x] `del a, b, c`: multiple comma-separated targets (AST: `Del { targets: Vec<Expr> }`)
+- [x] `@=` augmented assignment (parser `parse_aug_op` -> `TokenKind::AtEqual`)
+- [x] Walrus operator in nested expressions (already worked, no change)
+- [x] f-string `=` debug format (`FStringSegment::Expr { debug: bool }`, compiles to `repr()`)
+- [x] `super()` outside methods (message now matches CPython 3.14)
+- [x] Negative/advanced slice iteration on all 5 collections (while i > stop, no .max(1))
+- [x] `open()` encoding parameter (new `src/encoding.rs`: utf-8, ascii, latin-1, utf-16 BOM)
+- [x] `bytes.decode()` / `bytearray.decode()` / `str.encode()` with non-utf-8 encodings
+- [x] `map()` / `filter()` with Python functions (uses `VirtualMachine::invoke` on `Rc<dyn PyObject>`, removes native-only restriction)
+- [x] All 13 test suites pass: `cargo test` 259/259, `compat_test.py` 410/410 (was 405), `tier3_test.py` 22/22, `run_all_tests.py` 13/13
 
 ## Phase 4 — Performance & Scale (Future)
 - [ ] Recursion limit / stack overflow handling (done)

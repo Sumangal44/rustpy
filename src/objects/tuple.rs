@@ -74,15 +74,14 @@ impl PyObject for PyTuple {
                     i = (i as i64 + step) as usize;
                 }
             } else if step < 0 {
-                let start = if slice.start.is_some() { raw_start } else { length - 1 };
-                let stop = if slice.stop.is_some() { raw_stop } else { 0 };
+                let start = if slice.start.is_some() { raw_start as i64 } else { length as i64 - 1 };
+                let stop = if slice.stop.is_some() { raw_stop as i64 } else { -1i64 };
                 let mut i = start;
-                loop {
-                    result.push(Rc::clone(&self.elements[i]));
-                    if i == stop { break; }
-                    let next = i as i64 + step;
+                while i > stop {
+                    result.push(Rc::clone(&self.elements[i as usize]));
+                    let next = i + step;
                     if next < 0 || next as usize >= length { break; }
-                    i = next as usize;
+                    i = next;
                 }
             }
             Ok(Rc::new(crate::objects::tuple::PyTuple::new(result)))

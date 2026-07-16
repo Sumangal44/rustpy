@@ -68,7 +68,7 @@ impl VirtualMachine {
                             return Ok(Some(Rc::new(cls.clone()) as Rc<dyn PyObject>));
                         }
                     }
-                    return Err("RuntimeError: super(): no self found in current frame".to_string());
+                    return Err("RuntimeError: super(): no arguments".to_string());
                 }
                 "locals" => {
                     let mut pairs = Vec::new();
