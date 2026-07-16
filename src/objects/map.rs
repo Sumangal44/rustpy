@@ -46,7 +46,8 @@ impl PyObject for PyMap {
     fn get_next(&self) -> Result<Option<Rc<dyn PyObject>>, String> {
         if let Some(item) = self.iter.get_next()? {
             // Call func with item
-            let result = if let Some(native) = self.func.as_any().downcast_ref::<PyNativeFunction>() {
+            let result = if let Some(native) = self.func.as_any().downcast_ref::<PyNativeFunction>()
+            {
                 (native.func)(vec![item], std::collections::HashMap::new())?
             } else {
                 return Err("TypeError: map() argument must be callable".to_string());

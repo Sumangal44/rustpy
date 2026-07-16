@@ -71,22 +71,23 @@ pub fn decode(bytes: &[u8], encoding: &str) -> Result<String, String> {
 
 pub fn encode(text: &str, encoding: &str) -> Result<Vec<u8>, String> {
     match encoding.to_lowercase().replace("-", "").replace("_", "") {
-        e if e == "utf8" || e == "utf-8" => {
-            Ok(text.as_bytes().to_vec())
-        }
+        e if e == "utf8" || e == "utf-8" => Ok(text.as_bytes().to_vec()),
         e if e == "ascii" => {
             if text.is_ascii() {
                 Ok(text.as_bytes().to_vec())
             } else {
                 let pos = text.chars().position(|c| !c.is_ascii()).unwrap_or(0);
-                Err(format!("UnicodeEncodeError: 'ascii' codec cannot encode character '{}' in position {}: ordinal not in range(128)", text.chars().nth(pos).unwrap(), pos))
+                Err(format!(
+                    "UnicodeEncodeError: 'ascii' codec cannot encode character '{}' in position {}: ordinal not in range(128)",
+                    text.chars().nth(pos).unwrap(),
+                    pos
+                ))
             }
         }
-        e if e == "latin1" || e == "latin-1" || e == "iso8859-1" || e == "iso-8859-1" => {
-            Ok(text.chars().map(|c| if c as u32 <= 0xFF { c as u8 } else { b'?' }).collect())
-        }
-        _ => {
-            Err(format!("LookupError: unknown encoding: '{}'", encoding))
-        }
+        e if e == "latin1" || e == "latin-1" || e == "iso8859-1" || e == "iso-8859-1" => Ok(text
+            .chars()
+            .map(|c| if c as u32 <= 0xFF { c as u8 } else { b'?' })
+            .collect()),
+        _ => Err(format!("LookupError: unknown encoding: '{}'", encoding)),
     }
 }

@@ -63,7 +63,10 @@ impl PyObject for PyMemoryView {
                 i as usize
             };
             if actual >= self.length {
-                return Err(format!("IndexError: index {} out of bounds for memoryview of length {}", i, self.length));
+                return Err(format!(
+                    "IndexError: index {} out of bounds for memoryview of length {}",
+                    i, self.length
+                ));
             }
             let byte_val = self.buf[self.offset + actual];
             Ok(Rc::new(PyInt::from_i64(byte_val as i64)) as Rc<dyn PyObject>)
@@ -81,52 +84,67 @@ impl PyObject for PyMemoryView {
         let readonly = self.readonly;
 
         match attr {
-            "nbytes" => Ok(Rc::new(PyInt::from_i64((length * itemsize) as i64)) as Rc<dyn PyObject>),
+            "nbytes" => {
+                Ok(Rc::new(PyInt::from_i64((length * itemsize) as i64)) as Rc<dyn PyObject>)
+            }
             "itemsize" => Ok(Rc::new(PyInt::from_i64(itemsize as i64)) as Rc<dyn PyObject>),
             "ndim" => Ok(Rc::new(PyInt::from_i64(1)) as Rc<dyn PyObject>),
-            "readonly" => Ok(Rc::new(crate::objects::bool::PyBool::new(readonly)) as Rc<dyn PyObject>),
+            "readonly" => {
+                Ok(Rc::new(crate::objects::bool::PyBool::new(readonly)) as Rc<dyn PyObject>)
+            }
             "format" => Ok(Rc::new(PyString::new(format)) as Rc<dyn PyObject>),
             "shape" => {
-                let shape_list = Rc::new(crate::objects::tuple::PyTuple::new(
-                    vec![Rc::new(PyInt::from_i64(length as i64)) as Rc<dyn PyObject>]
-                ));
+                let shape_list =
+                    Rc::new(crate::objects::tuple::PyTuple::new(vec![
+                        Rc::new(PyInt::from_i64(length as i64)) as Rc<dyn PyObject>,
+                    ]));
                 Ok(shape_list as Rc<dyn PyObject>)
             }
-            "tobytes" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("tobytes".to_string(), move |_args| {
+            "tobytes" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "tobytes".to_string(),
+                move |_args| {
                     let slice = &buf[offset..offset + length];
-                    Ok(Rc::new(crate::objects::bytes::PyBytes::new(slice.to_vec())) as Rc<dyn PyObject>)
-                })) as Rc<dyn PyObject>)
-            }
-            "tolist" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("tolist".to_string(), move |_args| {
+                    Ok(Rc::new(crate::objects::bytes::PyBytes::new(slice.to_vec()))
+                        as Rc<dyn PyObject>)
+                },
+            )) as Rc<dyn PyObject>),
+            "tolist" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "tolist".to_string(),
+                move |_args| {
                     let items: Vec<Rc<dyn PyObject>> = buf[offset..offset + length]
                         .iter()
                         .map(|&b| Rc::new(PyInt::from_i64(b as i64)) as Rc<dyn PyObject>)
                         .collect();
                     Ok(Rc::new(crate::objects::list::PyList::new(items)) as Rc<dyn PyObject>)
-                })) as Rc<dyn PyObject>)
-            }
-            "hex" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("hex".to_string(), move |_args| {
+                },
+            )) as Rc<dyn PyObject>),
+            "hex" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "hex".to_string(),
+                move |_args| {
                     let hex: String = buf[offset..offset + length]
                         .iter()
                         .map(|b| format!("{:02x}", b))
                         .collect();
                     Ok(Rc::new(PyString::new(hex)) as Rc<dyn PyObject>)
-                })) as Rc<dyn PyObject>)
-            }
+                },
+            )) as Rc<dyn PyObject>),
             "cast" => {
                 // cast(fmt) – simplified: only 'B' supported, returns self
                 let buf2 = Rc::clone(&self.buf);
                 let length2 = self.length;
                 let offset2 = self.offset;
-                Ok(Rc::new(PyNativeFunction::new_pos_only("cast".to_string(), move |_args| {
-                    let slice = buf2[offset2..offset2 + length2].to_vec();
-                    Ok(Rc::new(PyMemoryView::from_bytes(slice, false)) as Rc<dyn PyObject>)
-                })) as Rc<dyn PyObject>)
+                Ok(Rc::new(PyNativeFunction::new_pos_only(
+                    "cast".to_string(),
+                    move |_args| {
+                        let slice = buf2[offset2..offset2 + length2].to_vec();
+                        Ok(Rc::new(PyMemoryView::from_bytes(slice, false)) as Rc<dyn PyObject>)
+                    },
+                )) as Rc<dyn PyObject>)
             }
-            _ => Err(format!("AttributeError: 'memoryview' object has no attribute '{}'", attr)),
+            _ => Err(format!(
+                "AttributeError: 'memoryview' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 

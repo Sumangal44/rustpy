@@ -181,7 +181,7 @@ impl<'a> Lexer<'a> {
             let mut chars_clone = self.chars.clone();
             let mut next_char = self.current;
             let mut is_blank_or_comment = true;
-            
+
             while let Some(c) = next_char {
                 if c == '\n' {
                     break;
@@ -195,7 +195,7 @@ impl<'a> Lexer<'a> {
                 }
                 next_char = chars_clone.next();
             }
-            
+
             if is_blank_or_comment && self.current.is_some() {
                 while let Some(c) = self.current {
                     self.advance();
@@ -226,13 +226,17 @@ impl<'a> Lexer<'a> {
         }
 
         // Check for f-string prefix: f or F followed by a quote
-        if (value == "f" || value == "F") && (self.current == Some('"') || self.current == Some('\'')) {
+        if (value == "f" || value == "F")
+            && (self.current == Some('"') || self.current == Some('\''))
+        {
             let quote = self.current.unwrap();
             return self.lex_fstring(start_pos, start_col, quote);
         }
 
         // Check for bytes prefix: b or B followed by a quote
-        if (value == "b" || value == "B") && (self.current == Some('"') || self.current == Some('\'')) {
+        if (value == "b" || value == "B")
+            && (self.current == Some('"') || self.current == Some('\''))
+        {
             let quote = self.current.unwrap();
             return self.lex_bytes(start_pos, start_col, quote);
         }
@@ -483,20 +487,46 @@ impl<'a> Lexer<'a> {
         while let Some(c) = self.current {
             if escape {
                 match c {
-                    'n' => { bytes.push(0x0a); escape = false; self.advance(); }
-                    't' => { bytes.push(0x09); escape = false; self.advance(); }
-                    'r' => { bytes.push(0x0d); escape = false; self.advance(); }
-                    '\\' => { bytes.push(0x5c); escape = false; self.advance(); }
-                    '\'' => { bytes.push(0x27); escape = false; self.advance(); }
-                    '"' => { bytes.push(0x22); escape = false; self.advance(); }
+                    'n' => {
+                        bytes.push(0x0a);
+                        escape = false;
+                        self.advance();
+                    }
+                    't' => {
+                        bytes.push(0x09);
+                        escape = false;
+                        self.advance();
+                    }
+                    'r' => {
+                        bytes.push(0x0d);
+                        escape = false;
+                        self.advance();
+                    }
+                    '\\' => {
+                        bytes.push(0x5c);
+                        escape = false;
+                        self.advance();
+                    }
+                    '\'' => {
+                        bytes.push(0x27);
+                        escape = false;
+                        self.advance();
+                    }
+                    '"' => {
+                        bytes.push(0x22);
+                        escape = false;
+                        self.advance();
+                    }
                     'x' => {
                         self.advance(); // move past x to first hex digit
                         let hex_str = match (self.current, self.peek()) {
                             (Some(a), Some(b)) => format!("{}{}", a, b),
-                            _ => return Err(LexerError::new(
-                                LexerErrorKind::InvalidEscape,
-                                self.span(start_pos, start_col),
-                            )),
+                            _ => {
+                                return Err(LexerError::new(
+                                    LexerErrorKind::InvalidEscape,
+                                    self.span(start_pos, start_col),
+                                ));
+                            }
                         };
                         let val = u8::from_str_radix(&hex_str, 16).map_err(|_| {
                             LexerError::new(
@@ -559,7 +589,11 @@ impl<'a> Lexer<'a> {
                         quote_count += 1;
                         self.advance();
                         if quote_count == 3 {
-                            return Ok(self.make_token(TokenKind::StringLiteral(value), start_pos, start_col));
+                            return Ok(self.make_token(
+                                TokenKind::StringLiteral(value),
+                                start_pos,
+                                start_col,
+                            ));
                         }
                     }
                     Some(c) => {

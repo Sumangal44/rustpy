@@ -6,14 +6,14 @@ pub enum Opcode {
     RotThree,
 
     // Variables and Constants
-    LoadConst(usize), // index into constants pool
-    LoadName(usize),  // index into names pool
-    StoreName(usize), // index into names pool
-    LoadGlobal(usize), // index into names pool
+    LoadConst(usize),   // index into constants pool
+    LoadName(usize),    // index into names pool
+    StoreName(usize),   // index into names pool
+    LoadGlobal(usize),  // index into names pool
     StoreGlobal(usize), // index into names pool
-    DeleteName(usize), // index into names pool
+    DeleteName(usize),  // index into names pool
     DeleteAttr(String), // pops object, deletes attribute
-    DeleteSubscript, // pops key, pops collection, deletes item
+    DeleteSubscript,    // pops key, pops collection, deletes item
 
     // Math operations
     BinaryAdd,
@@ -55,7 +55,7 @@ pub enum Opcode {
 
     // Control flow
     #[allow(dead_code)]
-    JumpForward(usize),    // offset
+    JumpForward(usize), // offset
     PopJumpIfFalse(usize), // absolute target
     PopJumpIfTrue(usize),  // absolute target
     JumpAbsolute(usize),   // absolute target
@@ -70,19 +70,19 @@ pub enum Opcode {
     YieldValue,
 
     // Data Structures
-    BuildList(usize), // count
-    BuildMap(usize),  // count (number of key-value pairs)
-    BuildTuple(usize), // count
-    BuildSet(usize),  // count (number of elements; 0 for comprehension)
-    ListExtend,       // pops an iterable, pops a list, extends list, pushes list
-    DictMerge,        // pops a dict, pops a dict, merges, pushes dict
-    ListAppend,       // pops item, pops list, appends item, pushes list back
-    MapAdd,           // pops value, pops key, pops dict, inserts key:value, pushes dict back
-    SetAdd,           // pops item, pops set, adds item (no-op if duplicate), pushes set back
-    BuildSlice,       // pops step (or None), stop (or None), start (or None), pushes PySlice
-    BinarySubscript,  // pops index, pops collection, pushes item
-    StoreSubscript,   // pops value, pops index, pops collection, stores item
-    UnpackSequence(usize), // pops sequence, pushes individual items in reverse order
+    BuildList(usize),       // count
+    BuildMap(usize),        // count (number of key-value pairs)
+    BuildTuple(usize),      // count
+    BuildSet(usize),        // count (number of elements; 0 for comprehension)
+    ListExtend,             // pops an iterable, pops a list, extends list, pushes list
+    DictMerge,              // pops a dict, pops a dict, merges, pushes dict
+    ListAppend,             // pops item, pops list, appends item, pushes list back
+    MapAdd,                 // pops value, pops key, pops dict, inserts key:value, pushes dict back
+    SetAdd,                 // pops item, pops set, adds item (no-op if duplicate), pushes set back
+    BuildSlice,             // pops step (or None), stop (or None), start (or None), pushes PySlice
+    BinarySubscript,        // pops index, pops collection, pushes item
+    StoreSubscript,         // pops value, pops index, pops collection, stores item
+    UnpackSequence(usize),  // pops sequence, pushes individual items in reverse order
     UnpackEx(usize, usize), // (items_before_star, items_after_star) for starred assignment
 
     // Control Flow
@@ -95,23 +95,23 @@ pub enum Opcode {
     StoreAttr(String), // pops object, pops value, sets attribute
 
     // Exceptions
-    SetupExcept(usize), // pushes a block onto block stack, with target
-    PopExcept,          // pops a block from block stack
+    SetupExcept(usize),     // pushes a block onto block stack, with target
+    PopExcept,              // pops a block from block stack
     SetupFinally(usize), // pushes a finally block; on exception, saves exception and jumps to target
     PopFinally,          // pops a finally block from block stack
     EndFinally,          // end of finally block; re-raises pending exception if any
-    Raise,              // pops an object, raises it as an exception
+    Raise,               // pops an object, raises it as an exception
     ExceptionMatch(String), // checks if exception matches class name
     #[allow(dead_code)]
-    TryEnd,             // marker for end of try structure
+    TryEnd, // marker for end of try structure
 
     // Context Managers
     SetupWith(usize), // pushes block, calls __enter__, pushes result
     WithCleanup,      // pops block, calls __exit__
 
     // Async
-    GetAwaitable,  // pops coroutine, pushes __await__() iterator
-    YieldFrom,     // pops iterator, runs it, yields intermediate values, pushes final result
+    GetAwaitable, // pops coroutine, pushes __await__() iterator
+    YieldFrom,    // pops iterator, runs it, yields intermediate values, pushes final result
 
     // Import
     ImportName(usize), // index into names; pops fromlist, level; pushes module

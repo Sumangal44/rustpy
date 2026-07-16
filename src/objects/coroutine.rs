@@ -70,13 +70,15 @@ impl PyObject for PyCoroutine {
                 let self_clone = Rc::new(Self {
                     frame: Rc::clone(&self.frame),
                 }) as Rc<dyn PyObject>;
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only(
-                    "__await__".to_string(),
-                    move |_args| {
-                        let iter = self_clone.get_iter()?;
-                        Ok(iter)
-                    },
-                )) as Rc<dyn PyObject>)
+                Ok(Rc::new(
+                    crate::objects::native_function::PyNativeFunction::new_pos_only(
+                        "__await__".to_string(),
+                        move |_args| {
+                            let iter = self_clone.get_iter()?;
+                            Ok(iter)
+                        },
+                    ),
+                ) as Rc<dyn PyObject>)
             }
             _ => Err(format!(
                 "AttributeError: 'coroutine' object has no attribute '{}'",

@@ -1,7 +1,7 @@
 use super::PyObject;
 use super::native_function::PyNativeFunction;
 use num_bigint::BigInt;
-use num_traits::{Zero, One, ToPrimitive, Signed};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::any::Any;
 use std::rc::Rc;
 
@@ -16,7 +16,9 @@ impl PyInt {
     }
 
     pub fn from_i64(value: i64) -> Self {
-        Self { value: BigInt::from(value) }
+        Self {
+            value: BigInt::from(value),
+        }
     }
 
     pub fn as_i64(&self) -> Option<i64> {
@@ -52,13 +54,22 @@ impl PyObject for PyInt {
     fn add(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
             Some(Rc::new(PyInt::new(&self.value + &i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             Some(Rc::new(crate::objects::float::PyFloat::new(
                 self.value.to_f64().unwrap_or(0.0) + f.value,
             )))
-        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+        } else if let Some(c) = other
+            .as_any()
+            .downcast_ref::<crate::objects::complex::PyComplex>()
+        {
             let val = self.value.to_f64().unwrap_or(0.0);
-            Some(Rc::new(crate::objects::complex::PyComplex::new(val + c.real, c.imag)))
+            Some(Rc::new(crate::objects::complex::PyComplex::new(
+                val + c.real,
+                c.imag,
+            )))
         } else {
             None
         }
@@ -67,13 +78,22 @@ impl PyObject for PyInt {
     fn sub(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
             Some(Rc::new(PyInt::new(&self.value - &i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             Some(Rc::new(crate::objects::float::PyFloat::new(
                 self.value.to_f64().unwrap_or(0.0) - f.value,
             )))
-        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+        } else if let Some(c) = other
+            .as_any()
+            .downcast_ref::<crate::objects::complex::PyComplex>()
+        {
             let val = self.value.to_f64().unwrap_or(0.0);
-            Some(Rc::new(crate::objects::complex::PyComplex::new(val - c.real, -c.imag)))
+            Some(Rc::new(crate::objects::complex::PyComplex::new(
+                val - c.real,
+                -c.imag,
+            )))
         } else {
             None
         }
@@ -82,13 +102,22 @@ impl PyObject for PyInt {
     fn mul(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
             Some(Rc::new(PyInt::new(&self.value * &i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             Some(Rc::new(crate::objects::float::PyFloat::new(
                 self.value.to_f64().unwrap_or(0.0) * f.value,
             )))
-        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+        } else if let Some(c) = other
+            .as_any()
+            .downcast_ref::<crate::objects::complex::PyComplex>()
+        {
             let val = self.value.to_f64().unwrap_or(0.0);
-            Some(Rc::new(crate::objects::complex::PyComplex::new(val * c.real, val * c.imag)))
+            Some(Rc::new(crate::objects::complex::PyComplex::new(
+                val * c.real,
+                val * c.imag,
+            )))
         } else {
             None
         }
@@ -96,18 +125,30 @@ impl PyObject for PyInt {
 
     fn truediv(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            if i.value.is_zero() { return None; }
+            if i.value.is_zero() {
+                return None;
+            }
             let a = self.value.to_f64().unwrap_or(0.0);
             let b = i.value.to_f64().unwrap_or(1.0);
             Some(Rc::new(crate::objects::float::PyFloat::new(a / b)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
-            if f.value == 0.0 { return None; }
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
+            if f.value == 0.0 {
+                return None;
+            }
             Some(Rc::new(crate::objects::float::PyFloat::new(
                 self.value.to_f64().unwrap_or(0.0) / f.value,
             )))
-        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+        } else if let Some(c) = other
+            .as_any()
+            .downcast_ref::<crate::objects::complex::PyComplex>()
+        {
             let denom = c.real * c.real + c.imag * c.imag;
-            if denom == 0.0 { return None; }
+            if denom == 0.0 {
+                return None;
+            }
             let a = self.value.to_f64().unwrap_or(0.0);
             let real = a * c.real / denom;
             let imag = -a * c.imag / denom;
@@ -119,13 +160,22 @@ impl PyObject for PyInt {
 
     fn floordiv(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            if i.value.is_zero() { return None; }
+            if i.value.is_zero() {
+                return None;
+            }
             Some(Rc::new(PyInt::new(&self.value / &i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
-            if f.value == 0.0 { return None; }
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
+            if f.value == 0.0 {
+                return None;
+            }
             let a = self.value.to_f64().unwrap_or(0.0);
             let b = f.value;
-            Some(Rc::new(crate::objects::float::PyFloat::new((a / b).floor())))
+            Some(Rc::new(crate::objects::float::PyFloat::new(
+                (a / b).floor(),
+            )))
         } else {
             None
         }
@@ -133,10 +183,17 @@ impl PyObject for PyInt {
 
     fn modulo(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            if i.value.is_zero() { return None; }
+            if i.value.is_zero() {
+                return None;
+            }
             Some(Rc::new(PyInt::new(&self.value % &i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
-            if f.value == 0.0 { return None; }
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
+            if f.value == 0.0 {
+                return None;
+            }
             Some(Rc::new(crate::objects::float::PyFloat::new(
                 self.value.to_f64().unwrap_or(0.0) % f.value,
             )))
@@ -156,9 +213,14 @@ impl PyObject for PyInt {
             } else {
                 None
             }
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
-            Some(Rc::new(crate::objects::float::PyFloat::new(a.powf(f.value))))
+            Some(Rc::new(crate::objects::float::PyFloat::new(
+                a.powf(f.value),
+            )))
         } else {
             None
         }
@@ -230,16 +292,35 @@ impl PyObject for PyInt {
 
     fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value == i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value == i.value,
+            )))
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
             Some(Rc::new(crate::objects::bool::PyBool::new(a == f.value)))
-        } else if let Some(b) = other.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-            let b_val = if b.value { BigInt::one() } else { BigInt::zero() };
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value == b_val)))
-        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+        } else if let Some(b) = other
+            .as_any()
+            .downcast_ref::<crate::objects::bool::PyBool>()
+        {
+            let b_val = if b.value {
+                BigInt::one()
+            } else {
+                BigInt::zero()
+            };
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value == b_val,
+            )))
+        } else if let Some(c) = other
+            .as_any()
+            .downcast_ref::<crate::objects::complex::PyComplex>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
-            Some(Rc::new(crate::objects::bool::PyBool::new(a == c.real && c.imag == 0.0)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                a == c.real && c.imag == 0.0,
+            )))
         } else {
             None
         }
@@ -247,16 +328,35 @@ impl PyObject for PyInt {
 
     fn ne(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value != i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value != i.value,
+            )))
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
             Some(Rc::new(crate::objects::bool::PyBool::new(a != f.value)))
-        } else if let Some(b) = other.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-            let b_val = if b.value { BigInt::one() } else { BigInt::zero() };
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value != b_val)))
-        } else if let Some(c) = other.as_any().downcast_ref::<crate::objects::complex::PyComplex>() {
+        } else if let Some(b) = other
+            .as_any()
+            .downcast_ref::<crate::objects::bool::PyBool>()
+        {
+            let b_val = if b.value {
+                BigInt::one()
+            } else {
+                BigInt::zero()
+            };
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value != b_val,
+            )))
+        } else if let Some(c) = other
+            .as_any()
+            .downcast_ref::<crate::objects::complex::PyComplex>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
-            Some(Rc::new(crate::objects::bool::PyBool::new(a != c.real || c.imag != 0.0)))
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                a != c.real || c.imag != 0.0,
+            )))
         } else {
             None
         }
@@ -264,13 +364,27 @@ impl PyObject for PyInt {
 
     fn lt(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value < i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value < i.value,
+            )))
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
             Some(Rc::new(crate::objects::bool::PyBool::new(a < f.value)))
-        } else if let Some(b) = other.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-            let b_val = if b.value { BigInt::one() } else { BigInt::zero() };
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value < b_val)))
+        } else if let Some(b) = other
+            .as_any()
+            .downcast_ref::<crate::objects::bool::PyBool>()
+        {
+            let b_val = if b.value {
+                BigInt::one()
+            } else {
+                BigInt::zero()
+            };
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value < b_val,
+            )))
         } else {
             None
         }
@@ -278,13 +392,27 @@ impl PyObject for PyInt {
 
     fn le(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value <= i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value <= i.value,
+            )))
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
             Some(Rc::new(crate::objects::bool::PyBool::new(a <= f.value)))
-        } else if let Some(b) = other.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-            let b_val = if b.value { BigInt::one() } else { BigInt::zero() };
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value <= b_val)))
+        } else if let Some(b) = other
+            .as_any()
+            .downcast_ref::<crate::objects::bool::PyBool>()
+        {
+            let b_val = if b.value {
+                BigInt::one()
+            } else {
+                BigInt::zero()
+            };
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value <= b_val,
+            )))
         } else {
             None
         }
@@ -292,13 +420,27 @@ impl PyObject for PyInt {
 
     fn gt(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value > i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value > i.value,
+            )))
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
             Some(Rc::new(crate::objects::bool::PyBool::new(a > f.value)))
-        } else if let Some(b) = other.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-            let b_val = if b.value { BigInt::one() } else { BigInt::zero() };
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value > b_val)))
+        } else if let Some(b) = other
+            .as_any()
+            .downcast_ref::<crate::objects::bool::PyBool>()
+        {
+            let b_val = if b.value {
+                BigInt::one()
+            } else {
+                BigInt::zero()
+            };
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value > b_val,
+            )))
         } else {
             None
         }
@@ -306,13 +448,27 @@ impl PyObject for PyInt {
 
     fn ge(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         if let Some(i) = other.as_any().downcast_ref::<PyInt>() {
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= i.value)))
-        } else if let Some(f) = other.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value >= i.value,
+            )))
+        } else if let Some(f) = other
+            .as_any()
+            .downcast_ref::<crate::objects::float::PyFloat>()
+        {
             let a = self.value.to_f64().unwrap_or(0.0);
             Some(Rc::new(crate::objects::bool::PyBool::new(a >= f.value)))
-        } else if let Some(b) = other.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-            let b_val = if b.value { BigInt::one() } else { BigInt::zero() };
-            Some(Rc::new(crate::objects::bool::PyBool::new(self.value >= b_val)))
+        } else if let Some(b) = other
+            .as_any()
+            .downcast_ref::<crate::objects::bool::PyBool>()
+        {
+            let b_val = if b.value {
+                BigInt::one()
+            } else {
+                BigInt::zero()
+            };
+            Some(Rc::new(crate::objects::bool::PyBool::new(
+                self.value >= b_val,
+            )))
         } else {
             None
         }
@@ -329,36 +485,53 @@ impl PyObject for PyInt {
         match attr {
             "__format__" => {
                 let val = self.value.clone();
-                Ok(Rc::new(PyNativeFunction::new_pos_only("__format__".to_string(), move |args| {
-                    let spec = if args.is_empty() { String::new() } else { args[0].str() };
-                    if spec.is_empty() {
-                        return Ok(Rc::new(crate::objects::string::PyString::new(val.to_string())));
-                    }
-
-                    // Extract type character if any (last char in spec)
-                    let mut type_char = 'd';
-                    if let Some(last_char) = spec.chars().last() {
-                        if last_char.is_alphabetic() {
-                            type_char = last_char;
+                Ok(Rc::new(PyNativeFunction::new_pos_only(
+                    "__format__".to_string(),
+                    move |args| {
+                        let spec = if args.is_empty() {
+                            String::new()
+                        } else {
+                            args[0].str()
+                        };
+                        if spec.is_empty() {
+                            return Ok(Rc::new(crate::objects::string::PyString::new(
+                                val.to_string(),
+                            )));
                         }
-                    }
 
-                    let raw_str = match type_char {
-                        'x' => format!("{:x}", val),
-                        'X' => format!("{:X}", val),
-                        'o' => format!("{:o}", val),
-                        'b' => format!("{:b}", val),
-                        'd' | 'n' => val.to_string(),
-                        _ => return Err(format!("ValueError: Unknown format code '{}' for object of type 'int'", type_char)),
-                    };
+                        // Extract type character if any (last char in spec)
+                        let mut type_char = 'd';
+                        if let Some(last_char) = spec.chars().last() {
+                            if last_char.is_alphabetic() {
+                                type_char = last_char;
+                            }
+                        }
 
-                    match crate::objects::string::format_align_width(&raw_str, &spec, '>') {
-                        Ok(res) => Ok(Rc::new(crate::objects::string::PyString::new(res))),
-                        Err(e) => Err(e),
-                    }
-                })))
+                        let raw_str = match type_char {
+                            'x' => format!("{:x}", val),
+                            'X' => format!("{:X}", val),
+                            'o' => format!("{:o}", val),
+                            'b' => format!("{:b}", val),
+                            'd' | 'n' => val.to_string(),
+                            _ => {
+                                return Err(format!(
+                                    "ValueError: Unknown format code '{}' for object of type 'int'",
+                                    type_char
+                                ));
+                            }
+                        };
+
+                        match crate::objects::string::format_align_width(&raw_str, &spec, '>') {
+                            Ok(res) => Ok(Rc::new(crate::objects::string::PyString::new(res))),
+                            Err(e) => Err(e),
+                        }
+                    },
+                )))
             }
-            _ => Err(format!("AttributeError: 'int' object has no attribute '{}'", attr)),
+            _ => Err(format!(
+                "AttributeError: 'int' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 }

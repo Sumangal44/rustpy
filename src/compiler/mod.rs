@@ -96,8 +96,11 @@ impl Compiler {
             Stmt::Assign { targets, value } => {
                 self.compile_expr(value)?;
 
-                let star_count = targets.iter().filter(|t| matches!(t, Expr::Starred { .. })).count();
-                
+                let star_count = targets
+                    .iter()
+                    .filter(|t| matches!(t, Expr::Starred { .. }))
+                    .count();
+
                 if star_count == 0 && targets.len() == 1 {
                     match &targets[0] {
                         Expr::Identifier(name) => {
@@ -151,7 +154,10 @@ impl Compiler {
                         }
                     }
                 } else if star_count == 1 {
-                    let star_index = targets.iter().position(|t| matches!(t, Expr::Starred { .. })).unwrap();
+                    let star_index = targets
+                        .iter()
+                        .position(|t| matches!(t, Expr::Starred { .. }))
+                        .unwrap();
                     let before = star_index;
                     let after = targets.len() - star_index - 1;
                     self.emit(Opcode::UnpackEx(before, after));
@@ -174,29 +180,35 @@ impl Compiler {
                                 self.compile_expr(slice)?;
                                 self.emit(Opcode::StoreSubscript);
                             }
-                            Expr::Starred { value } => {
-                                match value.as_ref() {
-                                    Expr::Identifier(name) => {
-                                        let name_idx = self.get_or_add_name(name);
-                                        if self.global_names.contains(name) {
-                                            self.emit(Opcode::StoreGlobal(name_idx));
-                                        } else {
-                                            self.emit(Opcode::StoreName(name_idx));
-                                        }
+                            Expr::Starred { value } => match value.as_ref() {
+                                Expr::Identifier(name) => {
+                                    let name_idx = self.get_or_add_name(name);
+                                    if self.global_names.contains(name) {
+                                        self.emit(Opcode::StoreGlobal(name_idx));
+                                    } else {
+                                        self.emit(Opcode::StoreName(name_idx));
                                     }
-                                    Expr::Attribute { value, attr } => {
-                                        self.compile_expr(value)?;
-                                        self.emit(Opcode::StoreAttr(attr.clone()));
-                                    }
-                                    Expr::Subscript { value, slice } => {
-                                        self.compile_expr(value)?;
-                                        self.compile_expr(slice)?;
-                                        self.emit(Opcode::StoreSubscript);
-                                    }
-                                    _ => return Err("CompilerError: Unsupported starred target".to_string()),
                                 }
+                                Expr::Attribute { value, attr } => {
+                                    self.compile_expr(value)?;
+                                    self.emit(Opcode::StoreAttr(attr.clone()));
+                                }
+                                Expr::Subscript { value, slice } => {
+                                    self.compile_expr(value)?;
+                                    self.compile_expr(slice)?;
+                                    self.emit(Opcode::StoreSubscript);
+                                }
+                                _ => {
+                                    return Err(
+                                        "CompilerError: Unsupported starred target".to_string()
+                                    );
+                                }
+                            },
+                            _ => {
+                                return Err(
+                                    "CompilerError: Unsupported assignment target".to_string()
+                                );
                             }
-                            _ => return Err("CompilerError: Unsupported assignment target".to_string()),
                         }
                     }
                 } else {
@@ -212,7 +224,10 @@ impl Compiler {
                         self.emit_binop(op.clone())?;
                         self.emit(Opcode::StoreName(name_idx));
                     }
-                    Expr::Attribute { value: target_val, attr } => {
+                    Expr::Attribute {
+                        value: target_val,
+                        attr,
+                    } => {
                         self.compile_expr(target_val)?;
                         // Dup the object by compiling twice (simplified)
                         self.compile_expr(target_val)?;
@@ -222,11 +237,17 @@ impl Compiler {
                         self.emit(Opcode::StoreAttr(attr.clone()));
                     }
                     _ => {
-                        return Err("CompilerError: Unsupported augmented assignment target".to_string());
+                        return Err(
+                            "CompilerError: Unsupported augmented assignment target".to_string()
+                        );
                     }
                 }
             }
-            Stmt::AnnAssign { target: _, annotation: _, value: _ } => {
+            Stmt::AnnAssign {
+                target: _,
+                annotation: _,
+                value: _,
+            } => {
                 return Err("CompilerError: AnnAssign not yet implemented".to_string());
             }
             Stmt::Break => {
@@ -241,9 +262,11 @@ impl Compiler {
                 self.loop_stack[idx_in_stack].break_targets.push(break_idx);
             }
             Stmt::Continue => {
-                let start = self.loop_stack.last().ok_or_else(|| {
-                    "SyntaxError: 'continue' outside loop".to_string()
-                })?.start;
+                let start = self
+                    .loop_stack
+                    .last()
+                    .ok_or_else(|| "SyntaxError: 'continue' outside loop".to_string())?
+                    .start;
                 self.emit(Opcode::JumpAbsolute(start));
             }
             Stmt::Del { targets } => {
@@ -311,8 +334,7 @@ impl Compiler {
                     }
 
                     let next_case_pos = self.code.instructions.len();
-                    self.code.instructions[jump_false_idx] =
-                        Opcode::PopJumpIfFalse(next_case_pos);
+                    self.code.instructions[jump_false_idx] = Opcode::PopJumpIfFalse(next_case_pos);
                     if let Some(idx) = guard_false_idx {
                         self.code.instructions[idx] = Opcode::PopJumpIfFalse(next_case_pos);
                     }
@@ -390,7 +412,7 @@ impl Compiler {
                 }
 
                 self.emit(Opcode::JumpAbsolute(loop_start));
-                
+
                 let condition_false_target = self.code.instructions.len();
                 self.code.instructions[jump_if_false_idx] =
                     Opcode::PopJumpIfFalse(condition_false_target);
@@ -406,7 +428,13 @@ impl Compiler {
                     self.code.instructions[*idx] = Opcode::JumpAbsolute(after_orelse);
                 }
             }
-            Stmt::For { target, iter, body, orelse, is_async } => {
+            Stmt::For {
+                target,
+                iter,
+                body,
+                orelse,
+                is_async,
+            } => {
                 // TODO: handle async for (async iteration) when is_async is true
                 let _ = is_async;
                 self.compile_expr(iter)?;
@@ -446,7 +474,7 @@ impl Compiler {
                 self.emit(Opcode::JumpAbsolute(loop_start));
                 let loop_end = self.code.instructions.len();
                 self.code.instructions[for_iter_idx] = Opcode::ForIter(loop_end);
-                
+
                 let info = self.loop_stack.pop().unwrap();
 
                 for s in orelse {
@@ -458,7 +486,12 @@ impl Compiler {
                     self.code.instructions[*idx] = Opcode::JumpAbsolute(after_orelse);
                 }
             }
-            Stmt::ClassDef { name, bases, body, decorators } => {
+            Stmt::ClassDef {
+                name,
+                bases,
+                body,
+                decorators,
+            } => {
                 // Compile decorators first so they are on the stack
                 for decorator in decorators {
                     self.compile_expr(decorator)?;
@@ -505,7 +538,12 @@ impl Compiler {
                 let name_idx = self.get_or_add_name(name);
                 self.emit(Opcode::StoreName(name_idx));
             }
-            Stmt::Try { body, handlers, else_body, finally_body } => {
+            Stmt::Try {
+                body,
+                handlers,
+                else_body,
+                finally_body,
+            } => {
                 let has_handlers = !handlers.is_empty();
                 let has_else = else_body.is_some();
                 let has_finally = finally_body.is_some();
@@ -585,7 +623,8 @@ impl Compiler {
                             handler_end_jumps.push(self.emit(Opcode::JumpAbsolute(0)));
 
                             let next_handler = self.code.instructions.len();
-                            self.code.instructions[type_mismatch_jump] = Opcode::PopJumpIfFalse(next_handler);
+                            self.code.instructions[type_mismatch_jump] =
+                                Opcode::PopJumpIfFalse(next_handler);
                         } else {
                             // Bare except - always matches
                             if let Some(as_name) = as_name_opt {
@@ -693,24 +732,22 @@ impl Compiler {
                     self.code.instructions[setup_idx] = Opcode::SetupWith(except_target);
                 }
             }
-            Stmt::Raise { exc, cause } => {
-                match (exc, cause) {
-                    (Some(exc_expr), Some(cause_expr)) => {
-                        self.compile_expr(cause_expr)?;
-                        self.compile_expr(exc_expr)?;
-                        self.emit(Opcode::Raise);
-                    }
-                    (Some(exc_expr), None) => {
-                        let none_idx = self.add_constant(Rc::new(PyNone::new()));
-                        self.emit(Opcode::LoadConst(none_idx));
-                        self.compile_expr(exc_expr)?;
-                        self.emit(Opcode::Raise);
-                    }
-                    (None, _) => {
-                        self.emit(Opcode::Raise);
-                    }
+            Stmt::Raise { exc, cause } => match (exc, cause) {
+                (Some(exc_expr), Some(cause_expr)) => {
+                    self.compile_expr(cause_expr)?;
+                    self.compile_expr(exc_expr)?;
+                    self.emit(Opcode::Raise);
                 }
-            }
+                (Some(exc_expr), None) => {
+                    let none_idx = self.add_constant(Rc::new(PyNone::new()));
+                    self.emit(Opcode::LoadConst(none_idx));
+                    self.compile_expr(exc_expr)?;
+                    self.emit(Opcode::Raise);
+                }
+                (None, _) => {
+                    self.emit(Opcode::Raise);
+                }
+            },
             Stmt::Pass => {}
             Stmt::Return { value } => {
                 if let Some(expr) = value {
@@ -819,9 +856,11 @@ impl Compiler {
                     let top_store = alias.asname.as_ref().unwrap_or(&top_level);
 
                     // Push level=0, fromlist=()
-                    let zero_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(0)));
+                    let zero_idx =
+                        self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(0)));
                     self.emit(Opcode::LoadConst(zero_idx));
-                    let empty_tuple_idx = self.add_constant(Rc::new(crate::objects::tuple::PyTuple::new(vec![])));
+                    let empty_tuple_idx =
+                        self.add_constant(Rc::new(crate::objects::tuple::PyTuple::new(vec![])));
                     self.emit(Opcode::LoadConst(empty_tuple_idx));
                     // IMPORT_NAME with the full module name
                     let name_idx = self.get_or_add_name(name);
@@ -831,7 +870,11 @@ impl Compiler {
                     self.emit(Opcode::StoreName(store_idx));
                 }
             }
-            Stmt::ImportFrom { module, names, level } => {
+            Stmt::ImportFrom {
+                module,
+                names,
+                level,
+            } => {
                 let mut from_names: Vec<Rc<dyn PyObject>> = Vec::new();
                 let is_star = names.len() == 1 && names[0].name == "*";
 
@@ -841,13 +884,15 @@ impl Compiler {
                     from_names.push(zero);
                 } else {
                     for alias in names {
-                        let name_obj = Rc::new(crate::objects::string::PyString::new(alias.name.clone()));
+                        let name_obj =
+                            Rc::new(crate::objects::string::PyString::new(alias.name.clone()));
                         from_names.push(name_obj);
                     }
                 }
 
                 // Push level, fromlist (level > 0 means relative import)
-                let level_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(*level as i64)));
+                let level_idx =
+                    self.add_constant(Rc::new(crate::objects::int::PyInt::from_i64(*level as i64)));
                 self.emit(Opcode::LoadConst(level_idx));
                 let fromlist = Rc::new(crate::objects::tuple::PyTuple::new(from_names));
                 let fromlist_idx = self.add_constant(fromlist);
@@ -919,97 +964,99 @@ impl Compiler {
                 let count = subpatterns.len();
                 self.emit(Opcode::DupTop); // dup subj
                 self.emit(Opcode::CheckSequence(count));
-                
+
                 let fail_jump = self.emit(Opcode::PopJumpIfFalse(0));
-                
+
                 let mut sub_fails = Vec::new();
                 for (i, subpattern) in subpatterns.iter().enumerate() {
                     self.emit(Opcode::DupTop); // dup subj
-                    let idx_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::new(num_bigint::BigInt::from(i as i64))));
+                    let idx_idx = self.add_constant(Rc::new(crate::objects::int::PyInt::new(
+                        num_bigint::BigInt::from(i as i64),
+                    )));
                     self.emit(Opcode::LoadConst(idx_idx));
                     self.emit(Opcode::BinarySubscript);
-                    
+
                     self.compile_pattern(subpattern)?;
                     sub_fails.push(self.emit(Opcode::PopJumpIfFalse(0)));
                 }
-                
+
                 self.emit(Opcode::PopTop); // pop subj
                 let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
                 self.emit(Opcode::LoadConst(true_idx));
                 let success_jump = self.emit(Opcode::JumpAbsolute(0));
-                
+
                 let fail_target = self.code.instructions.len();
                 self.code.instructions[fail_jump] = Opcode::PopJumpIfFalse(fail_target);
                 for sub_fail in sub_fails {
                     self.code.instructions[sub_fail] = Opcode::PopJumpIfFalse(fail_target);
                 }
-                
+
                 self.emit(Opcode::PopTop); // pop subj
                 let false_idx = self.add_constant(Rc::new(PyBool::new(false)));
                 self.emit(Opcode::LoadConst(false_idx));
-                
+
                 let end_target = self.code.instructions.len();
                 self.code.instructions[success_jump] = Opcode::JumpAbsolute(end_target);
             }
             Pattern::Mapping(elements) => {
                 self.emit(Opcode::DupTop); // dup subj
                 self.emit(Opcode::MatchMapping); // pushes True/False
-                
+
                 let fail_jump = self.emit(Opcode::PopJumpIfFalse(0));
-                
+
                 let mut sub_fails = Vec::new();
                 for (key_expr, val_pattern) in elements {
                     self.emit(Opcode::DupTop); // stack: subj, subj
                     self.compile_expr(key_expr)?; // stack: subj, subj, key
-                    
+
                     self.emit(Opcode::DupTop); // stack: subj, subj, key, key
                     self.emit(Opcode::RotThree); // stack: subj, key, subj, key
                     self.emit(Opcode::RotTwo); // stack: subj, key, key, subj
                     self.emit(Opcode::DupTop); // stack: subj, key, key, subj, subj
                     self.emit(Opcode::RotThree); // stack: subj, key, subj, key, subj
-                    
+
                     self.emit(Opcode::CompareIn); // stack: subj, key, subj, is_in
                     let jump_if_in = self.emit(Opcode::PopJumpIfTrue(0)); // stack: subj, key, subj
-                    
+
                     // Fail path for CompareIn
                     self.emit(Opcode::PopTop); // pop subj
                     self.emit(Opcode::PopTop); // pop key
                     self.emit(Opcode::PopTop); // pop subj (leaves the original subj)
                     sub_fails.push(self.emit(Opcode::JumpAbsolute(0))); // jump to fail_target
-                    
+
                     let in_target = self.code.instructions.len();
                     self.code.instructions[jump_if_in] = Opcode::PopJumpIfTrue(in_target);
                     // stack: subj, key, subj
-                    
+
                     self.emit(Opcode::RotTwo); // stack: subj, subj, key
                     self.emit(Opcode::BinarySubscript); // stack: subj, subj[key]
-                    
+
                     self.compile_pattern(val_pattern)?; // stack: subj, is_match
                     let jump_if_match = self.emit(Opcode::PopJumpIfTrue(0)); // stack: subj
-                    
+
                     // Fail path for compile_pattern
                     sub_fails.push(self.emit(Opcode::JumpAbsolute(0))); // jump to fail_target
-                    
+
                     let match_target = self.code.instructions.len();
                     self.code.instructions[jump_if_match] = Opcode::PopJumpIfTrue(match_target);
                     // stack: subj (ready for next iteration)
                 }
-                
+
                 self.emit(Opcode::PopTop); // pop subj
                 let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
                 self.emit(Opcode::LoadConst(true_idx));
                 let success_jump = self.emit(Opcode::JumpAbsolute(0));
-                
+
                 let fail_target = self.code.instructions.len();
                 self.code.instructions[fail_jump] = Opcode::PopJumpIfFalse(fail_target);
                 for sub_fail in sub_fails {
                     self.code.instructions[sub_fail] = Opcode::JumpAbsolute(fail_target);
                 }
-                
+
                 self.emit(Opcode::PopTop); // pop subj
                 let false_idx = self.add_constant(Rc::new(PyBool::new(false)));
                 self.emit(Opcode::LoadConst(false_idx));
-                
+
                 let end_target = self.code.instructions.len();
                 self.code.instructions[success_jump] = Opcode::JumpAbsolute(end_target);
             }
@@ -1040,7 +1087,8 @@ impl Compiler {
                     sub_fails.push(self.emit(Opcode::JumpAbsolute(0))); // jump to fail_target
 
                     let continue_target = self.code.instructions.len();
-                    self.code.instructions[success_continue] = Opcode::JumpAbsolute(continue_target);
+                    self.code.instructions[success_continue] =
+                        Opcode::JumpAbsolute(continue_target);
                 }
 
                 // Handle keyword patterns: case Point(x=val_pattern, y=val_pattern)
@@ -1139,7 +1187,7 @@ impl Compiler {
             (Expr::StringLiteral(l_val), Expr::StringLiteral(r_val)) if op == BinOpKind::Add => {
                 Some(Expr::StringLiteral(format!("{}{}", l_val, r_val)))
             }
-            _ => None
+            _ => None,
         }
     }
 
@@ -1150,25 +1198,23 @@ impl Compiler {
                 match op {
                     UnaryOpKind::Minus => Some(Expr::IntLiteral((-val).to_string())),
                     UnaryOpKind::Plus => Some(Expr::IntLiteral(val.to_string())),
-                    UnaryOpKind::Not => Some(Expr::BooleanLiteral(val == num_bigint::BigInt::from(0))),
+                    UnaryOpKind::Not => {
+                        Some(Expr::BooleanLiteral(val == num_bigint::BigInt::from(0)))
+                    }
                     _ => None,
                 }
             }
-            Expr::FloatLiteral(val) => {
-                match op {
-                    UnaryOpKind::Minus => Some(Expr::FloatLiteral(-val)),
-                    UnaryOpKind::Plus => Some(Expr::FloatLiteral(*val)),
-                    UnaryOpKind::Not => Some(Expr::BooleanLiteral(*val == 0.0)),
-                    _ => None,
-                }
-            }
-            Expr::BooleanLiteral(val) => {
-                match op {
-                    UnaryOpKind::Not => Some(Expr::BooleanLiteral(!val)),
-                    _ => None,
-                }
-            }
-            _ => None
+            Expr::FloatLiteral(val) => match op {
+                UnaryOpKind::Minus => Some(Expr::FloatLiteral(-val)),
+                UnaryOpKind::Plus => Some(Expr::FloatLiteral(*val)),
+                UnaryOpKind::Not => Some(Expr::BooleanLiteral(*val == 0.0)),
+                _ => None,
+            },
+            Expr::BooleanLiteral(val) => match op {
+                UnaryOpKind::Not => Some(Expr::BooleanLiteral(!val)),
+                _ => None,
+            },
+            _ => None,
         }
     }
 
@@ -1177,10 +1223,10 @@ impl Compiler {
             Expr::BinOp { left, op, right } => {
                 let folded_left = self.try_fold_expr(left);
                 let folded_right = self.try_fold_expr(right);
-                
+
                 let l = folded_left.as_ref().unwrap_or(left.as_ref());
                 let r = folded_right.as_ref().unwrap_or(right.as_ref());
-                
+
                 if let Some(folded_binop) = self.fold_binop(l, *op, r) {
                     Some(folded_binop)
                 } else if folded_left.is_some() || folded_right.is_some() {
@@ -1196,7 +1242,7 @@ impl Compiler {
             Expr::UnaryOp { op, operand } => {
                 let folded_operand = self.try_fold_expr(operand);
                 let o = folded_operand.as_ref().unwrap_or(operand.as_ref());
-                
+
                 if let Some(folded_unaryop) = self.fold_unaryop(*op, o) {
                     Some(folded_unaryop)
                 } else if folded_operand.is_some() {
@@ -1208,7 +1254,7 @@ impl Compiler {
                     None
                 }
             }
-            _ => None
+            _ => None,
         }
     }
 
@@ -1226,7 +1272,8 @@ impl Compiler {
                     num_bigint::BigInt::parse_bytes(&val.as_bytes()[2..], 2)
                 } else {
                     val.parse().ok()
-                }.ok_or_else(|| format!("Invalid integer literal: {}", val))?;
+                }
+                .ok_or_else(|| format!("Invalid integer literal: {}", val))?;
                 let idx = self.add_constant(Rc::new(PyInt::new(bigint)));
                 self.emit(Opcode::LoadConst(idx));
             }
@@ -1235,7 +1282,8 @@ impl Compiler {
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::ImagLiteral(val) => {
-                let idx = self.add_constant(Rc::new(crate::objects::complex::PyComplex::new(0.0, *val)));
+                let idx =
+                    self.add_constant(Rc::new(crate::objects::complex::PyComplex::new(0.0, *val)));
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::StringLiteral(val) => {
@@ -1243,7 +1291,8 @@ impl Compiler {
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::BytesLiteral(val) => {
-                let idx = self.add_constant(Rc::new(crate::objects::bytes::PyBytes::new(val.clone())));
+                let idx =
+                    self.add_constant(Rc::new(crate::objects::bytes::PyBytes::new(val.clone())));
                 self.emit(Opcode::LoadConst(idx));
             }
             Expr::BooleanLiteral(val) => {
@@ -1283,33 +1332,31 @@ impl Compiler {
                     self.emit(Opcode::LoadName(idx));
                 }
             }
-            Expr::BinOp { left, op, right } => {
-                match op {
-                    BinOpKind::And | BinOpKind::Or => {
-                        self.compile_expr(left)?;
-                        self.emit(Opcode::DupTop);
-                        let is_and = *op == BinOpKind::And;
-                        let jump_idx = if is_and {
-                            self.emit(Opcode::PopJumpIfFalse(0))
-                        } else {
-                            self.emit(Opcode::PopJumpIfTrue(0))
-                        };
-                        self.emit(Opcode::PopTop);
-                        self.compile_expr(right)?;
-                        let end = self.code.instructions.len();
-                        self.code.instructions[jump_idx] = if is_and {
-                            Opcode::PopJumpIfFalse(end)
-                        } else {
-                            Opcode::PopJumpIfTrue(end)
-                        };
-                    }
-                    _ => {
-                        self.compile_expr(left)?;
-                        self.compile_expr(right)?;
-                        self.emit_binop(*op)?;
-                    }
+            Expr::BinOp { left, op, right } => match op {
+                BinOpKind::And | BinOpKind::Or => {
+                    self.compile_expr(left)?;
+                    self.emit(Opcode::DupTop);
+                    let is_and = *op == BinOpKind::And;
+                    let jump_idx = if is_and {
+                        self.emit(Opcode::PopJumpIfFalse(0))
+                    } else {
+                        self.emit(Opcode::PopJumpIfTrue(0))
+                    };
+                    self.emit(Opcode::PopTop);
+                    self.compile_expr(right)?;
+                    let end = self.code.instructions.len();
+                    self.code.instructions[jump_idx] = if is_and {
+                        Opcode::PopJumpIfFalse(end)
+                    } else {
+                        Opcode::PopJumpIfTrue(end)
+                    };
                 }
-            }
+                _ => {
+                    self.compile_expr(left)?;
+                    self.compile_expr(right)?;
+                    self.emit_binop(*op)?;
+                }
+            },
             Expr::UnaryOp { op, operand } => {
                 self.compile_expr(operand)?;
                 let opcode = match op {
@@ -1320,7 +1367,13 @@ impl Compiler {
                 };
                 self.emit(opcode);
             }
-            Expr::Call { func, args, kwargs, starargs, kwargs_unpack } => {
+            Expr::Call {
+                func,
+                args,
+                kwargs,
+                starargs,
+                kwargs_unpack,
+            } => {
                 // Compile function to call
                 self.compile_expr(func)?;
 
@@ -1335,22 +1388,24 @@ impl Compiler {
                         self.compile_expr(arg)?;
                     }
                     self.emit(Opcode::BuildList(args.len()));
-                    
+
                     for stararg in starargs {
                         self.compile_expr(stararg)?;
                         self.emit(Opcode::ListExtend);
                     }
-                    
+
                     let has_kwargs = !kwargs.is_empty() || !kwargs_unpack.is_empty();
                     if has_kwargs {
                         // 2. Build the **kwargs dict
                         for (key, value) in kwargs {
-                            let idx = self.add_constant(std::rc::Rc::new(crate::objects::string::PyString::new(key.clone())));
+                            let idx = self.add_constant(std::rc::Rc::new(
+                                crate::objects::string::PyString::new(key.clone()),
+                            ));
                             self.emit(Opcode::LoadConst(idx));
                             self.compile_expr(value)?;
                         }
                         self.emit(Opcode::BuildMap(kwargs.len()));
-                        
+
                         for kwarg_up in kwargs_unpack {
                             self.compile_expr(kwarg_up)?;
                             self.emit(Opcode::DictMerge);
@@ -1388,7 +1443,12 @@ impl Compiler {
                 self.compile_expr(slice)?;
                 self.emit(Opcode::BinarySubscript);
             }
-            Expr::Slice { value, start, stop, step } => {
+            Expr::Slice {
+                value,
+                start,
+                stop,
+                step,
+            } => {
                 self.compile_expr(value)?;
                 // Push start (or None)
                 if let Some(start_expr) = start {
@@ -1427,7 +1487,14 @@ impl Compiler {
                 self.compile_expr(value)?;
                 self.emit(Opcode::LoadAttr(attr.clone()));
             }
-            Expr::Lambda { params, posonly_params, kwonly_params, vararg, kwarg, body } => {
+            Expr::Lambda {
+                params,
+                posonly_params,
+                kwonly_params,
+                vararg,
+                kwarg,
+                body,
+            } => {
                 let mut child_compiler = Compiler::new("<lambda>".to_string());
                 child_compiler.code.filename = self.filename.clone();
                 child_compiler.filename = self.filename.clone();
@@ -1481,7 +1548,11 @@ impl Compiler {
                             let idx = self.add_constant(Rc::new(PyString::new(text.clone())));
                             self.emit(Opcode::LoadConst(idx));
                         }
-                        FStringSegment::Expr { expr, format_spec, debug } => {
+                        FStringSegment::Expr {
+                            expr,
+                            format_spec,
+                            debug,
+                        } => {
                             if *debug {
                                 let repr_idx = self.get_or_add_name("repr");
                                 self.emit(Opcode::LoadName(repr_idx));
@@ -1491,7 +1562,8 @@ impl Compiler {
                                     let format_idx = self.get_or_add_name("format");
                                     self.emit(Opcode::LoadName(format_idx));
                                     self.emit(Opcode::RotTwo);
-                                    let spec_idx = self.add_constant(Rc::new(PyString::new(spec.clone())));
+                                    let spec_idx =
+                                        self.add_constant(Rc::new(PyString::new(spec.clone())));
                                     self.emit(Opcode::LoadConst(spec_idx));
                                     self.emit(Opcode::CallFunction(2));
                                 }
@@ -1499,7 +1571,8 @@ impl Compiler {
                                 let format_idx = self.get_or_add_name("format");
                                 self.emit(Opcode::LoadName(format_idx));
                                 self.compile_expr(expr)?;
-                                let spec_idx = self.add_constant(Rc::new(PyString::new(spec.clone())));
+                                let spec_idx =
+                                    self.add_constant(Rc::new(PyString::new(spec.clone())));
                                 self.emit(Opcode::LoadConst(spec_idx));
                                 self.emit(Opcode::CallFunction(2));
                             } else {
@@ -1541,7 +1614,14 @@ impl Compiler {
                 let idx = self.add_constant(Rc::new(crate::objects::constants::PyEllipsis));
                 self.emit(Opcode::LoadConst(idx));
             }
-            Expr::Comprehension { kind, elt, key, target, iter, ifs } => {
+            Expr::Comprehension {
+                kind,
+                elt,
+                key,
+                target,
+                iter,
+                ifs,
+            } => {
                 match kind {
                     CompKind::List => {
                         self.compile_expr(iter)?;

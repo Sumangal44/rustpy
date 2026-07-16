@@ -18,8 +18,6 @@ impl PyModule {
         }
     }
 
-
-
     pub fn set_attr_inner(&self, attr: &str, value: Rc<dyn PyObject>) {
         let mut d = self.dict.borrow_mut();
         for (k, v) in d.iter_mut() {

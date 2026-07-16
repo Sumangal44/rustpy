@@ -102,17 +102,25 @@ fn execute(source: &str, env: Rc<RefCell<Environment>>, filename: &str) {
                                     // Execution succeeded
                                 }
                                 Err(e) => {
-                                    let final_err = if e.starts_with("Traceback (most recent call last):\n") {
-                                        let mut lines: Vec<String> = e.split('\n').map(|s| s.to_string()).collect();
+                                    let final_err = if e
+                                        .starts_with("Traceback (most recent call last):\n")
+                                    {
+                                        let mut lines: Vec<String> =
+                                            e.split('\n').map(|s| s.to_string()).collect();
                                         let last_line = lines.pop().unwrap_or_default();
-                                        lines.insert(1, format!("  File \"{}\", in <module>", frame.code.filename));
+                                        lines.insert(
+                                            1,
+                                            format!(
+                                                "  File \"{}\", in <module>",
+                                                frame.code.filename
+                                            ),
+                                        );
                                         lines.push(last_line);
                                         lines.join("\n")
                                     } else {
                                         format!(
                                             "Traceback (most recent call last):\n  File \"{}\", in <module>\n{}",
-                                            frame.code.filename,
-                                            e
+                                            frame.code.filename, e
                                         )
                                     };
                                     eprintln!("{}", final_err);
@@ -154,7 +162,11 @@ mod tests {
     fn execute_source(source: &str) -> Rc<RefCell<Environment>> {
         let env = Environment::new();
         stdlib::builtins::inject_builtins(&env);
-        let s = if source.ends_with('\n') { source.to_string() } else { format!("{}\n", source) };
+        let s = if source.ends_with('\n') {
+            source.to_string()
+        } else {
+            format!("{}\n", source)
+        };
         execute(&s, Rc::clone(&env), "<test>");
         env
     }
@@ -480,7 +492,8 @@ mod tests {
 
     #[test]
     fn test_break_in_for() {
-        let source = "total = 0\nfor x in [1, 2, 3, 4, 5]:\n    if x == 3:\n        break\n    total = x\n";
+        let source =
+            "total = 0\nfor x in [1, 2, 3, 4, 5]:\n    if x == 3:\n        break\n    total = x\n";
         let env = execute_source(source);
         assert_eq!(env.borrow().get("total").unwrap().repr(), "2");
     }
@@ -618,7 +631,8 @@ mod tests {
 
     #[test]
     fn test_string_isalnum_isspace_capitalize() {
-        let source = "a = \"abc123\".isalnum()\nb = \"   \".isspace()\nc = \"hello\".capitalize()\n";
+        let source =
+            "a = \"abc123\".isalnum()\nb = \"   \".isspace()\nc = \"hello\".capitalize()\n";
         let env = execute_source(source);
         assert_eq!(env.borrow().get("a").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "True");
@@ -709,7 +723,8 @@ mod tests {
 
     #[test]
     fn test_dict_get_pop() {
-        let source = "d = {\"a\": 100}\na = d.get(\"a\")\nb = d.get(\"missing\", 42)\nc = d.pop(\"a\")\n";
+        let source =
+            "d = {\"a\": 100}\na = d.get(\"a\")\nb = d.get(\"missing\", 42)\nc = d.pop(\"a\")\n";
         let env = execute_source(source);
         assert_eq!(env.borrow().get("a").unwrap().repr(), "100");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "42");
@@ -930,7 +945,10 @@ mod tests {
     fn test_list_comprehension_strings() {
         let source = "result = [s.upper() for s in [\"a\", \"b\", \"c\"]]\n";
         let env = execute_source(source);
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "['A', 'B', 'C']");
+        assert_eq!(
+            env.borrow().get("result").unwrap().repr(),
+            "['A', 'B', 'C']"
+        );
     }
 
     #[test]
@@ -940,7 +958,8 @@ mod tests {
         let result = env.borrow().get("result").unwrap();
         assert!(result.is_truthy());
         // Check values via get_item with int key
-        let key = std::rc::Rc::new(crate::objects::int::PyInt::from_i64(1)) as std::rc::Rc<dyn crate::objects::PyObject>;
+        let key = std::rc::Rc::new(crate::objects::int::PyInt::from_i64(1))
+            as std::rc::Rc<dyn crate::objects::PyObject>;
         let val = result.get_item(key).unwrap();
         assert_eq!(val.repr(), "2");
     }
@@ -1050,7 +1069,8 @@ mod tests {
 
     #[test]
     fn test_range_len() {
-        let env = execute_source("a = len(range(10))\nb = len(range(2, 8))\nc = len(range(0, 10, 3))\n");
+        let env =
+            execute_source("a = len(range(10))\nb = len(range(2, 8))\nc = len(range(0, 10, 3))\n");
         assert_eq!(env.borrow().get("a").unwrap().repr(), "10");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "6");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "4");
@@ -1058,17 +1078,20 @@ mod tests {
 
     #[test]
     fn test_range_for_loop() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 result = []
 for i in range(3):
     result.append(i)
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "[0, 1, 2]");
     }
 
     #[test]
     fn test_bitwise_ops() {
-        let env = execute_source("a = 5 & 3\nb = 5 | 3\nc = 5 ^ 3\nd = 5 << 1\ne = 5 >> 1\nf = ~5\n");
+        let env =
+            execute_source("a = 5 & 3\nb = 5 | 3\nc = 5 ^ 3\nd = 5 << 1\ne = 5 >> 1\nf = ~5\n");
         assert_eq!(env.borrow().get("a").unwrap().repr(), "1");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "7");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "6");
@@ -1085,13 +1108,15 @@ for i in range(3):
 
     #[test]
     fn test_walrus_in_while() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 x = 0
 results = []
 while (y := x + 1) < 5:
     results.append(y)
     x = y
-");
+",
+        );
         assert_eq!(env.borrow().get("results").unwrap().repr(), "[1, 2, 3, 4]");
     }
 
@@ -1103,7 +1128,8 @@ while (y := x + 1) < 5:
 
     #[test]
     fn test_match_literal() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 x = 2
 result = None
 match x:
@@ -1113,24 +1139,28 @@ match x:
         result = \"two\"
     case 3:
         result = \"three\"
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "'two'");
     }
 
     #[test]
     fn test_match_capture() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 x = 42
 match x:
     case y:
         result = y
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "42");
     }
 
     #[test]
     fn test_match_wildcard() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 x = 99
 result = \"default\"
 match x:
@@ -1138,13 +1168,15 @@ match x:
         result = \"one\"
     case _:
         result = \"other\"
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "'other'");
     }
 
     #[test]
     fn test_match_guard() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 x = 5
 result = None
 match x:
@@ -1152,13 +1184,15 @@ match x:
         result = \"positive\"
     case _:
         result = \"non-positive\"
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "'positive'");
     }
 
     #[test]
     fn test_or_pattern() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 x = 2
 result = None
 match x:
@@ -1166,7 +1200,8 @@ match x:
         result = \"small\"
     case _:
         result = \"large\"
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "'small'");
     }
 
@@ -1209,7 +1244,11 @@ match x:
         let env = execute_source("a = {1, 2}\nb = {2, 3}\nresult = a | b\n");
         let result = env.borrow().get("result").unwrap();
         assert_eq!(result.get_type(), "set");
-        assert!(result.repr() == "{1, 2, 3}" || result.repr() == "{2, 1, 3}" || result.repr() == "{2, 3, 1}");
+        assert!(
+            result.repr() == "{1, 2, 3}"
+                || result.repr() == "{2, 1, 3}"
+                || result.repr() == "{2, 3, 1}"
+        );
     }
 
     #[test]
@@ -1246,28 +1285,36 @@ match x:
 
     #[test]
     fn test_set_isdisjoint() {
-        let env = execute_source("a = {1, 2}\nb = {3, 4}\nc = {2, 3}\nr1 = a.isdisjoint(b)\nr2 = a.isdisjoint(c)\n");
+        let env = execute_source(
+            "a = {1, 2}\nb = {3, 4}\nc = {2, 3}\nr1 = a.isdisjoint(b)\nr2 = a.isdisjoint(c)\n",
+        );
         assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
     }
 
     #[test]
     fn test_set_issubset() {
-        let env = execute_source("a = {1, 2}\nb = {1, 2, 3}\nc = {1, 3}\nr1 = a.issubset(b)\nr2 = a.issubset(c)\n");
+        let env = execute_source(
+            "a = {1, 2}\nb = {1, 2, 3}\nc = {1, 3}\nr1 = a.issubset(b)\nr2 = a.issubset(c)\n",
+        );
         assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
     }
 
     #[test]
     fn test_set_issuperset() {
-        let env = execute_source("a = {1, 2, 3}\nb = {1, 2}\nc = {1, 2, 4}\nr1 = a.issuperset(b)\nr2 = a.issuperset(c)\n");
+        let env = execute_source(
+            "a = {1, 2, 3}\nb = {1, 2}\nc = {1, 2, 4}\nr1 = a.issuperset(b)\nr2 = a.issuperset(c)\n",
+        );
         assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("r2").unwrap().repr(), "False");
     }
 
     #[test]
     fn test_set_subset_operators() {
-        let env = execute_source("a = {1, 2}\nb = {1, 2, 3}\nr1 = a <= b\nr2 = a < b\nr3 = b > a\nr4 = b >= a\nr5 = a == a\n");
+        let env = execute_source(
+            "a = {1, 2}\nb = {1, 2, 3}\nr1 = a <= b\nr2 = a < b\nr3 = b > a\nr4 = b >= a\nr5 = a == a\n",
+        );
         assert_eq!(env.borrow().get("r1").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("r2").unwrap().repr(), "True");
         assert_eq!(env.borrow().get("r3").unwrap().repr(), "True");
@@ -1290,14 +1337,16 @@ match x:
 
     #[test]
     fn test_frozenset_operations() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = frozenset([1, 2])
 b = frozenset([2, 3])
 r1 = a | b
 r2 = a & b
 r3 = a - b
 r4 = a ^ b
-");
+",
+        );
         assert_eq!(env.borrow().get("r1").unwrap().get_type(), "frozenset");
         assert_eq!(env.borrow().get("r2").unwrap().get_type(), "frozenset");
         assert_eq!(env.borrow().get("r3").unwrap().get_type(), "frozenset");
@@ -1318,7 +1367,8 @@ r4 = a ^ b
 
     #[test]
     fn test_set_copy() {
-        let env = execute_source("s = {1, 2, 3}\nc = s.copy()\ns.add(4)\nr1 = len(s)\nr2 = len(c)\n");
+        let env =
+            execute_source("s = {1, 2, 3}\nc = s.copy()\ns.add(4)\nr1 = len(s)\nr2 = len(c)\n");
         assert_eq!(env.borrow().get("r1").unwrap().repr(), "4");
         assert_eq!(env.borrow().get("r2").unwrap().repr(), "3");
     }
@@ -1331,20 +1381,26 @@ r4 = a ^ b
 
     #[test]
     fn test_finally_no_exception() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 result = []
 try:
     result.append('try')
 finally:
     result.append('finally')
 result
-");
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'finally']");
+",
+        );
+        assert_eq!(
+            env.borrow().get("result").unwrap().repr(),
+            "['try', 'finally']"
+        );
     }
 
     #[test]
     fn test_finally_with_exception() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 result = []
 try:
     result.append('try')
@@ -1352,13 +1408,18 @@ try:
 finally:
     result.append('finally')
 result
-");
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'finally']");
+",
+        );
+        assert_eq!(
+            env.borrow().get("result").unwrap().repr(),
+            "['try', 'finally']"
+        );
     }
 
     #[test]
     fn test_try_except_finally_no_exception() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 result = []
 try:
     result.append('try')
@@ -1367,13 +1428,18 @@ except:
 finally:
     result.append('finally')
 result
-");
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'finally']");
+",
+        );
+        assert_eq!(
+            env.borrow().get("result").unwrap().repr(),
+            "['try', 'finally']"
+        );
     }
 
     #[test]
     fn test_try_except_finally_with_exception() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 result = []
 try:
     result.append('try')
@@ -1383,8 +1449,12 @@ except:
 finally:
     result.append('finally')
 result
-");
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "['try', 'except', 'finally']");
+",
+        );
+        assert_eq!(
+            env.borrow().get("result").unwrap().repr(),
+            "['try', 'except', 'finally']"
+        );
     }
 
     #[test]
@@ -1492,7 +1562,9 @@ result
         let env = execute_source("1+2j\n");
         let output = env.borrow().get("_").unwrap_or_else(|| {
             // Expression statement result is discarded, so we test by storing
-            env.borrow().get("x").unwrap_or(Rc::new(crate::objects::bool::PyBool::new(true)))
+            env.borrow()
+                .get("x")
+                .unwrap_or(Rc::new(crate::objects::bool::PyBool::new(true)))
         });
         // Just run to make sure it doesn't error
     }
@@ -1633,7 +1705,8 @@ result
     fn test_dict_update_method() {
         let output = execute_program("{1: \"a\", 2: \"b\"}.update({2: \"c\", 3: \"d\"})");
         assert_eq!(output, "None");
-        let output2 = execute_program("sorted(({1: \"a\", 2: \"b\"} | {2: \"c\", 3: \"d\"}).keys())");
+        let output2 =
+            execute_program("sorted(({1: \"a\", 2: \"b\"} | {2: \"c\", 3: \"d\"}).keys())");
         assert_eq!(output2, "[1, 2, 3]");
     }
 
@@ -1693,8 +1766,10 @@ result
 
     #[test]
     fn test_compile_exec_mode() {
-        let env = execute_source(r#"code = compile("1 + 2", "<test>", "exec")
-"#);
+        let env = execute_source(
+            r#"code = compile("1 + 2", "<test>", "exec")
+"#,
+        );
         let code = env.borrow().get("code").unwrap();
         assert_eq!(code.get_type(), "code");
         assert!(code.repr().contains("<code object <test>"));
@@ -1750,8 +1825,13 @@ result
 
     #[test]
     fn test_sys_builtin_module_names() {
-        let env = execute_source("import sys\nresult = (type(sys.builtin_module_names) is tuple, \"sys\" in sys.builtin_module_names, len(sys.builtin_module_names))\n");
-        assert_eq!(env.borrow().get("result").unwrap().repr(), "(True, True, 37)");
+        let env = execute_source(
+            "import sys\nresult = (type(sys.builtin_module_names) is tuple, \"sys\" in sys.builtin_module_names, len(sys.builtin_module_names))\n",
+        );
+        assert_eq!(
+            env.borrow().get("result").unwrap().repr(),
+            "(True, True, 37)"
+        );
     }
 
     #[test]
@@ -1963,7 +2043,10 @@ with open("/tmp/rustpy_test_attrs.txt", "w") as f:
 c2 = f.closed
 "#;
         let env = execute_source(source);
-        assert_eq!(env.borrow().get("n").unwrap().repr(), "'/tmp/rustpy_test_attrs.txt'");
+        assert_eq!(
+            env.borrow().get("n").unwrap().repr(),
+            "'/tmp/rustpy_test_attrs.txt'"
+        );
         assert_eq!(env.borrow().get("m").unwrap().repr(), "'w'");
         assert_eq!(env.borrow().get("c1").unwrap().repr(), "False");
         assert_eq!(env.borrow().get("c2").unwrap().repr(), "True");
@@ -1974,18 +2057,21 @@ c2 = f.closed
 
     #[test]
     fn test_async_def() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 import asyncio
 async def foo():
     return 42
 result = asyncio.run(foo())
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().repr(), "42");
     }
 
     #[test]
     fn test_async_await() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 import asyncio
 async def bar():
     return 10
@@ -1993,10 +2079,12 @@ async def foo():
     result = await bar()
     return result + 5
 asyncio.run(foo())
-");
+",
+        );
         // foo returns 15, but asyncio.run captures the return value
         // The test setup just needs to confirm result is 15
-        let env2 = execute_source("
+        let env2 = execute_source(
+            "
 import asyncio
 async def bar():
     return 10
@@ -2004,13 +2092,15 @@ async def foo():
     result = await bar()
     return result + 5
 val = asyncio.run(foo())
-");
+",
+        );
         assert_eq!(env2.borrow().get("val").unwrap().repr(), "15");
     }
 
     #[test]
     fn test_async_nested() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 import asyncio
 async def inner():
     return \"inner\"
@@ -2018,13 +2108,15 @@ async def outer():
     result = await inner()
     return result
 val = asyncio.run(outer())
-");
+",
+        );
         assert_eq!(env.borrow().get("val").unwrap().repr(), "'inner'");
     }
 
     #[test]
     fn test_async_multiple_awaits() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 import asyncio
 async def a():
     return 1
@@ -2035,83 +2127,96 @@ async def main():
     y = await b()
     return x + y
 val = asyncio.run(main())
-");
+",
+        );
         assert_eq!(env.borrow().get("val").unwrap().repr(), "3");
     }
 
     #[test]
     fn test_print_to_file() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 f = open(\"/tmp/rustpy_print_test.txt\", \"w\")
 print(\"hello world\", file=f)
 f.close()
 f2 = open(\"/tmp/rustpy_print_test.txt\", \"r\")
 result = f2.read()
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().str(), "hello world\n");
         std::fs::remove_file("/tmp/rustpy_print_test.txt").ok();
     }
 
     #[test]
     fn test_print_sep() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 f = open(\"/tmp/rustpy_print_sep.txt\", \"w\")
 print(\"a\", \"b\", \"c\", sep=\"-\", file=f)
 f.close()
 f2 = open(\"/tmp/rustpy_print_sep.txt\", \"r\")
 result = f2.read()
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().str(), "a-b-c\n");
         std::fs::remove_file("/tmp/rustpy_print_sep.txt").ok();
     }
 
     #[test]
     fn test_print_end() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 f = open(\"/tmp/rustpy_print_end.txt\", \"w\")
 print(\"hello\", end=\"\", file=f)
 f.close()
 f2 = open(\"/tmp/rustpy_print_end.txt\", \"r\")
 result = f2.read()
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().str(), "hello");
         std::fs::remove_file("/tmp/rustpy_print_end.txt").ok();
     }
 
     #[test]
     fn test_print_all_kwargs() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 f = open(\"/tmp/rustpy_print_all.txt\", \"w\")
 print(\"x\", \"y\", sep=\"|\", end=\"END\", file=f)
 f.close()
 f2 = open(\"/tmp/rustpy_print_all.txt\", \"r\")
 result = f2.read()
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().str(), "x|yEND");
         std::fs::remove_file("/tmp/rustpy_print_all.txt").ok();
     }
 
     #[test]
     fn test_print_flush() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 f = open(\"/tmp/rustpy_print_flush.txt\", \"w\")
 print(\"flush test\", file=f, flush=True)
 f.close()
 f2 = open(\"/tmp/rustpy_print_flush.txt\", \"r\")
 result = f2.read()
-");
+",
+        );
         assert_eq!(env.borrow().get("result").unwrap().str(), "flush test\n");
         std::fs::remove_file("/tmp/rustpy_print_flush.txt").ok();
     }
 
     #[test]
     fn test_float_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = float()
 b = float(42)
 c = float(3.14)
 d = float(\"2.5\")
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().repr(), "0.0");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "42.0");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "3.14");
@@ -2120,52 +2225,62 @@ d = float(\"2.5\")
 
     #[test]
     fn test_oct_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = oct(8)
 b = oct(64)
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().repr(), "'0o10'");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "'0o100'");
     }
 
     #[test]
     fn test_ascii_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = ascii(\"hello\")
 b = ascii(42)
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().str(), "'hello'");
         assert_eq!(env.borrow().get("b").unwrap().str(), "42");
     }
 
     #[test]
     fn test_divmod_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a, b = divmod(10, 3)
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().repr(), "3");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "1");
     }
 
     #[test]
     fn test_delattr_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 class Foo:
     pass
 obj = Foo()
 obj.x = 42
 val = obj.x
-");
+",
+        );
         assert_eq!(env.borrow().get("val").unwrap().repr(), "42");
     }
 
     #[test]
     fn test_slice_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 s = slice(5)
 t = slice(1, 5)
 u = slice(1, 10, 2)
-");
+",
+        );
         // Just check they're created without error
         assert_eq!(env.borrow().get("s").unwrap().get_type(), "slice");
         assert_eq!(env.borrow().get("t").unwrap().get_type(), "slice");
@@ -2174,109 +2289,138 @@ u = slice(1, 10, 2)
 
     #[test]
     fn test_bytearray_basic() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 ba = bytearray(b\"hello\")
 r = repr(ba)
-");
+",
+        );
         assert_eq!(env.borrow().get("r").unwrap().str(), "bytearray(b'hello')");
     }
 
     #[test]
     fn test_bytearray_append() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 ba = bytearray(b\"abc\")
 ba.append(100)
 r = repr(ba)
-");
+",
+        );
         assert_eq!(env.borrow().get("r").unwrap().str(), "bytearray(b'abcd')");
     }
 
     #[test]
     fn test_bytearray_decode() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 ba = bytearray(b\"hello\")
 r = ba.decode()
-");
+",
+        );
         assert_eq!(env.borrow().get("r").unwrap().repr(), "'hello'");
     }
 
     #[test]
     fn test_bytearray_from_int() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 ba = bytearray(5)
 r = repr(ba)
-");
-        assert_eq!(env.borrow().get("r").unwrap().str(), "bytearray(b'\\x00\\x00\\x00\\x00\\x00')");
+",
+        );
+        assert_eq!(
+            env.borrow().get("r").unwrap().str(),
+            "bytearray(b'\\x00\\x00\\x00\\x00\\x00')"
+        );
     }
 
     #[test]
     fn test_delattr_works() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 class Foo:
     pass
 obj = Foo()
 obj.x = 42
 delattr(obj, \"x\")
 h = hasattr(obj, \"x\")
-");
+",
+        );
         assert_eq!(env.borrow().get("h").unwrap().repr(), "False");
     }
 
     #[test]
     fn test_vars_dict() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 class Foo:
     def __init__(self):
         self.a = 1
         self.b = 2
 obj = Foo()
 d = vars(obj)
-");
+",
+        );
         let d_repr = env.borrow().get("d").unwrap().repr();
-        assert!(d_repr == "{'a': 1, 'b': 2}" || d_repr == "{'b': 2, 'a': 1}", "got {}", d_repr);
+        assert!(
+            d_repr == "{'a': 1, 'b': 2}" || d_repr == "{'b': 2, 'a': 1}",
+            "got {}",
+            d_repr
+        );
     }
 
     #[test]
     fn test_sorted_key() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 r = sorted([3, 1, 2])
-");
+",
+        );
         assert_eq!(env.borrow().get("r").unwrap().repr(), "[1, 2, 3]");
     }
 
     #[test]
     fn test_sorted_reverse() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 r = sorted([3, 1, 2], reverse=True)
-");
+",
+        );
         assert_eq!(env.borrow().get("r").unwrap().repr(), "[3, 2, 1]");
     }
 
     #[test]
     fn test_int_base() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = int(\"ff\", 16)
 b = int(\"77\", 8)
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().repr(), "255");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "63");
     }
 
     #[test]
     fn test_pow_mod() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 r = pow(2, 10, 7)
-");
+",
+        );
         assert_eq!(env.borrow().get("r").unwrap().repr(), "2");
     }
 
     #[test]
     fn test_float_constructor() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = float()
 b = float(42)
 c = float(\"3.14\")
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().repr(), "0.0");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "42.0");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "3.14");
@@ -2284,11 +2428,13 @@ c = float(\"3.14\")
 
     #[test]
     fn test_format_builtin() {
-        let env = execute_source("
+        let env = execute_source(
+            "
 a = format(42)
 b = format(3.14)
 c = format(\"hello\")
-");
+",
+        );
         assert_eq!(env.borrow().get("a").unwrap().repr(), "'42'");
         assert_eq!(env.borrow().get("b").unwrap().repr(), "'3.14'");
         assert_eq!(env.borrow().get("c").unwrap().repr(), "'hello'");
@@ -2361,7 +2507,10 @@ c = format(\"hello\")
     #[test]
     fn test_str_partition() {
         let env = execute_source("r = \"hello world\".partition(\" \")");
-        assert_eq!(env.borrow().get("r").unwrap().repr(), "('hello', ' ', 'world')");
+        assert_eq!(
+            env.borrow().get("r").unwrap().repr(),
+            "('hello', ' ', 'world')"
+        );
     }
 
     #[test]
@@ -2392,10 +2541,12 @@ c = format(\"hello\")
     fn test_filesystem_import_basic() {
         let filename = "test_module_123.py";
         std::fs::write(filename, "x = 42\ndef hello():\n    return 'world'\n").unwrap();
-        
-        let env = execute_source("import test_module_123\nresult_x = test_module_123.x\nresult_fn = test_module_123.hello()\n");
+
+        let env = execute_source(
+            "import test_module_123\nresult_x = test_module_123.x\nresult_fn = test_module_123.hello()\n",
+        );
         std::fs::remove_file(filename).unwrap();
-        
+
         assert_eq!(env.borrow().get("result_x").unwrap().repr(), "42");
         assert_eq!(env.borrow().get("result_fn").unwrap().repr(), "'world'");
     }
@@ -2404,10 +2555,10 @@ c = format(\"hello\")
     fn test_filesystem_import_from() {
         let filename = "test_module_456.py";
         std::fs::write(filename, "y = 99\n").unwrap();
-        
+
         let env = execute_source("from test_module_456 import y\n");
         std::fs::remove_file(filename).unwrap();
-        
+
         assert_eq!(env.borrow().get("y").unwrap().repr(), "99");
     }
 
@@ -2417,11 +2568,11 @@ c = format(\"hello\")
         let file_b = "circ_b.py";
         std::fs::write(file_a, "import circ_b\nx = 1\n").unwrap();
         std::fs::write(file_b, "import circ_a\ny = 2\n").unwrap();
-        
+
         let env = execute_source("import circ_a\nresult = circ_a.x + circ_a.circ_b.y\n");
         std::fs::remove_file(file_a).unwrap();
         std::fs::remove_file(file_b).unwrap();
-        
+
         assert_eq!(env.borrow().get("result").unwrap().repr(), "3");
     }
 }

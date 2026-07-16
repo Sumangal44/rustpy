@@ -1,4 +1,6 @@
-use crate::ast::{BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind, WithItem};
+use crate::ast::{
+    BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind, WithItem,
+};
 use crate::diagnostics::{LexerError, ParseError, ParseErrorKind};
 use crate::lexer::Lexer;
 use crate::lexer::tokens::{Token, TokenKind};
@@ -75,7 +77,10 @@ impl<'a> Parser<'a> {
             Ok(())
         } else {
             Err(ParseError::new(
-                ParseErrorKind::UnexpectedToken(format!("Expected newline, got {:?}", self.current_token.kind)),
+                ParseErrorKind::UnexpectedToken(format!(
+                    "Expected newline, got {:?}",
+                    self.current_token.kind
+                )),
                 self.current_token.span.clone(),
             ))
         }
@@ -117,82 +122,170 @@ impl<'a> Parser<'a> {
             TokenKind::Class => self.parse_class_def(decorators),
             TokenKind::Try => {
                 if !decorators.is_empty() {
-                    return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone()));
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
                 }
                 self.parse_try()
-            },
+            }
             TokenKind::Raise => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_raise()
-            },
+            }
             TokenKind::Return => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_return()
-            },
+            }
             TokenKind::If => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_if()
-            },
+            }
             TokenKind::While => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_while()
-            },
+            }
             TokenKind::For => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_for()
-            },
+            }
             TokenKind::With => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_with()
-            },
+            }
             TokenKind::Pass => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.advance()?;
                 self.consume_stmt_end()?;
                 Ok(Stmt::Pass)
             }
             TokenKind::Break => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.advance()?;
                 self.consume_stmt_end()?;
                 Ok(Stmt::Break)
             }
             TokenKind::Continue => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.advance()?;
                 self.consume_stmt_end()?;
                 Ok(Stmt::Continue)
             }
             TokenKind::Del => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_del()
             }
             TokenKind::Global => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_global()
             }
             TokenKind::Nonlocal => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_nonlocal()
             }
             TokenKind::Assert => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_assert()
             }
             TokenKind::Match => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_match()
             }
             TokenKind::Import => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_import()
             }
             TokenKind::From => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_import_from()
             }
             TokenKind::Yield => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.advance()?;
                 if self.check(&TokenKind::From) {
                     self.advance()?;
@@ -208,7 +301,12 @@ impl<'a> Parser<'a> {
                 Ok(Stmt::YieldStmt(Expr::Yield(value)))
             }
             _ => {
-                if !decorators.is_empty() { return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()), self.current_token.span.clone())); }
+                if !decorators.is_empty() {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnexpectedToken("Decorators not allowed here".to_string()),
+                        self.current_token.span.clone(),
+                    ));
+                }
                 self.parse_assign_or_expr()
             }
         }
@@ -220,26 +318,38 @@ impl<'a> Parser<'a> {
             TokenKind::Def => self.parse_function_def(decorators, true),
             TokenKind::For => {
                 let mut stmt = self.parse_for()?;
-                if let Stmt::For { ref mut is_async, .. } = stmt {
+                if let Stmt::For {
+                    ref mut is_async, ..
+                } = stmt
+                {
                     *is_async = true;
                 }
                 Ok(stmt)
             }
             TokenKind::With => {
                 let mut stmt = self.parse_with()?;
-                if let Stmt::With { ref mut is_async, .. } = stmt {
+                if let Stmt::With {
+                    ref mut is_async, ..
+                } = stmt
+                {
                     *is_async = true;
                 }
                 Ok(stmt)
             }
             _ => Err(ParseError::new(
-                ParseErrorKind::InvalidSyntax("expected 'def', 'for', or 'with' after 'async'".to_string()),
+                ParseErrorKind::InvalidSyntax(
+                    "expected 'def', 'for', or 'with' after 'async'".to_string(),
+                ),
                 self.current_token.span.clone(),
             )),
         }
     }
 
-    fn parse_function_def(&mut self, decorators: Vec<Expr>, is_async: bool) -> Result<Stmt, ParseError> {
+    fn parse_function_def(
+        &mut self,
+        decorators: Vec<Expr>,
+        is_async: bool,
+    ) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::Def)?;
 
         let name = match &self.current_token.kind {
@@ -286,7 +396,9 @@ impl<'a> Parser<'a> {
                             self.advance()?;
                         } else {
                             return Err(ParseError::new(
-                                ParseErrorKind::UnexpectedToken("Expected identifier after **".to_string()),
+                                ParseErrorKind::UnexpectedToken(
+                                    "Expected identifier after **".to_string(),
+                                ),
                                 self.current_token.span.clone(),
                             ));
                         }
@@ -387,7 +499,12 @@ impl<'a> Parser<'a> {
 
         let body = self.parse_suite()?;
 
-        Ok(Stmt::ClassDef { name, bases, body, decorators })
+        Ok(Stmt::ClassDef {
+            name,
+            bases,
+            body,
+            decorators,
+        })
     }
 
     #[allow(dead_code)]
@@ -514,7 +631,9 @@ impl<'a> Parser<'a> {
             self.advance()?;
             if self.check(&TokenKind::RParen) {
                 return Err(ParseError::new(
-                    ParseErrorKind::InvalidSyntax("Empty tuple not allowed in for loop target".to_string()),
+                    ParseErrorKind::InvalidSyntax(
+                        "Empty tuple not allowed in for loop target".to_string(),
+                    ),
                     self.current_token.span.clone(),
                 ));
             }
@@ -531,7 +650,9 @@ impl<'a> Parser<'a> {
                     break;
                 } else {
                     return Err(ParseError::new(
-                        ParseErrorKind::UnexpectedToken("Expected ',' or ')' in tuple target".to_string()),
+                        ParseErrorKind::UnexpectedToken(
+                            "Expected ',' or ')' in tuple target".to_string(),
+                        ),
                         self.current_token.span.clone(),
                     ));
                 }
@@ -557,7 +678,9 @@ impl<'a> Parser<'a> {
                 Ok(first)
             }
             _ => Err(ParseError::new(
-                ParseErrorKind::UnexpectedToken("Expected identifier in for loop target".to_string()),
+                ParseErrorKind::UnexpectedToken(
+                    "Expected identifier in for loop target".to_string(),
+                ),
                 self.current_token.span.clone(),
             )),
         }
@@ -638,7 +761,13 @@ impl<'a> Parser<'a> {
             orelse = self.parse_suite()?;
         }
 
-        Ok(Stmt::For { target, iter, body, orelse, is_async: false })
+        Ok(Stmt::For {
+            target,
+            iter,
+            body,
+            orelse,
+            is_async: false,
+        })
     }
 
     fn parse_with(&mut self) -> Result<Stmt, ParseError> {
@@ -651,7 +780,10 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 optional_vars = Some(self.parse_expression(0)?);
             }
-            items.push(WithItem { context_expr, optional_vars });
+            items.push(WithItem {
+                context_expr,
+                optional_vars,
+            });
             if self.check(&TokenKind::Comma) {
                 self.advance()?;
             } else {
@@ -731,7 +863,12 @@ impl<'a> Parser<'a> {
             finally_body = Some(self.parse_suite()?);
         }
 
-        Ok(Stmt::Try { body, handlers, else_body, finally_body })
+        Ok(Stmt::Try {
+            body,
+            handlers,
+            else_body,
+            finally_body,
+        })
     }
 
     fn parse_raise(&mut self) -> Result<Stmt, ParseError> {
@@ -773,7 +910,10 @@ impl<'a> Parser<'a> {
                 names.push(n.clone());
                 self.advance()?;
             } else {
-                return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected identifier".to_string()), self.current_token.span.clone()));
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken("Expected identifier".to_string()),
+                    self.current_token.span.clone(),
+                ));
             }
             if self.check(&TokenKind::Comma) {
                 self.advance()?;
@@ -793,7 +933,10 @@ impl<'a> Parser<'a> {
                 names.push(n.clone());
                 self.advance()?;
             } else {
-                return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected identifier".to_string()), self.current_token.span.clone()));
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken("Expected identifier".to_string()),
+                    self.current_token.span.clone(),
+                ));
             }
             if self.check(&TokenKind::Comma) {
                 self.advance()?;
@@ -857,7 +1000,9 @@ impl<'a> Parser<'a> {
             }
             if targets.len() != 1 {
                 return Err(ParseError::new(
-                    ParseErrorKind::InvalidSyntax("augmented assignment with multiple targets".to_string()),
+                    ParseErrorKind::InvalidSyntax(
+                        "augmented assignment with multiple targets".to_string(),
+                    ),
                     self.current_token.span.clone(),
                 ));
             }
@@ -879,11 +1024,16 @@ impl<'a> Parser<'a> {
             }
             if targets.len() > 1 {
                 return Err(ParseError::new(
-                    ParseErrorKind::InvalidSyntax("cannot assign to tuple literal (use parentheses for tuple expressions)".to_string()),
+                    ParseErrorKind::InvalidSyntax(
+                        "cannot assign to tuple literal (use parentheses for tuple expressions)"
+                            .to_string(),
+                    ),
                     self.current_token.span.clone(),
                 ));
             }
-            Ok(Stmt::ExprStmt { value: targets.into_iter().next().unwrap() })
+            Ok(Stmt::ExprStmt {
+                value: targets.into_iter().next().unwrap(),
+            })
         }
     }
 
@@ -893,7 +1043,14 @@ impl<'a> Parser<'a> {
             let mut elements = vec![first];
             while self.check(&TokenKind::Comma) {
                 self.advance()?;
-                if self.check(&TokenKind::Newline) || self.check(&TokenKind::EOF) || self.check(&TokenKind::Equal) || self.check(&TokenKind::RParen) || self.check(&TokenKind::RBracket) || self.check(&TokenKind::RBrace) || self.check(&TokenKind::Colon) {
+                if self.check(&TokenKind::Newline)
+                    || self.check(&TokenKind::EOF)
+                    || self.check(&TokenKind::Equal)
+                    || self.check(&TokenKind::RParen)
+                    || self.check(&TokenKind::RBracket)
+                    || self.check(&TokenKind::RBrace)
+                    || self.check(&TokenKind::Colon)
+                {
                     break;
                 }
                 elements.push(self.parse_expression(0)?);
@@ -908,7 +1065,11 @@ impl<'a> Parser<'a> {
         self.parse_expression_opts(precedence, true)
     }
 
-    fn parse_expression_opts(&mut self, precedence: u8, allow_ternary: bool) -> Result<Expr, ParseError> {
+    fn parse_expression_opts(
+        &mut self,
+        precedence: u8,
+        allow_ternary: bool,
+    ) -> Result<Expr, ParseError> {
         let mut left = self.parse_prefix()?;
 
         while precedence < self.peek_precedence() {
@@ -926,7 +1087,9 @@ impl<'a> Parser<'a> {
                 };
             } else {
                 return Err(ParseError::new(
-                    ParseErrorKind::InvalidSyntax("Assignment target must be an identifier".to_string()),
+                    ParseErrorKind::InvalidSyntax(
+                        "Assignment target must be an identifier".to_string(),
+                    ),
                     self.current_token.span.clone(),
                 ));
             }
@@ -1149,7 +1312,12 @@ impl<'a> Parser<'a> {
                                     kwarg = Some(name.clone());
                                     self.advance()?;
                                 } else {
-                                    return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name after **".to_string()), self.current_token.span.clone()));
+                                    return Err(ParseError::new(
+                                        ParseErrorKind::UnexpectedToken(
+                                            "Expected parameter name after **".to_string(),
+                                        ),
+                                        self.current_token.span.clone(),
+                                    ));
                                 }
                             }
                             TokenKind::Identifier(name) => {
@@ -1161,7 +1329,12 @@ impl<'a> Parser<'a> {
                                 self.advance()?;
                             }
                             _ => {
-                                return Err(ParseError::new(ParseErrorKind::UnexpectedToken("Expected parameter name".to_string()), self.current_token.span.clone()));
+                                return Err(ParseError::new(
+                                    ParseErrorKind::UnexpectedToken(
+                                        "Expected parameter name".to_string(),
+                                    ),
+                                    self.current_token.span.clone(),
+                                ));
                             }
                         }
                         if self.check(&TokenKind::Comma) {
@@ -1201,7 +1374,10 @@ impl<'a> Parser<'a> {
             TokenKind::Tilde => {
                 self.advance()?;
                 let operand = Box::new(self.parse_expression(6)?);
-                Ok(Expr::UnaryOp { op: UnaryOpKind::Invert, operand })
+                Ok(Expr::UnaryOp {
+                    op: UnaryOpKind::Invert,
+                    operand,
+                })
             }
             _ => Err(ParseError::new(
                 ParseErrorKind::InvalidSyntax(format!(
@@ -1232,7 +1408,10 @@ impl<'a> Parser<'a> {
                     '}' => literal.push('}'),
                     '\'' => literal.push('\''),
                     '"' => literal.push('"'),
-                    _ => { literal.push('\\'); literal.push(c); }
+                    _ => {
+                        literal.push('\\');
+                        literal.push(c);
+                    }
                 }
                 escape = false;
                 continue;
@@ -1257,36 +1436,70 @@ impl<'a> Parser<'a> {
                 let mut spec_text = String::new();
                 while let Some((_, ec)) = chars.next() {
                     if in_spec {
-                        if ec == '{' { depth += 1; spec_text.push('{'); }
-                        else if ec == '}' { depth -= 1; if depth == 0 { break; } if depth > 0 { spec_text.push('}'); } }
-                        else { spec_text.push(ec); }
+                        if ec == '{' {
+                            depth += 1;
+                            spec_text.push('{');
+                        } else if ec == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                            if depth > 0 {
+                                spec_text.push('}');
+                            }
+                        } else {
+                            spec_text.push(ec);
+                        }
                     } else if ec == ':' && depth == 1 {
                         in_spec = true;
                     } else {
-                        if ec == '{' { depth += 1; expr_text.push('{'); }
-                        else if ec == '}' { depth -= 1; if depth == 0 { break; } expr_text.push('}'); }
-                        else { expr_text.push(ec); }
+                        if ec == '{' {
+                            depth += 1;
+                            expr_text.push('{');
+                        } else if ec == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                            expr_text.push('}');
+                        } else {
+                            expr_text.push(ec);
+                        }
                     }
                 }
                 if depth != 0 {
                     return Err(ParseError::new(
-                        ParseErrorKind::InvalidSyntax("Unclosed '{' in f-string expression".to_string()),
+                        ParseErrorKind::InvalidSyntax(
+                            "Unclosed '{' in f-string expression".to_string(),
+                        ),
                         self.current_token.span.clone(),
                     ));
                 }
-                let spec = if spec_text.is_empty() { None } else { Some(spec_text) };
+                let spec = if spec_text.is_empty() {
+                    None
+                } else {
+                    Some(spec_text)
+                };
                 // Handle debug syntax {expr=}
                 let is_debug = expr_text.ends_with('=');
                 let sub_expr_text = if is_debug {
                     let debug_name = expr_text.trim_end_matches('=');
-                    let name_val = if debug_name.is_empty() { String::new() } else { debug_name.to_string() };
+                    let name_val = if debug_name.is_empty() {
+                        String::new()
+                    } else {
+                        debug_name.to_string()
+                    };
                     segments.push(FStringSegment::Text(format!("{}=", name_val)));
                     name_val.to_string()
                 } else {
                     expr_text
                 };
                 let sub_expr = self.parse_fstring_expr(&sub_expr_text)?;
-                segments.push(FStringSegment::Expr { expr: Box::new(sub_expr), format_spec: spec, debug: is_debug });
+                segments.push(FStringSegment::Expr {
+                    expr: Box::new(sub_expr),
+                    format_spec: spec,
+                    debug: is_debug,
+                });
                 continue;
             }
             if c == '}' {
@@ -1296,7 +1509,9 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 return Err(ParseError::new(
-                    ParseErrorKind::InvalidSyntax("Single '}' in f-string; must escape as '}}'".to_string()),
+                    ParseErrorKind::InvalidSyntax(
+                        "Single '}' in f-string; must escape as '}}'".to_string(),
+                    ),
                     self.current_token.span.clone(),
                 ));
             }
@@ -1305,7 +1520,9 @@ impl<'a> Parser<'a> {
 
         if escape {
             return Err(ParseError::new(
-                ParseErrorKind::InvalidSyntax("Unterminated escape sequence in f-string".to_string()),
+                ParseErrorKind::InvalidSyntax(
+                    "Unterminated escape sequence in f-string".to_string(),
+                ),
                 self.current_token.span.clone(),
             ));
         }
@@ -1377,7 +1594,11 @@ impl<'a> Parser<'a> {
         };
         self.consume(TokenKind::Colon)?;
         let body = self.parse_suite()?;
-        Ok(MatchCase { pattern, guard, body })
+        Ok(MatchCase {
+            pattern,
+            guard,
+            body,
+        })
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
@@ -1438,7 +1659,9 @@ impl<'a> Parser<'a> {
                         loop {
                             // Check if this is a keyword pattern: identifier = pattern
                             let is_kw = match &self.current_token.kind {
-                                TokenKind::Identifier(_) => self.peek_token.kind == TokenKind::Equal,
+                                TokenKind::Identifier(_) => {
+                                    self.peek_token.kind == TokenKind::Equal
+                                }
                                 _ => false,
                             };
                             if is_kw {
@@ -1503,7 +1726,10 @@ impl<'a> Parser<'a> {
                 Ok(Pattern::Sequence(elements))
             }
             _ => Err(ParseError::new(
-                ParseErrorKind::InvalidSyntax(format!("Expected pattern, got {:?}", self.current_token.kind)),
+                ParseErrorKind::InvalidSyntax(format!(
+                    "Expected pattern, got {:?}",
+                    self.current_token.kind
+                )),
                 self.current_token.span.clone(),
             )),
         }
@@ -1608,7 +1834,9 @@ impl<'a> Parser<'a> {
                             kwargs.push((name, value));
                         } else {
                             return Err(ParseError::new(
-                                ParseErrorKind::UnexpectedToken("Keyword argument must be an identifier".to_string()),
+                                ParseErrorKind::UnexpectedToken(
+                                    "Keyword argument must be an identifier".to_string(),
+                                ),
                                 self.current_token.span.clone(),
                             ));
                         }
@@ -1741,7 +1969,9 @@ impl<'a> Parser<'a> {
                             self.advance()?;
                         } else {
                             return Err(ParseError::new(
-                                ParseErrorKind::UnexpectedToken("Expected identifier after '.'".to_string()),
+                                ParseErrorKind::UnexpectedToken(
+                                    "Expected identifier after '.'".to_string(),
+                                ),
                                 self.current_token.span.clone(),
                             ));
                         }
@@ -1763,7 +1993,9 @@ impl<'a> Parser<'a> {
                     self.advance()?;
                 } else {
                     return Err(ParseError::new(
-                        ParseErrorKind::UnexpectedToken("Expected identifier after 'as'".to_string()),
+                        ParseErrorKind::UnexpectedToken(
+                            "Expected identifier after 'as'".to_string(),
+                        ),
                         self.current_token.span.clone(),
                     ));
                 }
@@ -1799,7 +2031,9 @@ impl<'a> Parser<'a> {
                     self.advance()?;
                 } else {
                     return Err(ParseError::new(
-                        ParseErrorKind::UnexpectedToken("Expected identifier after '.'".to_string()),
+                        ParseErrorKind::UnexpectedToken(
+                            "Expected identifier after '.'".to_string(),
+                        ),
                         self.current_token.span.clone(),
                     ));
                 }
@@ -1828,7 +2062,9 @@ impl<'a> Parser<'a> {
                             self.advance()?;
                         } else {
                             return Err(ParseError::new(
-                                ParseErrorKind::UnexpectedToken("Expected identifier after 'as'".to_string()),
+                                ParseErrorKind::UnexpectedToken(
+                                    "Expected identifier after 'as'".to_string(),
+                                ),
                                 self.current_token.span.clone(),
                             ));
                         }
@@ -1868,7 +2104,11 @@ impl<'a> Parser<'a> {
             TokenKind::Dot => 8,
             TokenKind::LParen | TokenKind::LBracket => 7,
             TokenKind::DoubleStar => 6,
-            TokenKind::Star | TokenKind::Slash | TokenKind::DoubleSlash | TokenKind::Percent | TokenKind::At => 5,
+            TokenKind::Star
+            | TokenKind::Slash
+            | TokenKind::DoubleSlash
+            | TokenKind::Percent
+            | TokenKind::At => 5,
             TokenKind::Plus | TokenKind::Minus | TokenKind::LeftShift | TokenKind::RightShift => 4,
             // Comparisons: ==, !=, <, <=, >, >=, in, not in, is, is not
             TokenKind::EqualEqual

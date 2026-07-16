@@ -31,7 +31,11 @@ impl PyRange {
         }
         let diff = self.stop - self.start;
         let raw = diff.abs() / self.step.abs();
-        let extra = if diff.abs() % self.step.abs() != 0 { 1 } else { 0 };
+        let extra = if diff.abs() % self.step.abs() != 0 {
+            1
+        } else {
+            0
+        };
         (raw + extra) as usize
     }
 }
@@ -82,14 +86,19 @@ impl PyObject for PyRange {
         if actual < 0 || actual >= len {
             return Err("IndexError: range index out of range".to_string());
         }
-        Ok(Rc::new(super::int::PyInt::from_i64(self.start + actual * self.step)))
+        Ok(Rc::new(super::int::PyInt::from_i64(
+            self.start + actual * self.step,
+        )))
     }
 
     fn contains(&self, other: Rc<dyn PyObject>) -> Result<bool, String> {
         let val = if let Some(i) = other.as_any().downcast_ref::<super::int::PyInt>() {
             i.as_i64().unwrap_or(0)
         } else {
-            return Err(format!("TypeError: '{}' object cannot be interpreted as an integer", other.get_type()));
+            return Err(format!(
+                "TypeError: '{}' object cannot be interpreted as an integer",
+                other.get_type()
+            ));
         };
         if self.step > 0 {
             Ok(val >= self.start && val < self.stop && (val - self.start) % self.step == 0)
@@ -142,15 +151,26 @@ impl PyObject for PyRangeIterator {
         match attr {
             "__next__" => {
                 let it = self.clone();
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), move |args| {
-                    if args.len() != 0 { return Err("TypeError: __next__() takes no arguments".to_string()); }
-                    match it.get_next()? {
-                        Some(val) => Ok(val),
-                        None => Err("StopIteration".to_string()),
-                    }
-                })))
+                Ok(Rc::new(
+                    crate::objects::native_function::PyNativeFunction::new_pos_only(
+                        "__next__".to_string(),
+                        move |args| {
+                            if args.len() != 0 {
+                                return Err("TypeError: __next__() takes no arguments".to_string());
+                            }
+                            match it.get_next()? {
+                                Some(val) => Ok(val),
+                                None => Err("StopIteration".to_string()),
+                            }
+                        },
+                    ),
+                ))
             }
-            _ => Err(format!("AttributeError: '{}' object has no attribute '{}'", self.get_type(), attr)),
+            _ => Err(format!(
+                "AttributeError: '{}' object has no attribute '{}'",
+                self.get_type(),
+                attr
+            )),
         }
     }
 }

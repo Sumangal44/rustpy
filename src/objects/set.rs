@@ -54,7 +54,10 @@ impl PySet {
         result
     }
 
-    pub fn set_intersection(a: &[Rc<dyn PyObject>], b: &[Rc<dyn PyObject>]) -> Vec<Rc<dyn PyObject>> {
+    pub fn set_intersection(
+        a: &[Rc<dyn PyObject>],
+        b: &[Rc<dyn PyObject>],
+    ) -> Vec<Rc<dyn PyObject>> {
         let mut result = Vec::new();
         for elem in a {
             if Self::has_element(b, elem) {
@@ -74,7 +77,10 @@ impl PySet {
         result
     }
 
-    pub fn set_symmetric_difference(a: &[Rc<dyn PyObject>], b: &[Rc<dyn PyObject>]) -> Vec<Rc<dyn PyObject>> {
+    pub fn set_symmetric_difference(
+        a: &[Rc<dyn PyObject>],
+        b: &[Rc<dyn PyObject>],
+    ) -> Vec<Rc<dyn PyObject>> {
         let mut result = Vec::new();
         for elem in a {
             if !Self::has_element(b, elem) {
@@ -273,152 +279,265 @@ impl PyObject for PySet {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let elements = Rc::clone(&self.elements);
         match attr {
-            "add" => Ok(Rc::new(PyNativeFunction::new_pos_only("add".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.add() takes exactly one argument".to_string()); }
-                let mut arr = elements.borrow_mut();
-                if !PySet::has_element(&arr, &args[0]) {
-                    arr.push(Rc::clone(&args[0]));
-                }
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "remove" => Ok(Rc::new(PyNativeFunction::new_pos_only("remove".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.remove() takes exactly one argument".to_string()); }
-                let mut arr = elements.borrow_mut();
-                if let Some(idx) = PySet::find_index(&arr, &args[0]) {
-                    arr.remove(idx);
+            "add" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "add".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err("TypeError: set.add() takes exactly one argument".to_string());
+                    }
+                    let mut arr = elements.borrow_mut();
+                    if !PySet::has_element(&arr, &args[0]) {
+                        arr.push(Rc::clone(&args[0]));
+                    }
                     Ok(Rc::new(crate::objects::none::PyNone::new()))
-                } else {
-                    Err("KeyError: element not found".to_string())
-                }
-            }))),
-            "discard" => Ok(Rc::new(PyNativeFunction::new_pos_only("discard".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.discard() takes exactly one argument".to_string()); }
-                let mut arr = elements.borrow_mut();
-                if let Some(idx) = PySet::find_index(&arr, &args[0]) {
-                    arr.remove(idx);
-                }
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "pop" => Ok(Rc::new(PyNativeFunction::new_pos_only("pop".to_string(), move |args| {
-                if args.len() != 0 { return Err("TypeError: set.pop() takes no arguments".to_string()); }
-                let mut arr = elements.borrow_mut();
-                if arr.is_empty() {
-                    Err("KeyError: pop from an empty set".to_string())
-                } else {
-                    Ok(arr.remove(0))
-                }
-            }))),
-            "clear" => Ok(Rc::new(PyNativeFunction::new_pos_only("clear".to_string(), move |args| {
-                if args.len() != 0 { return Err("TypeError: set.clear() takes no arguments".to_string()); }
-                elements.borrow_mut().clear();
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only("copy".to_string(), move |args| {
-                if args.len() != 0 { return Err("TypeError: set.copy() takes no arguments".to_string()); }
-                let arr = elements.borrow();
-                let copied: Vec<Rc<dyn PyObject>> = arr.iter().map(|e| Rc::clone(e)).collect();
-                Ok(Rc::new(PySet::new(copied)))
-            }))),
-            "union" => Ok(Rc::new(PyNativeFunction::new_pos_only("union".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.union() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_union(&arr, &other_elements);
-                Ok(Rc::new(PySet::new(result)))
-            }))),
-            "intersection" => Ok(Rc::new(PyNativeFunction::new_pos_only("intersection".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.intersection() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_intersection(&arr, &other_elements);
-                Ok(Rc::new(PySet::new(result)))
-            }))),
-            "difference" => Ok(Rc::new(PyNativeFunction::new_pos_only("difference".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.difference() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_difference(&arr, &other_elements);
-                Ok(Rc::new(PySet::new(result)))
-            }))),
-            "symmetric_difference" => Ok(Rc::new(PyNativeFunction::new_pos_only("symmetric_difference".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.symmetric_difference() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_symmetric_difference(&arr, &other_elements);
-                Ok(Rc::new(PySet::new(result)))
-            }))),
-            "update" => Ok(Rc::new(PyNativeFunction::new_pos_only("update".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.update() takes exactly one argument".to_string()); }
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let mut arr = elements.borrow_mut();
-                for elem in other_elements {
-                    if !PySet::has_element(&arr, &elem) {
-                        arr.push(elem);
+                },
+            ))),
+            "remove" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "remove".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.remove() takes exactly one argument".to_string()
+                        );
                     }
-                }
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "intersection_update" => Ok(Rc::new(PyNativeFunction::new_pos_only("intersection_update".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.intersection_update() takes exactly one argument".to_string()); }
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let arr_ref = elements.borrow();
-                let result = PySet::set_intersection(&arr_ref, &other_elements);
-                drop(arr_ref);
-                *elements.borrow_mut() = result;
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "difference_update" => Ok(Rc::new(PyNativeFunction::new_pos_only("difference_update".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.difference_update() takes exactly one argument".to_string()); }
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let arr_ref = elements.borrow();
-                let result = PySet::set_difference(&arr_ref, &other_elements);
-                drop(arr_ref);
-                *elements.borrow_mut() = result;
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "symmetric_difference_update" => Ok(Rc::new(PyNativeFunction::new_pos_only("symmetric_difference_update".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.symmetric_difference_update() takes exactly one argument".to_string()); }
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let arr_ref = elements.borrow();
-                let result = PySet::set_symmetric_difference(&arr_ref, &other_elements);
-                drop(arr_ref);
-                *elements.borrow_mut() = result;
-                Ok(Rc::new(crate::objects::none::PyNone::new()))
-            }))),
-            "isdisjoint" => Ok(Rc::new(PyNativeFunction::new_pos_only("isdisjoint".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.isdisjoint() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                for elem in arr.iter() {
-                    if PySet::has_element(&other_elements, elem) {
-                        return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                    let mut arr = elements.borrow_mut();
+                    if let Some(idx) = PySet::find_index(&arr, &args[0]) {
+                        arr.remove(idx);
+                        Ok(Rc::new(crate::objects::none::PyNone::new()))
+                    } else {
+                        Err("KeyError: element not found".to_string())
                     }
-                }
-                Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
-            }))),
-            "issubset" => Ok(Rc::new(PyNativeFunction::new_pos_only("issubset".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.issubset() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                for elem in arr.iter() {
-                    if !PySet::has_element(&other_elements, elem) {
-                        return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                },
+            ))),
+            "discard" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "discard".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.discard() takes exactly one argument".to_string()
+                        );
                     }
-                }
-                Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
-            }))),
-            "issuperset" => Ok(Rc::new(PyNativeFunction::new_pos_only("issuperset".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: set.issuperset() takes exactly one argument".to_string()); }
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let arr = elements.borrow();
-                for elem in other_elements.iter() {
-                    if !PySet::has_element(&arr, elem) {
-                        return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                    let mut arr = elements.borrow_mut();
+                    if let Some(idx) = PySet::find_index(&arr, &args[0]) {
+                        arr.remove(idx);
                     }
-                }
-                Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
-            }))),
-            _ => Err(format!("AttributeError: 'set' object has no attribute '{}'", attr)),
+                    Ok(Rc::new(crate::objects::none::PyNone::new()))
+                },
+            ))),
+            "pop" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "pop".to_string(),
+                move |args| {
+                    if args.len() != 0 {
+                        return Err("TypeError: set.pop() takes no arguments".to_string());
+                    }
+                    let mut arr = elements.borrow_mut();
+                    if arr.is_empty() {
+                        Err("KeyError: pop from an empty set".to_string())
+                    } else {
+                        Ok(arr.remove(0))
+                    }
+                },
+            ))),
+            "clear" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "clear".to_string(),
+                move |args| {
+                    if args.len() != 0 {
+                        return Err("TypeError: set.clear() takes no arguments".to_string());
+                    }
+                    elements.borrow_mut().clear();
+                    Ok(Rc::new(crate::objects::none::PyNone::new()))
+                },
+            ))),
+            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "copy".to_string(),
+                move |args| {
+                    if args.len() != 0 {
+                        return Err("TypeError: set.copy() takes no arguments".to_string());
+                    }
+                    let arr = elements.borrow();
+                    let copied: Vec<Rc<dyn PyObject>> = arr.iter().map(|e| Rc::clone(e)).collect();
+                    Ok(Rc::new(PySet::new(copied)))
+                },
+            ))),
+            "union" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "union".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err("TypeError: set.union() takes exactly one argument".to_string());
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_union(&arr, &other_elements);
+                    Ok(Rc::new(PySet::new(result)))
+                },
+            ))),
+            "intersection" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "intersection".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.intersection() takes exactly one argument".to_string()
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_intersection(&arr, &other_elements);
+                    Ok(Rc::new(PySet::new(result)))
+                },
+            ))),
+            "difference" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "difference".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.difference() takes exactly one argument".to_string()
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_difference(&arr, &other_elements);
+                    Ok(Rc::new(PySet::new(result)))
+                },
+            ))),
+            "symmetric_difference" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "symmetric_difference".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.symmetric_difference() takes exactly one argument"
+                                .to_string(),
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_symmetric_difference(&arr, &other_elements);
+                    Ok(Rc::new(PySet::new(result)))
+                },
+            ))),
+            "update" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "update".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.update() takes exactly one argument".to_string()
+                        );
+                    }
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let mut arr = elements.borrow_mut();
+                    for elem in other_elements {
+                        if !PySet::has_element(&arr, &elem) {
+                            arr.push(elem);
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::none::PyNone::new()))
+                },
+            ))),
+            "intersection_update" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "intersection_update".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.intersection_update() takes exactly one argument"
+                                .to_string(),
+                        );
+                    }
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let arr_ref = elements.borrow();
+                    let result = PySet::set_intersection(&arr_ref, &other_elements);
+                    drop(arr_ref);
+                    *elements.borrow_mut() = result;
+                    Ok(Rc::new(crate::objects::none::PyNone::new()))
+                },
+            ))),
+            "difference_update" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "difference_update".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.difference_update() takes exactly one argument"
+                                .to_string(),
+                        );
+                    }
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let arr_ref = elements.borrow();
+                    let result = PySet::set_difference(&arr_ref, &other_elements);
+                    drop(arr_ref);
+                    *elements.borrow_mut() = result;
+                    Ok(Rc::new(crate::objects::none::PyNone::new()))
+                },
+            ))),
+            "symmetric_difference_update" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "symmetric_difference_update".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err("TypeError: set.symmetric_difference_update() takes exactly one argument".to_string());
+                    }
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let arr_ref = elements.borrow();
+                    let result = PySet::set_symmetric_difference(&arr_ref, &other_elements);
+                    drop(arr_ref);
+                    *elements.borrow_mut() = result;
+                    Ok(Rc::new(crate::objects::none::PyNone::new()))
+                },
+            ))),
+            "isdisjoint" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isdisjoint".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.isdisjoint() takes exactly one argument".to_string()
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    for elem in arr.iter() {
+                        if PySet::has_element(&other_elements, elem) {
+                            return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
+                },
+            ))),
+            "issubset" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "issubset".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.issubset() takes exactly one argument".to_string()
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    for elem in arr.iter() {
+                        if !PySet::has_element(&other_elements, elem) {
+                            return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
+                },
+            ))),
+            "issuperset" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "issuperset".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: set.issuperset() takes exactly one argument".to_string()
+                        );
+                    }
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let arr = elements.borrow();
+                    for elem in other_elements.iter() {
+                        if !PySet::has_element(&arr, elem) {
+                            return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
+                },
+            ))),
+            _ => Err(format!(
+                "AttributeError: 'set' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 }
@@ -494,10 +613,15 @@ impl PyObject for PyFrozenSet {
     fn hash(&self) -> Result<i64, String> {
         let mut h: i64 = 0;
         let elements = self.elements.borrow();
-        let mut hashes: Vec<i64> = elements.iter().map(|e| e.hash()).collect::<Result<Vec<i64>, String>>()?;
+        let mut hashes: Vec<i64> = elements
+            .iter()
+            .map(|e| e.hash())
+            .collect::<Result<Vec<i64>, String>>()?;
         hashes.sort_unstable();
         for hash_val in hashes {
-            h = h.wrapping_mul(0x9e3779b97f4a7c15u64 as i64).wrapping_add(hash_val);
+            h = h
+                .wrapping_mul(0x9e3779b97f4a7c15u64 as i64)
+                .wrapping_add(hash_val);
         }
         Ok(h)
     }
@@ -538,7 +662,9 @@ impl PyObject for PyFrozenSet {
         } else if let Some(fs) = other.as_any().downcast_ref::<PyFrozenSet>() {
             let a = self.elements.borrow();
             let b = fs.elements.borrow();
-            Some(Rc::new(PyFrozenSet::new(PySet::set_symmetric_difference(&a, &b))))
+            Some(Rc::new(PyFrozenSet::new(PySet::set_symmetric_difference(
+                &a, &b,
+            ))))
         } else {
             None
         }
@@ -636,74 +762,132 @@ impl PyObject for PyFrozenSet {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let elements = Rc::clone(&self.elements);
         match attr {
-            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only("copy".to_string(), move |args| {
-                if args.len() != 0 { return Err("TypeError: frozenset.copy() takes no arguments".to_string()); }
-                let arr = elements.borrow();
-                let copied: Vec<Rc<dyn PyObject>> = arr.iter().map(|e| Rc::clone(e)).collect();
-                Ok(Rc::new(PyFrozenSet::new(copied)))
-            }))),
-            "union" => Ok(Rc::new(PyNativeFunction::new_pos_only("union".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.union() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_union(&arr, &other_elements);
-                Ok(Rc::new(PyFrozenSet::new(result)))
-            }))),
-            "intersection" => Ok(Rc::new(PyNativeFunction::new_pos_only("intersection".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.intersection() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_intersection(&arr, &other_elements);
-                Ok(Rc::new(PyFrozenSet::new(result)))
-            }))),
-            "difference" => Ok(Rc::new(PyNativeFunction::new_pos_only("difference".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.difference() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_difference(&arr, &other_elements);
-                Ok(Rc::new(PyFrozenSet::new(result)))
-            }))),
-            "symmetric_difference" => Ok(Rc::new(PyNativeFunction::new_pos_only("symmetric_difference".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.symmetric_difference() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let result = PySet::set_symmetric_difference(&arr, &other_elements);
-                Ok(Rc::new(PyFrozenSet::new(result)))
-            }))),
-            "isdisjoint" => Ok(Rc::new(PyNativeFunction::new_pos_only("isdisjoint".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.isdisjoint() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                for elem in arr.iter() {
-                    if PySet::has_element(&other_elements, elem) {
-                        return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "copy".to_string(),
+                move |args| {
+                    if args.len() != 0 {
+                        return Err("TypeError: frozenset.copy() takes no arguments".to_string());
                     }
-                }
-                Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
-            }))),
-            "issubset" => Ok(Rc::new(PyNativeFunction::new_pos_only("issubset".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.issubset() takes exactly one argument".to_string()); }
-                let arr = elements.borrow();
-                let other_elements = set_elements_from_arg(&args[0])?;
-                for elem in arr.iter() {
-                    if !PySet::has_element(&other_elements, elem) {
-                        return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                    let arr = elements.borrow();
+                    let copied: Vec<Rc<dyn PyObject>> = arr.iter().map(|e| Rc::clone(e)).collect();
+                    Ok(Rc::new(PyFrozenSet::new(copied)))
+                },
+            ))),
+            "union" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "union".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: frozenset.union() takes exactly one argument".to_string()
+                        );
                     }
-                }
-                Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
-            }))),
-            "issuperset" => Ok(Rc::new(PyNativeFunction::new_pos_only("issuperset".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: frozenset.issuperset() takes exactly one argument".to_string()); }
-                let other_elements = set_elements_from_arg(&args[0])?;
-                let arr = elements.borrow();
-                for elem in other_elements.iter() {
-                    if !PySet::has_element(&arr, elem) {
-                        return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_union(&arr, &other_elements);
+                    Ok(Rc::new(PyFrozenSet::new(result)))
+                },
+            ))),
+            "intersection" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "intersection".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: frozenset.intersection() takes exactly one argument"
+                                .to_string(),
+                        );
                     }
-                }
-                Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
-            }))),
-            _ => Err(format!("AttributeError: 'frozenset' object has no attribute '{}'", attr)),
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_intersection(&arr, &other_elements);
+                    Ok(Rc::new(PyFrozenSet::new(result)))
+                },
+            ))),
+            "difference" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "difference".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: frozenset.difference() takes exactly one argument"
+                                .to_string(),
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_difference(&arr, &other_elements);
+                    Ok(Rc::new(PyFrozenSet::new(result)))
+                },
+            ))),
+            "symmetric_difference" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "symmetric_difference".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err("TypeError: frozenset.symmetric_difference() takes exactly one argument".to_string());
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let result = PySet::set_symmetric_difference(&arr, &other_elements);
+                    Ok(Rc::new(PyFrozenSet::new(result)))
+                },
+            ))),
+            "isdisjoint" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isdisjoint".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: frozenset.isdisjoint() takes exactly one argument"
+                                .to_string(),
+                        );
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    for elem in arr.iter() {
+                        if PySet::has_element(&other_elements, elem) {
+                            return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
+                },
+            ))),
+            "issubset" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "issubset".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err("TypeError: frozenset.issubset() takes exactly one argument"
+                            .to_string());
+                    }
+                    let arr = elements.borrow();
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    for elem in arr.iter() {
+                        if !PySet::has_element(&other_elements, elem) {
+                            return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
+                },
+            ))),
+            "issuperset" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "issuperset".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: frozenset.issuperset() takes exactly one argument"
+                                .to_string(),
+                        );
+                    }
+                    let other_elements = set_elements_from_arg(&args[0])?;
+                    let arr = elements.borrow();
+                    for elem in other_elements.iter() {
+                        if !PySet::has_element(&arr, elem) {
+                            return Ok(Rc::new(crate::objects::bool::PyBool::new(false)));
+                        }
+                    }
+                    Ok(Rc::new(crate::objects::bool::PyBool::new(true)))
+                },
+            ))),
+            _ => Err(format!(
+                "AttributeError: 'frozenset' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 }
@@ -768,15 +952,26 @@ impl PyObject for PySetIterator {
         match attr {
             "__next__" => {
                 let it = self.clone();
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), move |args| {
-                    if args.len() != 0 { return Err("TypeError: __next__() takes no arguments".to_string()); }
-                    match it.get_next()? {
-                        Some(val) => Ok(val),
-                        None => Err("StopIteration".to_string()),
-                    }
-                })))
+                Ok(Rc::new(
+                    crate::objects::native_function::PyNativeFunction::new_pos_only(
+                        "__next__".to_string(),
+                        move |args| {
+                            if args.len() != 0 {
+                                return Err("TypeError: __next__() takes no arguments".to_string());
+                            }
+                            match it.get_next()? {
+                                Some(val) => Ok(val),
+                                None => Err("StopIteration".to_string()),
+                            }
+                        },
+                    ),
+                ))
             }
-            _ => Err(format!("AttributeError: '{}' object has no attribute '{}'", self.get_type(), attr)),
+            _ => Err(format!(
+                "AttributeError: '{}' object has no attribute '{}'",
+                self.get_type(),
+                attr
+            )),
         }
     }
 }

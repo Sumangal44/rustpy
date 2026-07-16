@@ -119,7 +119,10 @@ fn check_closed(inner: &RefCell<PyFileInner>) -> Result<(), String> {
     Ok(())
 }
 
-fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn PyObject>, String> {
+fn read_impl(
+    inner: &RefCell<PyFileInner>,
+    size: Option<usize>,
+) -> Result<Rc<dyn PyObject>, String> {
     check_closed(inner)?;
     let mut inner_mut = inner.borrow_mut();
     let is_binary = inner_mut.mode.contains('b');
@@ -146,7 +149,8 @@ fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn
                     Ok(Rc::new(PyBytes::new(buf)))
                 } else {
                     let mut buf = Vec::new();
-                    f.read_to_end(&mut buf).map_err(|e| format!("OSError: {}", e))?;
+                    f.read_to_end(&mut buf)
+                        .map_err(|e| format!("OSError: {}", e))?;
                     inner_mut.eof = true;
                     Ok(Rc::new(PyBytes::new(buf)))
                 }
@@ -162,7 +166,8 @@ fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn
                     Ok(Rc::new(PyString::new(s)))
                 } else {
                     let mut buf = Vec::new();
-                    f.read_to_end(&mut buf).map_err(|e| format!("OSError: {}", e))?;
+                    f.read_to_end(&mut buf)
+                        .map_err(|e| format!("OSError: {}", e))?;
                     inner_mut.eof = true;
                     let s = crate::encoding::decode(&buf, &encoding)?;
                     Ok(Rc::new(PyString::new(s)))
@@ -174,7 +179,9 @@ fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn
             if is_binary {
                 if let Some(n) = size {
                     let mut buf = vec![0u8; n];
-                    let nread = stdin.read(&mut buf).map_err(|e| format!("OSError: {}", e))?;
+                    let nread = stdin
+                        .read(&mut buf)
+                        .map_err(|e| format!("OSError: {}", e))?;
                     buf.truncate(nread);
                     if nread == 0 {
                         inner_mut.eof = true;
@@ -191,7 +198,9 @@ fn read_impl(inner: &RefCell<PyFileInner>, size: Option<usize>) -> Result<Rc<dyn
             } else {
                 if let Some(n) = size {
                     let mut buf = vec![0u8; n];
-                    let nread = stdin.read(&mut buf).map_err(|e| format!("OSError: {}", e))?;
+                    let nread = stdin
+                        .read(&mut buf)
+                        .map_err(|e| format!("OSError: {}", e))?;
                     buf.truncate(nread);
                     if nread == 0 {
                         inner_mut.eof = true;
@@ -313,10 +322,14 @@ fn flush_impl(inner: &RefCell<PyFileInner>) -> Result<Rc<dyn PyObject>, String> 
             f.flush().map_err(|e| format!("OSError: {}", e))?;
         }
         PyFileKind::Stdout => {
-            io::stdout().flush().map_err(|e| format!("OSError: {}", e))?;
+            io::stdout()
+                .flush()
+                .map_err(|e| format!("OSError: {}", e))?;
         }
         PyFileKind::Stderr => {
-            io::stderr().flush().map_err(|e| format!("OSError: {}", e))?;
+            io::stderr()
+                .flush()
+                .map_err(|e| format!("OSError: {}", e))?;
         }
         _ => {}
     }
@@ -337,9 +350,7 @@ fn write_impl(inner: &RefCell<PyFileInner>, data: &str) -> Result<Rc<dyn PyObjec
     match &mut inner_mut.kind {
         PyFileKind::File(f) => {
             let bytes = crate::encoding::encode(data, &encoding)?;
-            let n = f
-                .write(&bytes)
-                .map_err(|e| format!("OSError: {}", e))?;
+            let n = f.write(&bytes).map_err(|e| format!("OSError: {}", e))?;
             Ok(Rc::new(PyInt::from_i64(n as i64)))
         }
         PyFileKind::Stdout => {
@@ -466,11 +477,7 @@ impl PyObject for PyFile {
                     let size = if args.len() >= 1 {
                         if let Some(i) = args[0].as_any().downcast_ref::<PyInt>() {
                             let n = i.as_i64().unwrap_or(-1);
-                            if n < 0 {
-                                None
-                            } else {
-                                Some(n as usize)
-                            }
+                            if n < 0 { None } else { Some(n as usize) }
                         } else {
                             return Err(format!(
                                 "TypeError: argument must be int, not '{}'",
@@ -547,9 +554,7 @@ impl PyObject for PyFile {
                 "writelines".to_string(),
                 move |args| {
                     if args.is_empty() {
-                        return Err(
-                            "TypeError: writelines() takes at least 1 argument".to_string()
-                        );
+                        return Err("TypeError: writelines() takes at least 1 argument".to_string());
                     }
                     let iter = args[0].get_iter()?;
                     while let Some(item) = iter.get_next()? {
@@ -614,9 +619,7 @@ impl PyObject for PyFile {
                     let mut inner_mut = inner.borrow_mut();
                     match &mut inner_mut.kind {
                         PyFileKind::File(f) => {
-                            let pos = f
-                                .seek(seek_from)
-                                .map_err(|e| format!("OSError: {}", e))?;
+                            let pos = f.seek(seek_from).map_err(|e| format!("OSError: {}", e))?;
                             inner_mut.eof = false;
                             Ok(Rc::new(PyInt::from_i64(pos as i64)))
                         }
@@ -702,8 +705,8 @@ impl PyObject for PyFile {
                     }
                     let inner_mut = inner.borrow();
                     let m = &inner_mut.mode;
-                    let r = !m.contains('w') && !m.contains('a') && !m.contains('x')
-                        || m.contains('+');
+                    let r =
+                        !m.contains('w') && !m.contains('a') && !m.contains('x') || m.contains('+');
                     Ok(Rc::new(PyBool::new(r)))
                 },
             ))),
@@ -715,7 +718,8 @@ impl PyObject for PyFile {
                     }
                     let inner_mut = inner.borrow();
                     let m = &inner_mut.mode;
-                    let w = m.contains('w') || m.contains('a') || m.contains('x') || m.contains('+');
+                    let w =
+                        m.contains('w') || m.contains('a') || m.contains('x') || m.contains('+');
                     Ok(Rc::new(PyBool::new(w)))
                 },
             ))),

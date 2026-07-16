@@ -163,7 +163,6 @@ pub trait PyObject: Debug + Any {
     fn hash(&self) -> Result<i64, String> {
         Err(format!("TypeError: unhashable type: '{}'", self.get_type()))
     }
-
 }
 
 pub mod bool;

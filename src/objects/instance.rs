@@ -48,7 +48,9 @@ impl PyInstance {
         }
 
         if val.as_any().is::<crate::objects::function::PyFunction>()
-            || val.as_any().is::<crate::objects::native_function::PyNativeFunction>()
+            || val
+                .as_any()
+                .is::<crate::objects::native_function::PyNativeFunction>()
         {
             return Ok(self.bind_function(val));
         }
@@ -56,7 +58,11 @@ impl PyInstance {
         Ok(val)
     }
 
-    pub fn call_dunder(&self, name: &str, args: Vec<Rc<dyn PyObject>>) -> Result<Rc<dyn PyObject>, String> {
+    pub fn call_dunder(
+        &self,
+        name: &str,
+        args: Vec<Rc<dyn PyObject>>,
+    ) -> Result<Rc<dyn PyObject>, String> {
         let method = self.get_attr(name)?;
         if let Some(bound) = method.as_any().downcast_ref::<PyBoundMethod>() {
             if let Some(native) = bound.func.as_any().downcast_ref::<PyNativeFunction>() {
@@ -64,11 +70,17 @@ impl PyInstance {
                 all_args.extend(args);
                 return (native.func)(all_args, std::collections::HashMap::new());
             }
-            return Err(format!("NotImplementedError: calling {} on user-defined function not supported", name));
+            return Err(format!(
+                "NotImplementedError: calling {} on user-defined function not supported",
+                name
+            ));
         } else if let Some(native) = method.as_any().downcast_ref::<PyNativeFunction>() {
             return (native.func)(args, std::collections::HashMap::new());
         }
-        Err(format!("TypeError: '{}' object is not callable", method.get_type()))
+        Err(format!(
+            "TypeError: '{}' object is not callable",
+            method.get_type()
+        ))
     }
 
     pub fn len(&self) -> Result<usize, String> {
@@ -143,7 +155,10 @@ impl PyObject for PyInstance {
             let attrs = self.attributes.borrow();
             let mut pairs = Vec::new();
             for (k, v) in attrs.iter() {
-                pairs.push((Rc::new(PyString::new(k.clone())) as Rc<dyn PyObject>, Rc::clone(v)));
+                pairs.push((
+                    Rc::new(PyString::new(k.clone())) as Rc<dyn PyObject>,
+                    Rc::clone(v),
+                ));
             }
             return Ok(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs)));
         }
@@ -163,7 +178,10 @@ impl PyObject for PyInstance {
             let class_slots = &self.class.slots;
             if let Some(slots) = class_slots {
                 if !slots.contains(&attr.to_string()) {
-                    Some(format!("AttributeError: '{}' object has no attribute '{}'", self.class.name, attr))
+                    Some(format!(
+                        "AttributeError: '{}' object has no attribute '{}'",
+                        self.class.name, attr
+                    ))
                 } else {
                     None
                 }
@@ -187,7 +205,10 @@ impl PyObject for PyInstance {
                         false
                     });
                     if !in_mro_slot {
-                        Some(format!("AttributeError: '{}' object has no attribute '{}'", self.class.name, attr))
+                        Some(format!(
+                            "AttributeError: '{}' object has no attribute '{}'",
+                            self.class.name, attr
+                        ))
                     } else {
                         None
                     }
@@ -212,6 +233,9 @@ impl PyObject for PyInstance {
         if let Ok(iter_method) = self.call_dunder("__iter__", vec![]) {
             return Ok(iter_method);
         }
-        Err(format!("TypeError: '{}' object is not iterable", self.class.name))
+        Err(format!(
+            "TypeError: '{}' object is not iterable",
+            self.class.name
+        ))
     }
 }

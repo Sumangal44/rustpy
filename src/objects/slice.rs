@@ -25,20 +25,32 @@ impl PySlice {
                 }
             }
             None => {
-                if step > 0 { 0 } else { length.saturating_sub(1) }
+                if step > 0 {
+                    0
+                } else {
+                    length.saturating_sub(1)
+                }
             }
         };
         let stop = match self.stop {
             Some(s) => {
                 if s < 0 {
                     let adjusted = length as i64 + s;
-                    if adjusted < 0 { 0 } else { adjusted.min(length as i64) as usize }
+                    if adjusted < 0 {
+                        0
+                    } else {
+                        adjusted.min(length as i64) as usize
+                    }
                 } else {
                     (s as usize).min(length)
                 }
             }
             None => {
-                if step > 0 { length } else { 0 }
+                if step > 0 {
+                    length
+                } else {
+                    0
+                }
             }
         };
         (start, stop, step)
@@ -55,9 +67,18 @@ impl PyObject for PySlice {
     }
 
     fn repr(&self) -> String {
-        let s = self.start.map(|v| v.to_string()).unwrap_or_else(|| "None".to_string());
-        let e = self.stop.map(|v| v.to_string()).unwrap_or_else(|| "None".to_string());
-        let p = self.step.map(|v| v.to_string()).unwrap_or_else(|| "None".to_string());
+        let s = self
+            .start
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "None".to_string());
+        let e = self
+            .stop
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "None".to_string());
+        let p = self
+            .step
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "None".to_string());
         format!("slice({}, {}, {})", s, e, p)
     }
 

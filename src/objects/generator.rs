@@ -28,7 +28,9 @@ impl PyGenerator {
         if !*self.started.borrow() {
             *self.started.borrow_mut() = true;
             if value.get_type() != "NoneType" {
-                return Err("TypeError: can't send non-None value to a just-started generator".to_string());
+                return Err(
+                    "TypeError: can't send non-None value to a just-started generator".to_string(),
+                );
             }
             // First call to send(None) just starts the generator
             return self.resume_inner(None);
@@ -36,7 +38,10 @@ impl PyGenerator {
         self.resume_inner(Some(value))
     }
 
-    fn resume_inner(&self, send_value: Option<Rc<dyn PyObject>>) -> Result<Option<Rc<dyn PyObject>>, String> {
+    fn resume_inner(
+        &self,
+        send_value: Option<Rc<dyn PyObject>>,
+    ) -> Result<Option<Rc<dyn PyObject>>, String> {
         if *self.closed.borrow() {
             return Ok(None);
         }
@@ -103,91 +108,126 @@ impl PyObject for PyGenerator {
             closed: Rc::clone(&self.closed),
         }) as Rc<dyn PyObject>;
         match attr {
-            "__next__" => {
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), {
-                    let gen_rc = self_rc.clone();
-                    move |_args| {
-                        let gen_obj = gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
-                        match gen_obj.resume_inner(None) {
-                            Ok(Some(val)) => Ok(val),
-                            Ok(None) => Err("StopIteration".to_string()),
-                            Err(e) => Err(e),
+            "__next__" => Ok(Rc::new(
+                crate::objects::native_function::PyNativeFunction::new_pos_only(
+                    "__next__".to_string(),
+                    {
+                        let gen_rc = self_rc.clone();
+                        move |_args| {
+                            let gen_obj = gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
+                            match gen_obj.resume_inner(None) {
+                                Ok(Some(val)) => Ok(val),
+                                Ok(None) => Err("StopIteration".to_string()),
+                                Err(e) => Err(e),
+                            }
                         }
-                    }
-                })) as Rc<dyn PyObject>)
-            }
-            "send" => {
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("send".to_string(), {
-                    let gen_rc = self_rc.clone();
-                    move |args| {
-                        if args.is_empty() {
-                            return Err("TypeError: send() takes exactly one argument".to_string());
+                    },
+                ),
+            ) as Rc<dyn PyObject>),
+            "send" => Ok(Rc::new(
+                crate::objects::native_function::PyNativeFunction::new_pos_only(
+                    "send".to_string(),
+                    {
+                        let gen_rc = self_rc.clone();
+                        move |args| {
+                            if args.is_empty() {
+                                return Err(
+                                    "TypeError: send() takes exactly one argument".to_string()
+                                );
+                            }
+                            let gen_obj = gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
+                            match gen_obj.send(Rc::clone(&args[0])) {
+                                Ok(Some(val)) => Ok(val),
+                                Ok(None) => Err("StopIteration".to_string()),
+                                Err(e) => Err(e),
+                            }
                         }
-                        let gen_obj = gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
-                        match gen_obj.send(Rc::clone(&args[0])) {
-                            Ok(Some(val)) => Ok(val),
-                            Ok(None) => Err("StopIteration".to_string()),
-                            Err(e) => Err(e),
-                        }
-                    }
-                })) as Rc<dyn PyObject>)
-            }
+                    },
+                ),
+            ) as Rc<dyn PyObject>),
             "throw" => {
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("throw".to_string(), {
-                    let gen_rc = self_rc.clone();
-                    move |args| {
-                        if args.is_empty() {
-                            return Err("TypeError: throw() requires at least 1 argument".to_string());
-                        }
-                        let exc_obj = Rc::clone(&args[0]);
-                        let gen_obj = gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
-                        // Inject the exception into the frame and resume
+                Ok(Rc::new(
+                    crate::objects::native_function::PyNativeFunction::new_pos_only(
+                        "throw".to_string(),
                         {
-                            let mut frame = gen_obj.frame.borrow_mut();
-                            frame.pending_exception = Some(exc_obj);
-                        }
-                        match gen_obj.resume_inner(None) {
-                            Ok(Some(val)) => Ok(val),
-                            Ok(None) => Err("StopIteration".to_string()),
-                            Err(e) => Err(e),
-                        }
-                    }
-                })) as Rc<dyn PyObject>)
+                            let gen_rc = self_rc.clone();
+                            move |args| {
+                                if args.is_empty() {
+                                    return Err("TypeError: throw() requires at least 1 argument"
+                                        .to_string());
+                                }
+                                let exc_obj = Rc::clone(&args[0]);
+                                let gen_obj =
+                                    gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
+                                // Inject the exception into the frame and resume
+                                {
+                                    let mut frame = gen_obj.frame.borrow_mut();
+                                    frame.pending_exception = Some(exc_obj);
+                                }
+                                match gen_obj.resume_inner(None) {
+                                    Ok(Some(val)) => Ok(val),
+                                    Ok(None) => Err("StopIteration".to_string()),
+                                    Err(e) => Err(e),
+                                }
+                            }
+                        },
+                    ),
+                ) as Rc<dyn PyObject>)
             }
             "close" => {
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("close".to_string(), {
-                    let gen_rc = self_rc.clone();
-                    move |_args| {
-                        let gen_obj = gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
-                        // If generator is already closed, nothing to do
-                        if *gen_obj.closed.borrow() {
-                            return Ok(Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>);
-                        }
-                        // If generator hasn't started, mark as closed and return None
-                        if !*gen_obj.started.borrow() {
-                            *gen_obj.closed.borrow_mut() = true;
-                            return Ok(Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>);
-                        }
-                        // Inject GeneratorExit as a string error that resume_inner will propagate
+                Ok(Rc::new(
+                    crate::objects::native_function::PyNativeFunction::new_pos_only(
+                        "close".to_string(),
                         {
-                            let mut frame = gen_obj.frame.borrow_mut();
-                            frame.pending_exception = Some(
-                                Rc::new(crate::objects::string::PyString::new("GeneratorExit".to_string()))
-                                    as Rc<dyn PyObject>
-                            );
-                        }
-                        match gen_obj.resume_inner(None) {
-                            Ok(None) => Ok(Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>),
-                            Ok(Some(_)) => Err("RuntimeError: generator ignored GeneratorExit".to_string()),
-                            Err(ref e) if e.contains("GeneratorExit") || e.contains("StopIteration") => {
-                                Ok(Rc::new(crate::objects::none::PyNone::new()) as Rc<dyn PyObject>)
+                            let gen_rc = self_rc.clone();
+                            move |_args| {
+                                let gen_obj =
+                                    gen_rc.as_any().downcast_ref::<PyGenerator>().unwrap();
+                                // If generator is already closed, nothing to do
+                                if *gen_obj.closed.borrow() {
+                                    return Ok(Rc::new(crate::objects::none::PyNone::new())
+                                        as Rc<dyn PyObject>);
+                                }
+                                // If generator hasn't started, mark as closed and return None
+                                if !*gen_obj.started.borrow() {
+                                    *gen_obj.closed.borrow_mut() = true;
+                                    return Ok(Rc::new(crate::objects::none::PyNone::new())
+                                        as Rc<dyn PyObject>);
+                                }
+                                // Inject GeneratorExit as a string error that resume_inner will propagate
+                                {
+                                    let mut frame = gen_obj.frame.borrow_mut();
+                                    frame.pending_exception =
+                                        Some(Rc::new(crate::objects::string::PyString::new(
+                                            "GeneratorExit".to_string(),
+                                        ))
+                                            as Rc<dyn PyObject>);
+                                }
+                                match gen_obj.resume_inner(None) {
+                                    Ok(None) => Ok(Rc::new(crate::objects::none::PyNone::new())
+                                        as Rc<dyn PyObject>),
+                                    Ok(Some(_)) => {
+                                        Err("RuntimeError: generator ignored GeneratorExit"
+                                            .to_string())
+                                    }
+                                    Err(ref e)
+                                        if e.contains("GeneratorExit")
+                                            || e.contains("StopIteration") =>
+                                    {
+                                        Ok(Rc::new(crate::objects::none::PyNone::new())
+                                            as Rc<dyn PyObject>)
+                                    }
+                                    Err(e) => Err(e),
+                                }
                             }
-                            Err(e) => Err(e),
-                        }
-                    }
-                })) as Rc<dyn PyObject>)
+                        },
+                    ),
+                ) as Rc<dyn PyObject>)
             }
-            _ => Err(format!("AttributeError: 'generator' object has no attribute '{}'", attr)),
+            _ => Err(format!(
+                "AttributeError: 'generator' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 

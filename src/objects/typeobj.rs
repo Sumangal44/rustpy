@@ -9,7 +9,9 @@ pub struct PyType {
 
 impl PyType {
     pub fn new(name: &str) -> Self {
-        Self { name: name.to_string() }
+        Self {
+            name: name.to_string(),
+        }
     }
 }
 
@@ -32,9 +34,16 @@ impl PyObject for PyType {
 
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         match attr {
-            "__name__" => Ok(Rc::new(crate::objects::string::PyString::new(self.name.clone()))),
-            "__module__" => Ok(Rc::new(crate::objects::string::PyString::new("builtins".to_string()))),
-            _ => Err(format!("AttributeError: type object '{}' has no attribute '{}'", self.name, attr)),
+            "__name__" => Ok(Rc::new(crate::objects::string::PyString::new(
+                self.name.clone(),
+            ))),
+            "__module__" => Ok(Rc::new(crate::objects::string::PyString::new(
+                "builtins".to_string(),
+            ))),
+            _ => Err(format!(
+                "AttributeError: type object '{}' has no attribute '{}'",
+                self.name, attr
+            )),
         }
     }
 }

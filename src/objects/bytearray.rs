@@ -35,7 +35,11 @@ fn is_whitespace_byte(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)
 }
 
-fn get_start_end_from_borrowed(val: &[u8], args: &[Rc<dyn PyObject>], arg_offset: usize) -> (usize, usize) {
+fn get_start_end_from_borrowed(
+    val: &[u8],
+    args: &[Rc<dyn PyObject>],
+    arg_offset: usize,
+) -> (usize, usize) {
     let len = val.len();
     let start = if args.len() > arg_offset {
         if let Some(i) = args[arg_offset].as_any().downcast_ref::<PyInt>() {
@@ -127,7 +131,9 @@ impl PyObject for PyByteArray {
 
     fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
         let other_ba = other.as_any().downcast_ref::<PyByteArray>()?;
-        Some(Rc::new(PyBool::new(*self.value.borrow() == *other_ba.value.borrow())))
+        Some(Rc::new(PyBool::new(
+            *self.value.borrow() == *other_ba.value.borrow(),
+        )))
     }
 
     fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
@@ -143,7 +149,10 @@ impl PyObject for PyByteArray {
             } else {
                 Err("IndexError: bytearray index out of range".to_string())
             }
-        } else if let Some(slice) = key.as_any().downcast_ref::<crate::objects::slice::PySlice>() {
+        } else if let Some(slice) = key
+            .as_any()
+            .downcast_ref::<crate::objects::slice::PySlice>()
+        {
             let length = val.len();
             let (raw_start, raw_stop, step) = slice.resolve(length);
             let mut result = Vec::new();
@@ -154,13 +163,23 @@ impl PyObject for PyByteArray {
                     i = (i as i64 + step) as usize;
                 }
             } else if step < 0 {
-                let start = if slice.start.is_some() { raw_start as i64 } else { length as i64 - 1 };
-                let stop = if slice.stop.is_some() { raw_stop as i64 } else { -1i64 };
+                let start = if slice.start.is_some() {
+                    raw_start as i64
+                } else {
+                    length as i64 - 1
+                };
+                let stop = if slice.stop.is_some() {
+                    raw_stop as i64
+                } else {
+                    -1i64
+                };
                 let mut i = start;
                 while i > stop {
                     result.push(val[i as usize]);
                     let next = i + step;
-                    if next < 0 || next as usize >= length { break; }
+                    if next < 0 || next as usize >= length {
+                        break;
+                    }
                     i = next;
                 }
             }
@@ -203,23 +222,32 @@ impl PyObject for PyByteArray {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let val = Rc::clone(&self.value);
         match attr {
-            "append" => Ok(Rc::new(PyNativeFunction::new_pos_only("append".to_string(), move |args| {
-                if args.len() != 1 {
-                    return Err("TypeError: bytearray.append() takes exactly one argument".to_string());
-                }
-                let n = args[0].as_any().downcast_ref::<PyInt>()
-                    .ok_or_else(|| "TypeError: bytearray.append() argument must be int".to_string())?;
-                let v = n.as_i64().unwrap_or(0);
-                if v < 0 || v > 255 {
-                    return Err("ValueError: byte must be in range(0, 256)".to_string());
-                }
-                val.borrow_mut().push(v as u8);
-                Ok(Rc::new(PyNone::new()))
-            }))),
-            "capitalize" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("capitalize".to_string(), move |args| {
+            "append" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "append".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: bytearray.append() takes exactly one argument".to_string()
+                        );
+                    }
+                    let n = args[0].as_any().downcast_ref::<PyInt>().ok_or_else(|| {
+                        "TypeError: bytearray.append() argument must be int".to_string()
+                    })?;
+                    let v = n.as_i64().unwrap_or(0);
+                    if v < 0 || v > 255 {
+                        return Err("ValueError: byte must be in range(0, 256)".to_string());
+                    }
+                    val.borrow_mut().push(v as u8);
+                    Ok(Rc::new(PyNone::new()))
+                },
+            ))),
+            "capitalize" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "capitalize".to_string(),
+                move |args| {
                     if !args.is_empty() {
-                        return Err("TypeError: capitalize() takes no arguments (1 given)".to_string());
+                        return Err(
+                            "TypeError: capitalize() takes no arguments (1 given)".to_string()
+                        );
                     }
                     let mut result = val.borrow().clone();
                     if result.is_empty() {
@@ -234,23 +262,31 @@ impl PyObject for PyByteArray {
                         }
                     }
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "center" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("center".to_string(), move |args| {
+                },
+            ))),
+            "center" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "center".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 2 {
-                        return Err("TypeError: center() takes 1-2 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: center() takes 1-2 arguments ({} given)".to_string()
+                        );
                     }
-                    let width = args[0].as_any().downcast_ref::<PyInt>()
+                    let width = args[0]
+                        .as_any()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                        .to_usize().unwrap_or(0);
-                    let fillbyte = if args.len() > 1 {
-                        let fb = args[1].as_any().downcast_ref::<PyByteArray>()
-                            .ok_or_else(|| "TypeError: a bytes-like object is required".to_string())?;
-                        fb.value.borrow().get(0).copied().unwrap_or(b' ')
-                    } else {
-                        b' '
-                    };
+                        .to_usize()
+                        .unwrap_or(0);
+                    let fillbyte =
+                        if args.len() > 1 {
+                            let fb = args[1].as_any().downcast_ref::<PyByteArray>().ok_or_else(
+                                || "TypeError: a bytes-like object is required".to_string(),
+                            )?;
+                            fb.value.borrow().get(0).copied().unwrap_or(b' ')
+                        } else {
+                            b' '
+                        };
                     let borrowed = val.borrow();
                     if width <= borrowed.len() {
                         Ok(Rc::new(PyByteArray::new(borrowed.clone())))
@@ -263,31 +299,39 @@ impl PyObject for PyByteArray {
                         result.extend(std::iter::repeat(fillbyte).take(right));
                         Ok(Rc::new(PyByteArray::new(result)))
                     }
-                })))
-            }
-            "clear" => Ok(Rc::new(PyNativeFunction::new_pos_only("clear".to_string(), move |args| {
-                if args.len() != 0 {
-                    return Err("TypeError: bytearray.clear() takes no arguments".to_string());
-                }
-                val.borrow_mut().clear();
-                Ok(Rc::new(PyNone::new()))
-            }))),
-            "copy" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("copy".to_string(), move |args| {
+                },
+            ))),
+            "clear" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "clear".to_string(),
+                move |args| {
+                    if args.len() != 0 {
+                        return Err("TypeError: bytearray.clear() takes no arguments".to_string());
+                    }
+                    val.borrow_mut().clear();
+                    Ok(Rc::new(PyNone::new()))
+                },
+            ))),
+            "copy" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "copy".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: copy() takes no arguments (1 given)".to_string());
                     }
                     Ok(Rc::new(PyByteArray::new(val.borrow().clone())))
-                })))
-            }
-            "count" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("count".to_string(), move |args| {
+                },
+            ))),
+            "count" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "count".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
                         return Err("TypeError: count() takes 1-3 arguments ({} given)".to_string());
                     }
                     let sub = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -298,27 +342,46 @@ impl PyObject for PyByteArray {
                     let cnt = if sub.is_empty() || slice.len() < sub.len() {
                         0
                     } else {
-                        slice.windows(sub.len()).filter(|w| *w == sub.as_slice()).count()
+                        slice
+                            .windows(sub.len())
+                            .filter(|w| *w == sub.as_slice())
+                            .count()
                     };
                     Ok(Rc::new(PyInt::from_i64(cnt as i64)))
-                })))
-            }
-            "decode" => Ok(Rc::new(PyNativeFunction::new_pos_only("decode".to_string(), move |args| {
-                if args.len() > 2 {
-                    return Err("TypeError: decode() takes at most 2 arguments ({} given)".to_string());
-                }
-                let encoding = if args.is_empty() { "utf-8".to_string() } else { args[0].str() };
-                let bytes = val.borrow().clone();
-                crate::encoding::decode(&bytes, &encoding).map(|s| Rc::new(PyString::new(s)) as Rc<dyn PyObject>)
-            }))),
-            "endswith" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("endswith".to_string(), move |args| {
+                },
+            ))),
+            "decode" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "decode".to_string(),
+                move |args| {
+                    if args.len() > 2 {
+                        return Err(
+                            "TypeError: decode() takes at most 2 arguments ({} given)".to_string()
+                        );
+                    }
+                    let encoding = if args.is_empty() {
+                        "utf-8".to_string()
+                    } else {
+                        args[0].str()
+                    };
+                    let bytes = val.borrow().clone();
+                    crate::encoding::decode(&bytes, &encoding)
+                        .map(|s| Rc::new(PyString::new(s)) as Rc<dyn PyObject>)
+                },
+            ))),
+            "endswith" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "endswith".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
-                        return Err("TypeError: endswith() takes 1-3 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: endswith() takes 1-3 arguments ({} given)".to_string()
+                        );
                     }
                     let suffix = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -327,19 +390,26 @@ impl PyObject for PyByteArray {
                     let (start, end) = get_start_end_from_borrowed(&borrowed, &args, 1);
                     let slice = &borrowed[start..end];
                     Ok(Rc::new(PyBool::new(slice.ends_with(&suffix))))
-                })))
-            }
-            "expandtabs" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("expandtabs".to_string(), move |args| {
+                },
+            ))),
+            "expandtabs" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "expandtabs".to_string(),
+                move |args| {
                     if args.len() > 1 {
-                        return Err("TypeError: expandtabs() takes at most 1 argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: expandtabs() takes at most 1 argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     let tabsize = if args.is_empty() {
                         8usize
                     } else {
-                        args[0].as_any().downcast_ref::<PyInt>()
+                        args[0]
+                            .as_any()
+                            .downcast_ref::<PyInt>()
                             .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                            .to_usize().unwrap_or(8)
+                            .to_usize()
+                            .unwrap_or(8)
                     };
                     let borrowed = val.borrow();
                     let mut result = Vec::new();
@@ -358,33 +428,43 @@ impl PyObject for PyByteArray {
                         }
                     }
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "extend" => Ok(Rc::new(PyNativeFunction::new_pos_only("extend".to_string(), move |args| {
-                if args.len() != 1 {
-                    return Err("TypeError: bytearray.extend() takes exactly one argument".to_string());
-                }
-                let iter = args[0].get_iter()?;
-                let mut arr = val.borrow_mut();
-                while let Some(item) = iter.get_next()? {
-                    let n = item.as_any().downcast_ref::<PyInt>()
+                },
+            ))),
+            "extend" => {
+                Ok(Rc::new(PyNativeFunction::new_pos_only(
+                    "extend".to_string(),
+                    move |args| {
+                        if args.len() != 1 {
+                            return Err("TypeError: bytearray.extend() takes exactly one argument"
+                                .to_string());
+                        }
+                        let iter = args[0].get_iter()?;
+                        let mut arr = val.borrow_mut();
+                        while let Some(item) = iter.get_next()? {
+                            let n = item.as_any().downcast_ref::<PyInt>()
                         .ok_or_else(|| "TypeError: bytearray.extend() argument must be iterable of ints".to_string())?;
-                    let v = n.as_i64().unwrap_or(0);
-                    if v < 0 || v > 255 {
-                        return Err("ValueError: byte must be in range(0, 256)".to_string());
-                    }
-                    arr.push(v as u8);
-                }
-                Ok(Rc::new(PyNone::new()))
-            }))),
-            "find" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("find".to_string(), move |args| {
+                            let v = n.as_i64().unwrap_or(0);
+                            if v < 0 || v > 255 {
+                                return Err("ValueError: byte must be in range(0, 256)".to_string());
+                            }
+                            arr.push(v as u8);
+                        }
+                        Ok(Rc::new(PyNone::new()))
+                    },
+                )))
+            }
+            "find" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "find".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
                         return Err("TypeError: find() takes 1-3 arguments ({} given)".to_string());
                     }
                     let sub = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -399,25 +479,30 @@ impl PyObject for PyByteArray {
                         Some(pos) => Ok(Rc::new(PyInt::from_i64((start + pos) as i64))),
                         None => Ok(Rc::new(PyInt::from_i64(-1))),
                     }
-                })))
-            }
-            "hex" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("hex".to_string(), move |args| {
+                },
+            ))),
+            "hex" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "hex".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: hex() takes no arguments (1 given)".to_string());
                     }
                     let hex: String = val.borrow().iter().map(|b| format!("{:02x}", b)).collect();
                     Ok(Rc::new(PyString::new(hex)))
-                })))
-            }
-            "index" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("index".to_string(), move |args| {
+                },
+            ))),
+            "index" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "index".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
                         return Err("TypeError: index() takes 1-3 arguments ({} given)".to_string());
                     }
                     let sub = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -432,59 +517,76 @@ impl PyObject for PyByteArray {
                         Some(pos) => Ok(Rc::new(PyInt::from_i64((start + pos) as i64))),
                         None => Err("ValueError: subsection not found".to_string()),
                     }
-                })))
-            }
-            "insert" => Ok(Rc::new(PyNativeFunction::new_pos_only("insert".to_string(), move |args| {
-                if args.len() != 2 {
-                    return Err("TypeError: bytearray.insert() takes exactly 2 arguments".to_string());
-                }
-                let idx_obj = args[0].as_any().downcast_ref::<PyInt>()
-                    .ok_or_else(|| "TypeError: bytearray.insert() index must be int".to_string())?;
-                let n = args[1].as_any().downcast_ref::<PyInt>()
-                    .ok_or_else(|| "TypeError: bytearray.insert() value must be int".to_string())?;
-                let v = n.as_i64().unwrap_or(0);
-                if v < 0 || v > 255 {
-                    return Err("ValueError: byte must be in range(0, 256)".to_string());
-                }
-                let mut arr = val.borrow_mut();
-                let len = arr.len() as i64;
-                let mut i = idx_obj.as_i64().unwrap_or(0);
-                if i < 0 {
-                    i = 0.max(len + i);
-                }
-                let pos = (i as usize).min(arr.len());
-                arr.insert(pos, v as u8);
-                Ok(Rc::new(PyNone::new()))
-            }))),
-            "isalnum" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("isalnum".to_string(), move |args| {
+                },
+            ))),
+            "insert" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "insert".to_string(),
+                move |args| {
+                    if args.len() != 2 {
+                        return Err(
+                            "TypeError: bytearray.insert() takes exactly 2 arguments".to_string()
+                        );
+                    }
+                    let idx_obj = args[0].as_any().downcast_ref::<PyInt>().ok_or_else(|| {
+                        "TypeError: bytearray.insert() index must be int".to_string()
+                    })?;
+                    let n = args[1].as_any().downcast_ref::<PyInt>().ok_or_else(|| {
+                        "TypeError: bytearray.insert() value must be int".to_string()
+                    })?;
+                    let v = n.as_i64().unwrap_or(0);
+                    if v < 0 || v > 255 {
+                        return Err("ValueError: byte must be in range(0, 256)".to_string());
+                    }
+                    let mut arr = val.borrow_mut();
+                    let len = arr.len() as i64;
+                    let mut i = idx_obj.as_i64().unwrap_or(0);
+                    if i < 0 {
+                        i = 0.max(len + i);
+                    }
+                    let pos = (i as usize).min(arr.len());
+                    arr.insert(pos, v as u8);
+                    Ok(Rc::new(PyNone::new()))
+                },
+            ))),
+            "isalnum" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isalnum".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: isalnum() takes no arguments (1 given)".to_string());
                     }
                     let borrowed = val.borrow();
-                    Ok(Rc::new(PyBool::new(!borrowed.is_empty() && borrowed.iter().all(|b| b.is_ascii_alphanumeric()))))
-                })))
-            }
-            "isalpha" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("isalpha".to_string(), move |args| {
+                    Ok(Rc::new(PyBool::new(
+                        !borrowed.is_empty() && borrowed.iter().all(|b| b.is_ascii_alphanumeric()),
+                    )))
+                },
+            ))),
+            "isalpha" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isalpha".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: isalpha() takes no arguments (1 given)".to_string());
                     }
                     let borrowed = val.borrow();
-                    Ok(Rc::new(PyBool::new(!borrowed.is_empty() && borrowed.iter().all(|b| b.is_ascii_alphabetic()))))
-                })))
-            }
-            "isdigit" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("isdigit".to_string(), move |args| {
+                    Ok(Rc::new(PyBool::new(
+                        !borrowed.is_empty() && borrowed.iter().all(|b| b.is_ascii_alphabetic()),
+                    )))
+                },
+            ))),
+            "isdigit" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isdigit".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: isdigit() takes no arguments (1 given)".to_string());
                     }
                     let borrowed = val.borrow();
-                    Ok(Rc::new(PyBool::new(!borrowed.is_empty() && borrowed.iter().all(|b| b.is_ascii_digit()))))
-                })))
-            }
-            "islower" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("islower".to_string(), move |args| {
+                    Ok(Rc::new(PyBool::new(
+                        !borrowed.is_empty() && borrowed.iter().all(|b| b.is_ascii_digit()),
+                    )))
+                },
+            ))),
+            "islower" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "islower".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: islower() takes no arguments (1 given)".to_string());
                     }
@@ -499,19 +601,23 @@ impl PyObject for PyByteArray {
                         }
                     }
                     Ok(Rc::new(PyBool::new(has_lower)))
-                })))
-            }
-            "isspace" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("isspace".to_string(), move |args| {
+                },
+            ))),
+            "isspace" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isspace".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: isspace() takes no arguments (1 given)".to_string());
                     }
                     let borrowed = val.borrow();
-                    Ok(Rc::new(PyBool::new(!borrowed.is_empty() && borrowed.iter().all(|&b| is_whitespace_byte(b)))))
-                })))
-            }
-            "istitle" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("istitle".to_string(), move |args| {
+                    Ok(Rc::new(PyBool::new(
+                        !borrowed.is_empty() && borrowed.iter().all(|&b| is_whitespace_byte(b)),
+                    )))
+                },
+            ))),
+            "istitle" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "istitle".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: istitle() takes no arguments (1 given)".to_string());
                     }
@@ -539,10 +645,11 @@ impl PyObject for PyByteArray {
                         }
                     }
                     Ok(Rc::new(PyBool::new(cased)))
-                })))
-            }
-            "isupper" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("isupper".to_string(), move |args| {
+                },
+            ))),
+            "isupper" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "isupper".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: isupper() takes no arguments (1 given)".to_string());
                     }
@@ -557,12 +664,15 @@ impl PyObject for PyByteArray {
                         }
                     }
                     Ok(Rc::new(PyBool::new(has_upper)))
-                })))
-            }
-            "join" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("join".to_string(), move |args| {
+                },
+            ))),
+            "join" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "join".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: join() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: join() takes exactly one argument ({} given)".to_string()
+                        );
                     }
                     let iterable = &args[0];
                     let iter = iterable.get_iter()?;
@@ -576,30 +686,44 @@ impl PyObject for PyByteArray {
                         first = false;
                         if let Some(b) = item.as_any().downcast_ref::<PyByteArray>() {
                             result.extend(b.value.borrow().iter());
-                        } else if let Some(b) = item.as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                        } else if let Some(b) = item
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>()
+                        {
                             result.extend(b.value.iter());
                         } else {
-                            return Err("TypeError: sequence item in bytes join must be bytes, not '".to_string() + item.get_type() + "'");
+                            return Err(
+                                "TypeError: sequence item in bytes join must be bytes, not '"
+                                    .to_string()
+                                    + item.get_type()
+                                    + "'",
+                            );
                         }
                     }
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "ljust" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("ljust".to_string(), move |args| {
+                },
+            ))),
+            "ljust" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "ljust".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 2 {
                         return Err("TypeError: ljust() takes 1-2 arguments ({} given)".to_string());
                     }
-                    let width = args[0].as_any().downcast_ref::<PyInt>()
+                    let width = args[0]
+                        .as_any()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                        .to_usize().unwrap_or(0);
-                    let fillbyte = if args.len() > 1 {
-                        let fb = args[1].as_any().downcast_ref::<PyByteArray>()
-                            .ok_or_else(|| "TypeError: a bytes-like object is required".to_string())?;
-                        fb.value.borrow().get(0).copied().unwrap_or(b' ')
-                    } else {
-                        b' '
-                    };
+                        .to_usize()
+                        .unwrap_or(0);
+                    let fillbyte =
+                        if args.len() > 1 {
+                            let fb = args[1].as_any().downcast_ref::<PyByteArray>().ok_or_else(
+                                || "TypeError: a bytes-like object is required".to_string(),
+                            )?;
+                            fb.value.borrow().get(0).copied().unwrap_or(b' ')
+                        } else {
+                            b' '
+                        };
                     let borrowed = val.borrow();
                     if width <= borrowed.len() {
                         Ok(Rc::new(PyByteArray::new(borrowed.clone())))
@@ -608,56 +732,76 @@ impl PyObject for PyByteArray {
                         result.extend(std::iter::repeat(fillbyte).take(width - borrowed.len()));
                         Ok(Rc::new(PyByteArray::new(result)))
                     }
-                })))
-            }
-            "lower" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("lower".to_string(), move |args| {
+                },
+            ))),
+            "lower" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "lower".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: lower() takes no arguments (1 given)".to_string());
                     }
-                    let result: Vec<u8> = val.borrow().iter().map(|&b| {
-                        if b.is_ascii_uppercase() { b + 32 } else { b }
-                    }).collect();
+                    let result: Vec<u8> = val
+                        .borrow()
+                        .iter()
+                        .map(|&b| if b.is_ascii_uppercase() { b + 32 } else { b })
+                        .collect();
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "lstrip" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("lstrip".to_string(), move |args| {
+                },
+            ))),
+            "lstrip" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "lstrip".to_string(),
+                move |args| {
                     if args.len() > 1 {
-                        return Err("TypeError: lstrip() takes at most 1 argument (2 given)".to_string());
+                        return Err(
+                            "TypeError: lstrip() takes at most 1 argument (2 given)".to_string()
+                        );
                     }
-                    let chars = if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
-                        whitespace_bytes().to_vec()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
-                        b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                        b.value.clone()
-                    } else {
-                        return Err("TypeError: expected a bytes-like object".to_string());
-                    };
+                    let chars =
+                        if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
+                            whitespace_bytes().to_vec()
+                        } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
+                            b.value.borrow().clone()
+                        } else if let Some(b) = args[0]
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>()
+                        {
+                            b.value.clone()
+                        } else {
+                            return Err("TypeError: expected a bytes-like object".to_string());
+                        };
                     let borrowed = val.borrow();
                     let mut start = 0;
                     while start < borrowed.len() && chars.contains(&borrowed[start]) {
                         start += 1;
                     }
                     Ok(Rc::new(PyByteArray::new(borrowed[start..].to_vec())))
-                })))
-            }
-            "maketrans" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("maketrans".to_string(), move |args| {
+                },
+            ))),
+            "maketrans" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "maketrans".to_string(),
+                move |args| {
                     if args.len() != 2 {
-                        return Err("TypeError: maketrans() takes exactly 2 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: maketrans() takes exactly 2 arguments ({} given)"
+                                .to_string(),
+                        );
                     }
                     let from_b = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
                     };
                     let to_b = if let Some(b) = args[1].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[1].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[1]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -670,16 +814,23 @@ impl PyObject for PyByteArray {
                         table[*f as usize] = *t;
                     }
                     Ok(Rc::new(PyByteArray::new(table)))
-                })))
-            }
-            "partition" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("partition".to_string(), move |args| {
+                },
+            ))),
+            "partition" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "partition".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: partition() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: partition() takes exactly one argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     let sep = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -691,66 +842,93 @@ impl PyObject for PyByteArray {
                     let borrowed = val.borrow();
                     match borrowed.windows(sep_len).position(|w| w == sep.as_slice()) {
                         Some(pos) => {
-                            let head = Rc::new(PyByteArray::new(borrowed[..pos].to_vec())) as Rc<dyn PyObject>;
+                            let head = Rc::new(PyByteArray::new(borrowed[..pos].to_vec()))
+                                as Rc<dyn PyObject>;
                             let sep_obj = Rc::new(PyByteArray::new(sep)) as Rc<dyn PyObject>;
-                            let tail = Rc::new(PyByteArray::new(borrowed[pos + sep_len..].to_vec())) as Rc<dyn PyObject>;
+                            let tail = Rc::new(PyByteArray::new(borrowed[pos + sep_len..].to_vec()))
+                                as Rc<dyn PyObject>;
                             Ok(Rc::new(PyTuple::new(vec![head, sep_obj, tail])))
                         }
                         None => {
                             let empty = Rc::new(PyByteArray::new(Vec::new())) as Rc<dyn PyObject>;
-                            let head = Rc::new(PyByteArray::new(borrowed.clone())) as Rc<dyn PyObject>;
+                            let head =
+                                Rc::new(PyByteArray::new(borrowed.clone())) as Rc<dyn PyObject>;
                             Ok(Rc::new(PyTuple::new(vec![head, empty.clone(), empty])))
                         }
                     }
-                })))
-            }
-            "pop" => Ok(Rc::new(PyNativeFunction::new_pos_only("pop".to_string(), move |args| {
-                if args.len() > 1 {
-                    return Err("TypeError: bytearray.pop() takes at most 1 argument".to_string());
-                }
-                let mut arr = val.borrow_mut();
-                if arr.is_empty() {
-                    return Err("IndexError: pop from empty bytearray".to_string());
-                }
-                let idx = if args.is_empty() {
-                    arr.len() - 1
-                } else {
-                    let n = args[0].as_any().downcast_ref::<PyInt>()
-                        .ok_or_else(|| "TypeError: bytearray.pop() index must be int".to_string())?;
-                    let mut i = n.as_i64().unwrap_or(0);
-                    if i < 0 {
-                        i = arr.len() as i64 + i;
+                },
+            ))),
+            "pop" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "pop".to_string(),
+                move |args| {
+                    if args.len() > 1 {
+                        return Err(
+                            "TypeError: bytearray.pop() takes at most 1 argument".to_string()
+                        );
                     }
-                    if i < 0 || i as usize >= arr.len() {
-                        return Err("IndexError: pop index out of range".to_string());
+                    let mut arr = val.borrow_mut();
+                    if arr.is_empty() {
+                        return Err("IndexError: pop from empty bytearray".to_string());
                     }
-                    i as usize
-                };
-                let val_removed = arr.remove(idx);
-                Ok(Rc::new(PyInt::from_i64(val_removed as i64)))
-            }))),
-            "remove" => Ok(Rc::new(PyNativeFunction::new_pos_only("remove".to_string(), move |args| {
-                if args.len() != 1 {
-                    return Err("TypeError: bytearray.remove() takes exactly one argument".to_string());
-                }
-                let n = args[0].as_any().downcast_ref::<PyInt>()
-                    .ok_or_else(|| "TypeError: bytearray.remove() argument must be int".to_string())?;
-                let v = n.as_i64().unwrap_or(0) as u8;
-                let mut arr = val.borrow_mut();
-                let pos = arr.iter().position(|&x| x == v);
-                match pos {
-                    Some(p) => { arr.remove(p); Ok(Rc::new(PyNone::new())) },
-                    None => Err("ValueError: bytearray.remove(x): x not in bytearray".to_string()),
-                }
-            }))),
-            "removeprefix" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("removeprefix".to_string(), move |args| {
+                    let idx = if args.is_empty() {
+                        arr.len() - 1
+                    } else {
+                        let n = args[0].as_any().downcast_ref::<PyInt>().ok_or_else(|| {
+                            "TypeError: bytearray.pop() index must be int".to_string()
+                        })?;
+                        let mut i = n.as_i64().unwrap_or(0);
+                        if i < 0 {
+                            i = arr.len() as i64 + i;
+                        }
+                        if i < 0 || i as usize >= arr.len() {
+                            return Err("IndexError: pop index out of range".to_string());
+                        }
+                        i as usize
+                    };
+                    let val_removed = arr.remove(idx);
+                    Ok(Rc::new(PyInt::from_i64(val_removed as i64)))
+                },
+            ))),
+            "remove" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "remove".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: removeprefix() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: bytearray.remove() takes exactly one argument".to_string()
+                        );
+                    }
+                    let n = args[0].as_any().downcast_ref::<PyInt>().ok_or_else(|| {
+                        "TypeError: bytearray.remove() argument must be int".to_string()
+                    })?;
+                    let v = n.as_i64().unwrap_or(0) as u8;
+                    let mut arr = val.borrow_mut();
+                    let pos = arr.iter().position(|&x| x == v);
+                    match pos {
+                        Some(p) => {
+                            arr.remove(p);
+                            Ok(Rc::new(PyNone::new()))
+                        }
+                        None => {
+                            Err("ValueError: bytearray.remove(x): x not in bytearray".to_string())
+                        }
+                    }
+                },
+            ))),
+            "removeprefix" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "removeprefix".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: removeprefix() takes exactly one argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     let prefix = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -761,58 +939,83 @@ impl PyObject for PyByteArray {
                     } else {
                         Ok(Rc::new(PyByteArray::new(borrowed.clone())))
                     }
-                })))
-            }
-            "removesuffix" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("removesuffix".to_string(), move |args| {
+                },
+            ))),
+            "removesuffix" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "removesuffix".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: removesuffix() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: removesuffix() takes exactly one argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     let suffix = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
                     };
                     let borrowed = val.borrow();
                     if borrowed.ends_with(&suffix) {
-                        Ok(Rc::new(PyByteArray::new(borrowed[..borrowed.len() - suffix.len()].to_vec())))
+                        Ok(Rc::new(PyByteArray::new(
+                            borrowed[..borrowed.len() - suffix.len()].to_vec(),
+                        )))
                     } else {
                         Ok(Rc::new(PyByteArray::new(borrowed.clone())))
                     }
-                })))
-            }
-            "replace" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("replace".to_string(), move |args| {
+                },
+            ))),
+            "replace" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "replace".to_string(),
+                move |args| {
                     if args.len() < 2 || args.len() > 3 {
-                        return Err("TypeError: replace() takes 2-3 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: replace() takes 2-3 arguments ({} given)".to_string()
+                        );
                     }
                     let old = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
                     };
                     let new = if let Some(b) = args[1].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[1].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[1]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
                     };
                     let count = if args.len() > 2 {
-                        args[2].as_any().downcast_ref::<PyInt>()
+                        args[2]
+                            .as_any()
+                            .downcast_ref::<PyInt>()
                             .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                            .as_i64().unwrap_or(-1)
+                            .as_i64()
+                            .unwrap_or(-1)
                     } else {
                         -1
                     };
                     let borrowed = val.borrow();
                     if old.is_empty() {
                         let mut result = Vec::new();
-                        let limit = if count < 0 { borrowed.len() + 1 } else { (count as usize).min(borrowed.len() + 1) };
+                        let limit = if count < 0 {
+                            borrowed.len() + 1
+                        } else {
+                            (count as usize).min(borrowed.len() + 1)
+                        };
                         for i in 0..limit {
                             if i > 0 {
                                 result.extend(new.iter());
@@ -844,23 +1047,30 @@ impl PyObject for PyByteArray {
                         }
                     }
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "reverse" => Ok(Rc::new(PyNativeFunction::new_pos_only("reverse".to_string(), move |args| {
-                if args.len() != 0 {
-                    return Err("TypeError: bytearray.reverse() takes no arguments".to_string());
-                }
-                val.borrow_mut().reverse();
-                Ok(Rc::new(PyNone::new()))
-            }))),
-            "rfind" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("rfind".to_string(), move |args| {
+                },
+            ))),
+            "reverse" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "reverse".to_string(),
+                move |args| {
+                    if args.len() != 0 {
+                        return Err("TypeError: bytearray.reverse() takes no arguments".to_string());
+                    }
+                    val.borrow_mut().reverse();
+                    Ok(Rc::new(PyNone::new()))
+                },
+            ))),
+            "rfind" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "rfind".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
                         return Err("TypeError: rfind() takes 1-3 arguments ({} given)".to_string());
                     }
                     let sub = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -875,16 +1085,22 @@ impl PyObject for PyByteArray {
                         Some(pos) => Ok(Rc::new(PyInt::from_i64((start + pos) as i64))),
                         None => Ok(Rc::new(PyInt::from_i64(-1))),
                     }
-                })))
-            }
-            "rindex" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("rindex".to_string(), move |args| {
+                },
+            ))),
+            "rindex" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "rindex".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
-                        return Err("TypeError: rindex() takes 1-3 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: rindex() takes 1-3 arguments ({} given)".to_string()
+                        );
                     }
                     let sub = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -899,23 +1115,29 @@ impl PyObject for PyByteArray {
                         Some(pos) => Ok(Rc::new(PyInt::from_i64((start + pos) as i64))),
                         None => Err("ValueError: subsection not found".to_string()),
                     }
-                })))
-            }
-            "rjust" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("rjust".to_string(), move |args| {
+                },
+            ))),
+            "rjust" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "rjust".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 2 {
                         return Err("TypeError: rjust() takes 1-2 arguments ({} given)".to_string());
                     }
-                    let width = args[0].as_any().downcast_ref::<PyInt>()
+                    let width = args[0]
+                        .as_any()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                        .to_usize().unwrap_or(0);
-                    let fillbyte = if args.len() > 1 {
-                        let fb = args[1].as_any().downcast_ref::<PyByteArray>()
-                            .ok_or_else(|| "TypeError: a bytes-like object is required".to_string())?;
-                        fb.value.borrow().get(0).copied().unwrap_or(b' ')
-                    } else {
-                        b' '
-                    };
+                        .to_usize()
+                        .unwrap_or(0);
+                    let fillbyte =
+                        if args.len() > 1 {
+                            let fb = args[1].as_any().downcast_ref::<PyByteArray>().ok_or_else(
+                                || "TypeError: a bytes-like object is required".to_string(),
+                            )?;
+                            fb.value.borrow().get(0).copied().unwrap_or(b' ')
+                        } else {
+                            b' '
+                        };
                     let borrowed = val.borrow();
                     if width <= borrowed.len() {
                         Ok(Rc::new(PyByteArray::new(borrowed.clone())))
@@ -924,16 +1146,23 @@ impl PyObject for PyByteArray {
                         result.extend(borrowed.iter());
                         Ok(Rc::new(PyByteArray::new(result)))
                     }
-                })))
-            }
-            "rpartition" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("rpartition".to_string(), move |args| {
+                },
+            ))),
+            "rpartition" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "rpartition".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: rpartition() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: rpartition() takes exactly one argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     let sep = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -945,37 +1174,50 @@ impl PyObject for PyByteArray {
                     let borrowed = val.borrow();
                     match borrowed.windows(sep_len).rposition(|w| w == sep.as_slice()) {
                         Some(pos) => {
-                            let head = Rc::new(PyByteArray::new(borrowed[..pos].to_vec())) as Rc<dyn PyObject>;
+                            let head = Rc::new(PyByteArray::new(borrowed[..pos].to_vec()))
+                                as Rc<dyn PyObject>;
                             let sep_obj = Rc::new(PyByteArray::new(sep)) as Rc<dyn PyObject>;
-                            let tail = Rc::new(PyByteArray::new(borrowed[pos + sep_len..].to_vec())) as Rc<dyn PyObject>;
+                            let tail = Rc::new(PyByteArray::new(borrowed[pos + sep_len..].to_vec()))
+                                as Rc<dyn PyObject>;
                             Ok(Rc::new(PyTuple::new(vec![head, sep_obj, tail])))
                         }
                         None => {
                             let empty = Rc::new(PyByteArray::new(Vec::new())) as Rc<dyn PyObject>;
-                            let tail = Rc::new(PyByteArray::new(borrowed.clone())) as Rc<dyn PyObject>;
+                            let tail =
+                                Rc::new(PyByteArray::new(borrowed.clone())) as Rc<dyn PyObject>;
                             Ok(Rc::new(PyTuple::new(vec![empty.clone(), empty, tail])))
                         }
                     }
-                })))
-            }
-            "rsplit" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("rsplit".to_string(), move |args| {
+                },
+            ))),
+            "rsplit" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "rsplit".to_string(),
+                move |args| {
                     if args.len() > 2 {
-                        return Err("TypeError: rsplit() takes at most 2 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: rsplit() takes at most 2 arguments ({} given)".to_string()
+                        );
                     }
-                    let sep = if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
-                        None
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
-                        Some(b.value.borrow().clone())
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                        Some(b.value.clone())
-                    } else {
-                        return Err("TypeError: expected a bytes-like object".to_string());
-                    };
+                    let sep =
+                        if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
+                            None
+                        } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
+                            Some(b.value.borrow().clone())
+                        } else if let Some(b) = args[0]
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>()
+                        {
+                            Some(b.value.clone())
+                        } else {
+                            return Err("TypeError: expected a bytes-like object".to_string());
+                        };
                     let maxsplit = if args.len() > 1 {
-                        args[1].as_any().downcast_ref::<PyInt>()
+                        args[1]
+                            .as_any()
+                            .downcast_ref::<PyInt>()
                             .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                            .as_i64().unwrap_or(-1)
+                            .as_i64()
+                            .unwrap_or(-1)
                     } else {
                         -1
                     };
@@ -983,19 +1225,27 @@ impl PyObject for PyByteArray {
                     let parts = match sep {
                         None => {
                             let mut result: Vec<Vec<u8>> = Vec::new();
-                            let limit = if maxsplit < 0 { usize::MAX } else { maxsplit as usize };
+                            let limit = if maxsplit < 0 {
+                                usize::MAX
+                            } else {
+                                maxsplit as usize
+                            };
                             let mut i = borrowed.len();
                             while i > 0 {
                                 while i > 0 && is_whitespace_byte(borrowed[i - 1]) {
                                     i -= 1;
                                 }
-                                if i == 0 { break; }
+                                if i == 0 {
+                                    break;
+                                }
                                 let end = i;
                                 while i > 0 && !is_whitespace_byte(borrowed[i - 1]) {
                                     i -= 1;
                                 }
                                 result.push(borrowed[i..end].to_vec());
-                                if result.len() >= limit { break; }
+                                if result.len() >= limit {
+                                    break;
+                                }
                             }
                             result.reverse();
                             if result.is_empty() {
@@ -1009,9 +1259,16 @@ impl PyObject for PyByteArray {
                             }
                             let mut result: Vec<Vec<u8>> = Vec::new();
                             let mut remaining = borrowed.clone();
-                            let limit = if maxsplit < 0 { usize::MAX } else { maxsplit as usize };
+                            let limit = if maxsplit < 0 {
+                                usize::MAX
+                            } else {
+                                maxsplit as usize
+                            };
                             for _ in 0..limit {
-                                match remaining.windows(sep_bytes.len()).rposition(|w| w == sep_bytes.as_slice()) {
+                                match remaining
+                                    .windows(sep_bytes.len())
+                                    .rposition(|w| w == sep_bytes.as_slice())
+                                {
                                     Some(pos) => {
                                         result.push(remaining[pos + sep_bytes.len()..].to_vec());
                                         remaining = remaining[..pos].to_vec();
@@ -1024,52 +1281,70 @@ impl PyObject for PyByteArray {
                             result
                         }
                     };
-                    let list_items: Vec<Rc<dyn PyObject>> = parts.into_iter()
+                    let list_items: Vec<Rc<dyn PyObject>> = parts
+                        .into_iter()
                         .map(|p| Rc::new(PyByteArray::new(p)) as Rc<dyn PyObject>)
                         .collect();
                     Ok(Rc::new(PyList::new(list_items)))
-                })))
-            }
-            "rstrip" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("rstrip".to_string(), move |args| {
+                },
+            ))),
+            "rstrip" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "rstrip".to_string(),
+                move |args| {
                     if args.len() > 1 {
-                        return Err("TypeError: rstrip() takes at most 1 argument (2 given)".to_string());
+                        return Err(
+                            "TypeError: rstrip() takes at most 1 argument (2 given)".to_string()
+                        );
                     }
-                    let chars = if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
-                        whitespace_bytes().to_vec()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
-                        b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                        b.value.clone()
-                    } else {
-                        return Err("TypeError: expected a bytes-like object".to_string());
-                    };
+                    let chars =
+                        if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
+                            whitespace_bytes().to_vec()
+                        } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
+                            b.value.borrow().clone()
+                        } else if let Some(b) = args[0]
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>()
+                        {
+                            b.value.clone()
+                        } else {
+                            return Err("TypeError: expected a bytes-like object".to_string());
+                        };
                     let borrowed = val.borrow();
                     let mut end = borrowed.len();
                     while end > 0 && chars.contains(&borrowed[end - 1]) {
                         end -= 1;
                     }
                     Ok(Rc::new(PyByteArray::new(borrowed[..end].to_vec())))
-                })))
-            }
-            "split" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("split".to_string(), move |args| {
+                },
+            ))),
+            "split" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "split".to_string(),
+                move |args| {
                     if args.len() > 2 {
-                        return Err("TypeError: split() takes at most 2 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: split() takes at most 2 arguments ({} given)".to_string()
+                        );
                     }
-                    let sep = if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
-                        None
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
-                        Some(b.value.borrow().clone())
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                        Some(b.value.clone())
-                    } else {
-                        return Err("TypeError: expected a bytes-like object".to_string());
-                    };
+                    let sep =
+                        if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
+                            None
+                        } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
+                            Some(b.value.borrow().clone())
+                        } else if let Some(b) = args[0]
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>()
+                        {
+                            Some(b.value.clone())
+                        } else {
+                            return Err("TypeError: expected a bytes-like object".to_string());
+                        };
                     let maxsplit = if args.len() > 1 {
-                        args[1].as_any().downcast_ref::<PyInt>()
+                        args[1]
+                            .as_any()
+                            .downcast_ref::<PyInt>()
                             .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                            .as_i64().unwrap_or(-1)
+                            .as_i64()
+                            .unwrap_or(-1)
                     } else {
                         -1
                     };
@@ -1077,14 +1352,20 @@ impl PyObject for PyByteArray {
                     let parts = match sep {
                         None => {
                             let mut result: Vec<Vec<u8>> = Vec::new();
-                            let limit = if maxsplit < 0 { usize::MAX } else { maxsplit as usize };
+                            let limit = if maxsplit < 0 {
+                                usize::MAX
+                            } else {
+                                maxsplit as usize
+                            };
                             let mut i = 0;
                             let mut splits = 0usize;
                             while i < borrowed.len() {
                                 while i < borrowed.len() && is_whitespace_byte(borrowed[i]) {
                                     i += 1;
                                 }
-                                if i >= borrowed.len() { break; }
+                                if i >= borrowed.len() {
+                                    break;
+                                }
                                 let start = i;
                                 while i < borrowed.len() && !is_whitespace_byte(borrowed[i]) {
                                     i += 1;
@@ -1112,9 +1393,16 @@ impl PyObject for PyByteArray {
                             }
                             let mut result: Vec<Vec<u8>> = Vec::new();
                             let mut remaining = borrowed.clone();
-                            let limit = if maxsplit < 0 { usize::MAX } else { maxsplit as usize };
+                            let limit = if maxsplit < 0 {
+                                usize::MAX
+                            } else {
+                                maxsplit as usize
+                            };
                             for _ in 0..limit {
-                                match remaining.windows(sep_bytes.len()).position(|w| w == sep_bytes.as_slice()) {
+                                match remaining
+                                    .windows(sep_bytes.len())
+                                    .position(|w| w == sep_bytes.as_slice())
+                                {
                                     Some(pos) => {
                                         result.push(remaining[..pos].to_vec());
                                         remaining = remaining[pos + sep_bytes.len()..].to_vec();
@@ -1126,21 +1414,28 @@ impl PyObject for PyByteArray {
                             result
                         }
                     };
-                    let list_items: Vec<Rc<dyn PyObject>> = parts.into_iter()
+                    let list_items: Vec<Rc<dyn PyObject>> = parts
+                        .into_iter()
                         .map(|p| Rc::new(PyByteArray::new(p)) as Rc<dyn PyObject>)
                         .collect();
                     Ok(Rc::new(PyList::new(list_items)))
-                })))
-            }
-            "splitlines" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("splitlines".to_string(), move |args| {
+                },
+            ))),
+            "splitlines" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "splitlines".to_string(),
+                move |args| {
                     if args.len() > 1 {
-                        return Err("TypeError: splitlines() takes at most 1 argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: splitlines() takes at most 1 argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     let keepends = if args.is_empty() {
                         false
                     } else {
-                        args[0].as_any().downcast_ref::<PyBool>()
+                        args[0]
+                            .as_any()
+                            .downcast_ref::<PyBool>()
                             .map(|b| b.value)
                             .unwrap_or(false)
                     };
@@ -1156,7 +1451,10 @@ impl PyObject for PyByteArray {
                             result.push(borrowed[start..].to_vec());
                             break;
                         }
-                        if borrowed[i] == b'\r' && i + 1 < borrowed.len() && borrowed[i + 1] == b'\n' {
+                        if borrowed[i] == b'\r'
+                            && i + 1 < borrowed.len()
+                            && borrowed[i + 1] == b'\n'
+                        {
                             if keepends {
                                 result.push(borrowed[start..i + 2].to_vec());
                             } else {
@@ -1172,20 +1470,27 @@ impl PyObject for PyByteArray {
                             i += 1;
                         }
                     }
-                    let list_items: Vec<Rc<dyn PyObject>> = result.into_iter()
+                    let list_items: Vec<Rc<dyn PyObject>> = result
+                        .into_iter()
                         .map(|p| Rc::new(PyByteArray::new(p)) as Rc<dyn PyObject>)
                         .collect();
                     Ok(Rc::new(PyList::new(list_items)))
-                })))
-            }
-            "startswith" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("startswith".to_string(), move |args| {
+                },
+            ))),
+            "startswith" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "startswith".to_string(),
+                move |args| {
                     if args.len() < 1 || args.len() > 3 {
-                        return Err("TypeError: startswith() takes 1-3 arguments ({} given)".to_string());
+                        return Err(
+                            "TypeError: startswith() takes 1-3 arguments ({} given)".to_string()
+                        );
                     }
                     let prefix = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
@@ -1194,22 +1499,29 @@ impl PyObject for PyByteArray {
                     let (start, end) = get_start_end_from_borrowed(&borrowed, &args, 1);
                     let slice = &borrowed[start..end];
                     Ok(Rc::new(PyBool::new(slice.starts_with(&prefix))))
-                })))
-            }
-            "strip" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("strip".to_string(), move |args| {
+                },
+            ))),
+            "strip" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "strip".to_string(),
+                move |args| {
                     if args.len() > 1 {
-                        return Err("TypeError: strip() takes at most 1 argument (2 given)".to_string());
+                        return Err(
+                            "TypeError: strip() takes at most 1 argument (2 given)".to_string()
+                        );
                     }
-                    let chars = if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
-                        whitespace_bytes().to_vec()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
-                        b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                        b.value.clone()
-                    } else {
-                        return Err("TypeError: expected a bytes-like object".to_string());
-                    };
+                    let chars =
+                        if args.is_empty() || args[0].as_any().downcast_ref::<PyNone>().is_some() {
+                            whitespace_bytes().to_vec()
+                        } else if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
+                            b.value.borrow().clone()
+                        } else if let Some(b) = args[0]
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>()
+                        {
+                            b.value.clone()
+                        } else {
+                            return Err("TypeError: expected a bytes-like object".to_string());
+                        };
                     let borrowed = val.borrow();
                     let mut start = 0;
                     while start < borrowed.len() && chars.contains(&borrowed[start]) {
@@ -1220,23 +1532,35 @@ impl PyObject for PyByteArray {
                         end -= 1;
                     }
                     Ok(Rc::new(PyByteArray::new(borrowed[start..end].to_vec())))
-                })))
-            }
-            "swapcase" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("swapcase".to_string(), move |args| {
+                },
+            ))),
+            "swapcase" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "swapcase".to_string(),
+                move |args| {
                     if !args.is_empty() {
-                        return Err("TypeError: swapcase() takes no arguments (1 given)".to_string());
+                        return Err(
+                            "TypeError: swapcase() takes no arguments (1 given)".to_string()
+                        );
                     }
-                    let result: Vec<u8> = val.borrow().iter().map(|&b| {
-                        if b.is_ascii_uppercase() { b + 32 }
-                        else if b.is_ascii_lowercase() { b - 32 }
-                        else { b }
-                    }).collect();
+                    let result: Vec<u8> = val
+                        .borrow()
+                        .iter()
+                        .map(|&b| {
+                            if b.is_ascii_uppercase() {
+                                b + 32
+                            } else if b.is_ascii_lowercase() {
+                                b - 32
+                            } else {
+                                b
+                            }
+                        })
+                        .collect();
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "title" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("title".to_string(), move |args| {
+                },
+            ))),
+            "title" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "title".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: title() takes no arguments (1 given)".to_string());
                     }
@@ -1260,59 +1584,78 @@ impl PyObject for PyByteArray {
                         at_start = b.is_ascii_alphanumeric();
                     }
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "translate" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("translate".to_string(), move |args| {
+                },
+            ))),
+            "translate" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "translate".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: translate() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: translate() takes exactly one argument ({} given)"
+                                .to_string(),
+                        );
                     }
                     if args[0].as_any().downcast_ref::<PyNone>().is_some() {
                         return Ok(Rc::new(PyByteArray::new(val.borrow().clone())));
                     }
                     let table = if let Some(b) = args[0].as_any().downcast_ref::<PyByteArray>() {
                         b.value.borrow().clone()
-                    } else if let Some(b) = args[0].as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
+                    } else if let Some(b) = args[0]
+                        .as_any()
+                        .downcast_ref::<crate::objects::bytes::PyBytes>()
+                    {
                         b.value.clone()
                     } else {
                         return Err("TypeError: expected a bytes-like object".to_string());
                     };
                     if table.len() != 256 {
-                        return Err("ValueError: translation table must be 256 bytes long".to_string());
+                        return Err(
+                            "ValueError: translation table must be 256 bytes long".to_string()
+                        );
                     }
                     let borrowed = val.borrow();
                     let result: Vec<u8> = borrowed.iter().map(|&b| table[b as usize]).collect();
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "upper" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("upper".to_string(), move |args| {
+                },
+            ))),
+            "upper" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "upper".to_string(),
+                move |args| {
                     if !args.is_empty() {
                         return Err("TypeError: upper() takes no arguments (1 given)".to_string());
                     }
-                    let result: Vec<u8> = val.borrow().iter().map(|&b| {
-                        if b.is_ascii_lowercase() { b - 32 } else { b }
-                    }).collect();
+                    let result: Vec<u8> = val
+                        .borrow()
+                        .iter()
+                        .map(|&b| if b.is_ascii_lowercase() { b - 32 } else { b })
+                        .collect();
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            "zfill" => {
-                Ok(Rc::new(PyNativeFunction::new_pos_only("zfill".to_string(), move |args| {
+                },
+            ))),
+            "zfill" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "zfill".to_string(),
+                move |args| {
                     if args.len() != 1 {
-                        return Err("TypeError: zfill() takes exactly one argument ({} given)".to_string());
+                        return Err(
+                            "TypeError: zfill() takes exactly one argument ({} given)".to_string()
+                        );
                     }
-                    let width = args[0].as_any().downcast_ref::<PyInt>()
+                    let width = args[0]
+                        .as_any()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| "TypeError: integer argument expected".to_string())?
-                        .to_usize().unwrap_or(0);
+                        .to_usize()
+                        .unwrap_or(0);
                     let borrowed = val.borrow();
                     if width <= borrowed.len() {
                         return Ok(Rc::new(PyByteArray::new(borrowed.clone())));
                     }
-                    let sign_prefix = if !borrowed.is_empty() && (borrowed[0] == b'+' || borrowed[0] == b'-') {
-                        vec![borrowed[0]]
-                    } else {
-                        Vec::new()
-                    };
+                    let sign_prefix =
+                        if !borrowed.is_empty() && (borrowed[0] == b'+' || borrowed[0] == b'-') {
+                            vec![borrowed[0]]
+                        } else {
+                            Vec::new()
+                        };
                     let padding = width - borrowed.len();
                     let mut result = sign_prefix.clone();
                     result.extend(std::iter::repeat(b'0').take(padding));
@@ -1322,9 +1665,12 @@ impl PyObject for PyByteArray {
                         result.extend(borrowed.iter());
                     }
                     Ok(Rc::new(PyByteArray::new(result)))
-                })))
-            }
-            _ => Err(format!("AttributeError: 'bytearray' object has no attribute '{}'", attr)),
+                },
+            ))),
+            _ => Err(format!(
+                "AttributeError: 'bytearray' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 }

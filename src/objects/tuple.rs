@@ -63,7 +63,10 @@ impl PyObject for PyTuple {
             } else {
                 Err("IndexError: tuple index out of range".to_string())
             }
-        } else if let Some(slice) = key.as_any().downcast_ref::<crate::objects::slice::PySlice>() {
+        } else if let Some(slice) = key
+            .as_any()
+            .downcast_ref::<crate::objects::slice::PySlice>()
+        {
             let length = self.elements.len();
             let (raw_start, raw_stop, step) = slice.resolve(length);
             let mut result = Vec::new();
@@ -74,13 +77,23 @@ impl PyObject for PyTuple {
                     i = (i as i64 + step) as usize;
                 }
             } else if step < 0 {
-                let start = if slice.start.is_some() { raw_start as i64 } else { length as i64 - 1 };
-                let stop = if slice.stop.is_some() { raw_stop as i64 } else { -1i64 };
+                let start = if slice.start.is_some() {
+                    raw_start as i64
+                } else {
+                    length as i64 - 1
+                };
+                let stop = if slice.stop.is_some() {
+                    raw_stop as i64
+                } else {
+                    -1i64
+                };
                 let mut i = start;
                 while i > stop {
                     result.push(Rc::clone(&self.elements[i as usize]));
                     let next = i + step;
-                    if next < 0 || next as usize >= length { break; }
+                    if next < 0 || next as usize >= length {
+                        break;
+                    }
                     i = next;
                 }
             }
@@ -166,7 +179,7 @@ impl PyObject for PyTuple {
                 }
             }
             Some(Rc::new(crate::objects::bool::PyBool::new(
-                self.elements.len() < t.elements.len()
+                self.elements.len() < t.elements.len(),
             )))
         } else {
             None
@@ -188,7 +201,7 @@ impl PyObject for PyTuple {
                 }
             }
             Some(Rc::new(crate::objects::bool::PyBool::new(
-                self.elements.len() <= t.elements.len()
+                self.elements.len() <= t.elements.len(),
             )))
         } else {
             None
@@ -210,7 +223,7 @@ impl PyObject for PyTuple {
                 }
             }
             Some(Rc::new(crate::objects::bool::PyBool::new(
-                self.elements.len() > t.elements.len()
+                self.elements.len() > t.elements.len(),
             )))
         } else {
             None
@@ -232,7 +245,7 @@ impl PyObject for PyTuple {
                 }
             }
             Some(Rc::new(crate::objects::bool::PyBool::new(
-                self.elements.len() >= t.elements.len()
+                self.elements.len() >= t.elements.len(),
             )))
         } else {
             None
@@ -278,32 +291,49 @@ impl PyObject for PyTuple {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let elements = self.elements.clone();
         match attr {
-            "index" => Ok(Rc::new(PyNativeFunction::new_pos_only("index".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: tuple.index() takes exactly one argument".to_string()); }
-                for i in 0..elements.len() {
-                    let eq = elements[i].eq(Rc::clone(&args[0]));
-                    if let Some(result) = eq {
-                        if result.is_truthy() {
-                            return Ok(Rc::new(crate::objects::int::PyInt::from_i64(i as i64)));
+            "index" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "index".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: tuple.index() takes exactly one argument".to_string()
+                        );
+                    }
+                    for i in 0..elements.len() {
+                        let eq = elements[i].eq(Rc::clone(&args[0]));
+                        if let Some(result) = eq {
+                            if result.is_truthy() {
+                                return Ok(Rc::new(crate::objects::int::PyInt::from_i64(i as i64)));
+                            }
                         }
                     }
-                }
-                Err("ValueError: tuple.index(x): x not in tuple".to_string())
-            }))),
-            "count" => Ok(Rc::new(PyNativeFunction::new_pos_only("count".to_string(), move |args| {
-                if args.len() != 1 { return Err("TypeError: tuple.count() takes exactly one argument".to_string()); }
-                let mut cnt = 0i64;
-                for i in 0..elements.len() {
-                    let eq = elements[i].eq(Rc::clone(&args[0]));
-                    if let Some(result) = eq {
-                        if result.is_truthy() {
-                            cnt += 1;
+                    Err("ValueError: tuple.index(x): x not in tuple".to_string())
+                },
+            ))),
+            "count" => Ok(Rc::new(PyNativeFunction::new_pos_only(
+                "count".to_string(),
+                move |args| {
+                    if args.len() != 1 {
+                        return Err(
+                            "TypeError: tuple.count() takes exactly one argument".to_string()
+                        );
+                    }
+                    let mut cnt = 0i64;
+                    for i in 0..elements.len() {
+                        let eq = elements[i].eq(Rc::clone(&args[0]));
+                        if let Some(result) = eq {
+                            if result.is_truthy() {
+                                cnt += 1;
+                            }
                         }
                     }
-                }
-                Ok(Rc::new(crate::objects::int::PyInt::from_i64(cnt)))
-            }))),
-            _ => Err(format!("AttributeError: 'tuple' object has no attribute '{}'", attr)),
+                    Ok(Rc::new(crate::objects::int::PyInt::from_i64(cnt)))
+                },
+            ))),
+            _ => Err(format!(
+                "AttributeError: 'tuple' object has no attribute '{}'",
+                attr
+            )),
         }
     }
 }
@@ -352,15 +382,26 @@ impl PyObject for PyTupleIterator {
         match attr {
             "__next__" => {
                 let it = self.clone();
-                Ok(Rc::new(crate::objects::native_function::PyNativeFunction::new_pos_only("__next__".to_string(), move |args| {
-                    if args.len() != 0 { return Err("TypeError: __next__() takes no arguments".to_string()); }
-                    match it.get_next()? {
-                        Some(val) => Ok(val),
-                        None => Err("StopIteration".to_string()),
-                    }
-                })))
+                Ok(Rc::new(
+                    crate::objects::native_function::PyNativeFunction::new_pos_only(
+                        "__next__".to_string(),
+                        move |args| {
+                            if args.len() != 0 {
+                                return Err("TypeError: __next__() takes no arguments".to_string());
+                            }
+                            match it.get_next()? {
+                                Some(val) => Ok(val),
+                                None => Err("StopIteration".to_string()),
+                            }
+                        },
+                    ),
+                ))
             }
-            _ => Err(format!("AttributeError: '{}' object has no attribute '{}'", self.get_type(), attr)),
+            _ => Err(format!(
+                "AttributeError: '{}' object has no attribute '{}'",
+                self.get_type(),
+                attr
+            )),
         }
     }
 }

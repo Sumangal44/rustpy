@@ -37,7 +37,9 @@ impl PyProperty {
                 let mut vm = VirtualMachine::new();
                 let mut frame = Frame::new(code, env);
                 match vm.run(&mut frame) {
-                    Ok(val) => return Ok(val.unwrap_or_else(|| Rc::new(crate::objects::none::PyNone))),
+                    Ok(val) => {
+                        return Ok(val.unwrap_or_else(|| Rc::new(crate::objects::none::PyNone)));
+                    }
                     Err(e) => return Err(e),
                 }
             }
