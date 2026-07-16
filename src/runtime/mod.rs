@@ -6,6 +6,7 @@ use std::rc::Rc;
 pub struct Environment {
     variables: HashMap<String, Rc<dyn PyObject>>,
     parent: Option<Rc<RefCell<Environment>>>,
+    pub is_globals: bool,
 }
 
 impl Environment {
@@ -13,6 +14,7 @@ impl Environment {
         Rc::new(RefCell::new(Self {
             variables: HashMap::new(),
             parent: None,
+            is_globals: true,
         }))
     }
 
@@ -20,6 +22,7 @@ impl Environment {
         Rc::new(RefCell::new(Self {
             variables: HashMap::new(),
             parent: Some(parent),
+            is_globals: false,
         }))
     }
 
@@ -64,28 +67,26 @@ impl Environment {
     }
 
     pub fn set_root(&mut self, name: String, value: Rc<dyn PyObject>) {
-        if let Some(parent) = &self.parent {
-            if parent.borrow().parent.is_none() {
-                self.variables.insert(name, value);
-            } else {
-                parent.borrow_mut().set_root(name, value);
-            }
+        if self.is_globals {
+            self.variables.insert(name, value);
+        } else if let Some(parent) = &self.parent {
+            parent.borrow_mut().set_root(name, value);
         } else {
             self.variables.insert(name, value);
         }
     }
 
     pub fn get_root(&self, name: &str) -> Option<Rc<dyn PyObject>> {
-        if let Some(parent) = &self.parent {
-            if parent.borrow().parent.is_none() {
-                if let Some(val) = self.variables.get(name) {
-                    Some(Rc::clone(val))
-                } else {
-                    parent.borrow().variables.get(name).map(|v| Rc::clone(v))
-                }
-            } else {
+        if self.is_globals {
+            if let Some(val) = self.variables.get(name) {
+                Some(Rc::clone(val))
+            } else if let Some(parent) = &self.parent {
                 parent.borrow().get_root(name)
+            } else {
+                None
             }
+        } else if let Some(parent) = &self.parent {
+            parent.borrow().get_root(name)
         } else {
             self.variables.get(name).map(|v| Rc::clone(v))
         }

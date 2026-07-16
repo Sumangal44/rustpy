@@ -146,7 +146,6 @@ fn execute(source: &str, env: Rc<RefCell<Environment>>, filename: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::objects::PyObject;
 
     fn execute_program(source: &str) -> String {
         let env = Environment::new();
@@ -564,7 +563,7 @@ mod tests {
     #[test]
     fn test_break_outside_loop_error() {
         let source = "break\n";
-        let env = execute_source(source);
+        execute_source(source);
         // Should produce an error, but not crash
         assert!(true);
     }
@@ -572,7 +571,7 @@ mod tests {
     #[test]
     fn test_continue_outside_loop_error() {
         let source = "continue\n";
-        let env = execute_source(source);
+        execute_source(source);
         assert!(true);
     }
 
@@ -1559,14 +1558,7 @@ result
 
     #[test]
     fn test_complex_create() {
-        let env = execute_source("1+2j\n");
-        let output = env.borrow().get("_").unwrap_or_else(|| {
-            // Expression statement result is discarded, so we test by storing
-            env.borrow()
-                .get("x")
-                .unwrap_or(Rc::new(crate::objects::bool::PyBool::new(true)))
-        });
-        // Just run to make sure it doesn't error
+        execute_source("1+2j\n");
     }
 
     #[test]
@@ -1934,7 +1926,7 @@ with open("/tmp/rustpy_test_append.txt", "r") as f:
     #[test]
     fn test_stdout_write() {
         let source = "import sys\nsys.stdout.write(\"test\\n\")\n";
-        let env = execute_source(source);
+        execute_source(source);
         // No variable to check, just ensure no crash
         assert!(true);
     }
@@ -2070,19 +2062,6 @@ result = asyncio.run(foo())
 
     #[test]
     fn test_async_await() {
-        let env = execute_source(
-            "
-import asyncio
-async def bar():
-    return 10
-async def foo():
-    result = await bar()
-    return result + 5
-asyncio.run(foo())
-",
-        );
-        // foo returns 15, but asyncio.run captures the return value
-        // The test setup just needs to confirm result is 15
         let env2 = execute_source(
             "
 import asyncio

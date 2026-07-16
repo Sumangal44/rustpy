@@ -73,6 +73,7 @@ impl ImportSystem {
 
                 let builtins_env = self.builtins_env.borrow().as_ref().unwrap().clone();
                 let module_env = crate::runtime::Environment::new_enclosed(builtins_env);
+                module_env.borrow_mut().is_globals = true;
 
                 // Set __file__ in the module env
                 module_env.borrow_mut().set(
@@ -195,6 +196,7 @@ impl ImportSystem {
                                     self.builtins_env.borrow().as_ref().unwrap().clone();
                                 let module_env =
                                     crate::runtime::Environment::new_enclosed(builtins_env);
+                                module_env.borrow_mut().is_globals = true;
 
                                 let module = Rc::new(PyModule::new(top_name.to_string()));
                                 let module_obj = Rc::clone(&module) as Rc<dyn PyObject>;
