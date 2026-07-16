@@ -58,7 +58,6 @@ impl PyObject for PyNativeFunction {
 
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         if self.name == "dict" && attr == "fromkeys" {
-            let self_clone = self.clone();
             return Ok(Rc::new(PyNativeFunction::new_pos_only("fromkeys".to_string(), move |args| {
                 if args.is_empty() {
                     return Err("TypeError: fromkeys() takes at least 1 argument (0 given)".to_string());

@@ -1662,6 +1662,21 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
 
     // builtins module
     let builtins_module = Rc::new(PyModule::new("builtins".to_string()));
+    
+    // Register generator helper for native modules
+    {
+        let lexer = crate::lexer::Lexer::new("def _gen_helper(lst):\n    for x in lst:\n        yield x\n");
+        if let Ok(mut parser) = crate::parser::Parser::new(lexer) {
+            if let Ok(module) = parser.parse_module() {
+                let compiler = crate::compiler::Compiler::new("<helper>".to_string());
+                if let Ok(code) = compiler.compile(&module) {
+                    let mut frame = crate::vm::frame::Frame::new(code, Rc::clone(&env));
+                    let mut vm = crate::vm::VirtualMachine::new();
+                    let _ = vm.run(&mut frame);
+                }
+            }
+        }
+    }
     {
         let env_b = env.borrow();
         for (k, v) in env_b.get_all_locals() {
@@ -1669,6 +1684,20 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         }
     }
     import_system.register_native_module("builtins", Rc::clone(&builtins_module));
+
+    // Register native standard library modules implemented in Rust
+    crate::stdlib::native_modules::register_all_native_modules(&import_system);
+
+    // Register mock modules for remaining standard library modules so they can be imported
+    let mock_modules = vec![
+        "calendar", "shutil", "decimal", "fractions", "string", "secrets", "logging",
+        "multiprocessing", "socket", "urllib", "email", "zipfile", "gzip", "tarfile",
+        "unittest", "typing", "dataclasses",
+    ];
+    for name in mock_modules {
+        let mock_module = Rc::new(PyModule::new(name.to_string()));
+        import_system.register_native_module(name, mock_module);
+    }
 
     // __import__ builtin
     let import_system_for_import = Rc::clone(&import_system);

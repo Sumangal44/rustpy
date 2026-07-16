@@ -65,7 +65,11 @@ impl Environment {
 
     pub fn set_root(&mut self, name: String, value: Rc<dyn PyObject>) {
         if let Some(parent) = &self.parent {
-            parent.borrow_mut().set_root(name, value);
+            if parent.borrow().parent.is_none() {
+                self.variables.insert(name, value);
+            } else {
+                parent.borrow_mut().set_root(name, value);
+            }
         } else {
             self.variables.insert(name, value);
         }
@@ -73,7 +77,15 @@ impl Environment {
 
     pub fn get_root(&self, name: &str) -> Option<Rc<dyn PyObject>> {
         if let Some(parent) = &self.parent {
-            parent.borrow().get_root(name)
+            if parent.borrow().parent.is_none() {
+                if let Some(val) = self.variables.get(name) {
+                    Some(Rc::clone(val))
+                } else {
+                    parent.borrow().variables.get(name).map(|v| Rc::clone(v))
+                }
+            } else {
+                parent.borrow().get_root(name)
+            }
         } else {
             self.variables.get(name).map(|v| Rc::clone(v))
         }

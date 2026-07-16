@@ -13,6 +13,7 @@ pub struct CodeObject {
     pub is_generator: bool,
     pub is_async: bool,
     pub arg_count: usize,
+    #[allow(dead_code)]
     pub default_count: usize,
     pub posonly_count: usize,
     pub kwonly_params: Vec<String>,

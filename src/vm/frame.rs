@@ -54,6 +54,7 @@ impl Frame {
             .ok_or_else(|| "Pop from empty stack".to_string())
     }
 
+    #[allow(dead_code)]
     pub fn last(&self) -> Result<Rc<dyn PyObject>, String> {
         self.stack
             .last()

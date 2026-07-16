@@ -1749,6 +1749,12 @@ result
     }
 
     #[test]
+    fn test_sys_builtin_module_names() {
+        let env = execute_source("import sys\nresult = (type(sys.builtin_module_names) is tuple, \"sys\" in sys.builtin_module_names, len(sys.builtin_module_names))\n");
+        assert_eq!(env.borrow().get("result").unwrap().repr(), "(True, True, 37)");
+    }
+
+    #[test]
     fn test_import_as() {
         let env = execute_source("import math_native as m\nresult = m.sqrt(4)\n");
         assert_eq!(env.borrow().get("result").unwrap().repr(), "2.0");

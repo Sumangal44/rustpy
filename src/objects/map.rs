@@ -3,12 +3,14 @@ use super::native_function::PyNativeFunction;
 use std::any::Any;
 use std::rc::Rc;
 
+#[allow(dead_code)]
 pub struct PyMap {
     func: Rc<dyn PyObject>,
     iter: Rc<dyn PyObject>,
 }
 
 impl PyMap {
+    #[allow(dead_code)]
     pub fn new(func: Rc<dyn PyObject>, iter: Rc<dyn PyObject>) -> Self {
         Self { func, iter }
     }

@@ -197,6 +197,7 @@ pub enum Stmt {
         op: BinOpKind,
         value: Expr,
     },
+    #[allow(dead_code)]
     AnnAssign {
         target: Box<Expr>,
         annotation: Box<Expr>,

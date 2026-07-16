@@ -69,6 +69,7 @@ fn is_exception_subclass(sub: &str, parent: &str) -> bool {
 
 pub struct VirtualMachine {
     pub last_exception: Option<Rc<dyn PyObject>>,
+    #[allow(dead_code)]
     pub frames: Vec<Frame>,
     pub recursion_depth: usize,
 }

@@ -1,0 +1,14 @@
+#!/bin/bash
+# Helper script to run any Python code using RustPy release binary
+
+# Get the directory of this script
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# Check if release binary exists, if not build it
+if [ ! -f "$DIR/target/release/rustpy" ]; then
+    echo "RustPy release binary not found. Building..."
+    cargo build --release
+fi
+
+# Run the binary with all passed arguments
+"$DIR/target/release/rustpy" "$@"

@@ -28,6 +28,8 @@ def main():
         ("Custom Import Behavior Parity", [sys.executable, "tests/cpython_tester.py", "tests/import_test.py"]),
         ("Custom F-Strings Parity", [sys.executable, "tests/cpython_tester.py", "tests/fstring_test.py"]),
         ("Custom Map/Filter/All Parity", [sys.executable, "tests/cpython_tester.py", "tests/map_filter_all_test.py"]),
+        ("Custom Stdlib Imports Parity", [sys.executable, "tests/cpython_tester.py", "tests/stdlib_imports_test.py"]),
+        ("Custom Stdlib Sample Code Parity", [sys.executable, "tests/cpython_tester.py", "tests/stdlib_comparison_test.py"]),
     ]
 
     all_passed = True

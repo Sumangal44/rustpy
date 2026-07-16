@@ -163,7 +163,7 @@ impl ImportSystem {
                                     Ok(mut parser) => {
                                         match parser.parse_module() {
                                             Ok(ast_module) => {
-                                                let mut compiler = crate::compiler::Compiler::new(path.to_string_lossy().to_string());
+                                                let compiler = crate::compiler::Compiler::new(path.to_string_lossy().to_string());
                                                 match compiler.compile(&ast_module) {
                                                     Ok(code) => {
                                                         let mut frame = crate::vm::frame::Frame::new(code, Rc::clone(&module_env));

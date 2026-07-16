@@ -1048,11 +1048,9 @@ pub fn format_align_width(val_str: &str, spec: &str, default_align: char) -> Res
         rest = &spec[1..];
     }
 
-    let mut type_char = None;
     if let Some(last_byte) = rest.as_bytes().last() {
         let c = *last_byte as char;
         if c.is_alphabetic() {
-            type_char = Some(c);
             rest = &rest[..rest.len() - 1];
         }
     }

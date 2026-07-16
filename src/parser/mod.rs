@@ -390,6 +390,7 @@ impl<'a> Parser<'a> {
         Ok(Stmt::ClassDef { name, bases, body, decorators })
     }
 
+    #[allow(dead_code)]
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {
         self.consume(TokenKind::Indent)?;
         let mut body = Vec::new();
