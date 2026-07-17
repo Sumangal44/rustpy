@@ -736,76 +736,6 @@ pub fn create_re_module() -> Rc<PyModule> {
     module
 }
 
-// 7. COLLECTIONS MODULE
-pub fn create_collections_module() -> Rc<PyModule> {
-    let module = Rc::new(PyModule::new("collections".to_string()));
-
-    let counter_class =
-        Rc::new(PyClass::new("Counter".to_string(), HashMap::new(), vec![]).unwrap());
-
-    // Counter.__init__
-    let init_fn = Rc::new(PyNativeFunction::new(
-        "__init__".to_string(),
-        |args, _kwargs| {
-            let instance = args[0].as_any().downcast_ref::<PyInstance>().unwrap();
-            let map_rc = Rc::new(PyDict::new());
-            instance
-                .attributes
-                .borrow_mut()
-                .insert("_dict".to_string(), Rc::clone(&map_rc) as Rc<dyn PyObject>);
-            if args.len() > 1 {
-                let seq = &args[1];
-                // Iterate over seq and increment counts
-                let iter = seq.get_iter()?;
-                while let Some(item) = iter.get_next()? {
-                    let current = map_rc
-                        .get_item_value(&item)
-                        .unwrap_or_else(|_| Rc::new(PyInt::from_i64(0)));
-                    let cur_val = to_i64(&current)?;
-                    map_rc
-                        .set_item(
-                            item,
-                            Rc::new(PyInt::from_i64(cur_val + 1)) as Rc<dyn PyObject>,
-                        )
-                        .unwrap();
-                }
-            }
-            Ok(Rc::new(PyNone::new()) as Rc<dyn PyObject>)
-        },
-    ));
-    counter_class
-        .attributes
-        .borrow_mut()
-        .insert("__init__".to_string(), init_fn);
-
-    // Counter.items()
-    let items_fn = Rc::new(PyNativeFunction::new(
-        "items".to_string(),
-        |args, _kwargs| {
-            let instance = args[0].as_any().downcast_ref::<PyInstance>().unwrap();
-            let map_obj = instance.attributes.borrow().get("_dict").unwrap().clone();
-            let dict = map_obj.as_any().downcast_ref::<PyDict>().unwrap();
-            let mut pairs = Vec::new();
-            for k in dict.ordered_keys.borrow().iter() {
-                let v = dict.get_item_value(k).unwrap();
-                let tup = Rc::new(PyTuple::new(vec![
-                    Rc::clone(k) as Rc<dyn PyObject>,
-                    Rc::clone(&v) as Rc<dyn PyObject>,
-                ])) as Rc<dyn PyObject>;
-                pairs.push(tup);
-            }
-            Ok(Rc::new(PyList::new(pairs)) as Rc<dyn PyObject>)
-        },
-    ));
-    counter_class
-        .attributes
-        .borrow_mut()
-        .insert("items".to_string(), items_fn as Rc<dyn PyObject>);
-
-    module.set_attr_inner("Counter", counter_class as Rc<dyn PyObject>);
-    module
-}
-
 // 8. STATISTICS MODULE
 pub fn create_statistics_module() -> Rc<PyModule> {
     let module = Rc::new(PyModule::new("statistics".to_string()));
@@ -954,121 +884,6 @@ pub fn create_itertools_module() -> Rc<PyModule> {
 }
 
 // 10. FUNCTOOLS MODULE
-pub fn create_functools_module() -> Rc<PyModule> {
-    let module = Rc::new(PyModule::new("functools".to_string()));
-
-    // reduce(function, iterable, initializer=None)
-    module.set_attr_inner(
-        "reduce",
-        Rc::new(PyNativeFunction::new_pos_only(
-            "reduce".to_string(),
-            |args| {
-                if args.len() < 2 || args.len() > 3 {
-                    return Err("TypeError: reduce() takes 2 or 3 arguments".to_string());
-                }
-                let func = &args[0];
-                let seq = &args[1];
-                let iter = seq.get_iter()?;
-                let mut value = if args.len() > 2 {
-                    Rc::clone(&args[2])
-                } else {
-                    match iter.get_next()? {
-                        Some(v) => v,
-                        None => {
-                            return Err(
-                                "TypeError: reduce() of empty sequence with no initial value"
-                                    .to_string(),
-                            );
-                        }
-                    }
-                };
-                // We need a VM context or call invoker. Since we are inside a PyNativeFunction,
-                // we can instantiate a temporary VirtualMachine to invoke the function!
-                let mut vm = crate::vm::VirtualMachine::new();
-                while let Some(item) = iter.get_next()? {
-                    value = vm.invoke(Rc::clone(func), vec![value, item], HashMap::new())?;
-                }
-                Ok(value)
-            },
-        )) as Rc<dyn PyObject>,
-    );
-
-    module
-}
-
-// 11. CSV MODULE
-pub fn create_csv_module() -> Rc<PyModule> {
-    let module = Rc::new(PyModule::new("csv".to_string()));
-
-    let writer_class = Rc::new(PyClass::new("writer".to_string(), HashMap::new(), vec![]).unwrap());
-
-    let writer_init = Rc::new(PyNativeFunction::new(
-        "__init__".to_string(),
-        |args, _kwargs| {
-            let instance = args[0].as_any().downcast_ref::<PyInstance>().unwrap();
-            instance
-                .attributes
-                .borrow_mut()
-                .insert("_f".to_string(), Rc::clone(&args[1]));
-            Ok(Rc::new(PyNone::new()) as Rc<dyn PyObject>)
-        },
-    ));
-    writer_class
-        .attributes
-        .borrow_mut()
-        .insert("__init__".to_string(), writer_init);
-
-    // writer.writerow(row)
-    let writerow_fn = Rc::new(PyNativeFunction::new(
-        "writerow".to_string(),
-        |args, _kwargs| {
-            let instance = args[0].as_any().downcast_ref::<PyInstance>().unwrap();
-            let f_obj = instance.attributes.borrow().get("_f").unwrap().clone();
-            let row = &args[1];
-            let iter = row.get_iter()?;
-            let mut row_strings = Vec::new();
-            while let Some(item) = iter.get_next()? {
-                row_strings.push(item.str());
-            }
-            let line = format!("{}\r\n", row_strings.join(","));
-            // Call f_obj.write(line)
-            let write_method = f_obj.get_attr("write")?;
-            let mut vm = crate::vm::VirtualMachine::new();
-            vm.invoke(
-                write_method,
-                vec![Rc::new(PyString::new(line)) as Rc<dyn PyObject>],
-                HashMap::new(),
-            )?;
-            Ok(Rc::new(PyNone::new()) as Rc<dyn PyObject>)
-        },
-    ));
-    writer_class
-        .attributes
-        .borrow_mut()
-        .insert("writerow".to_string(), writerow_fn as Rc<dyn PyObject>);
-
-    // csv.writer(f)
-    let w_cls = Rc::clone(&writer_class);
-    module.set_attr_inner(
-        "writer",
-        Rc::new(PyNativeFunction::new_pos_only(
-            "writer".to_string(),
-            move |args| {
-                let inst = Rc::new(PyInstance::new(Rc::clone(&w_cls))) as Rc<dyn PyObject>;
-                inst.as_any()
-                    .downcast_ref::<PyInstance>()
-                    .unwrap()
-                    .attributes
-                    .borrow_mut()
-                    .insert("_f".to_string(), args[0].clone());
-                Ok(inst)
-            },
-        )) as Rc<dyn PyObject>,
-    );
-
-    module
-}
-
 // 12. SQLITE3 MODULE
 pub fn create_sqlite3_module() -> Rc<PyModule> {
     let module = Rc::new(PyModule::new("sqlite3".to_string()));
@@ -1274,17 +1089,23 @@ pub fn create_tkinter_module() -> Rc<PyModule> {
 
 // Unified registration entry point
 pub fn register_all_native_modules(import_system: &Rc<crate::stdlib::import::ImportSystem>) {
-    import_system.register_native_module("random", create_random_module());
-    import_system.register_native_module("datetime", create_datetime_module());
+    // random now provided by Python stub in stdlib/random.py
+    // import_system.register_native_module("random", create_random_module());
+    // datetime now provided by Python stub in stdlib/datetime.py
+    // import_system.register_native_module("datetime", create_datetime_module());
     import_system.register_native_module("time", create_time_module());
     import_system.register_native_module("pathlib", create_pathlib_module(import_system));
     import_system.register_native_module("json", create_json_module());
     import_system.register_native_module("re", create_re_module());
-    import_system.register_native_module("collections", create_collections_module());
+    // Collections now provided by Python stub in stdlib/collections.py
+    // import_system.register_native_module("collections", create_collections_module());
     import_system.register_native_module("statistics", create_statistics_module());
-    import_system.register_native_module("itertools", create_itertools_module());
-    import_system.register_native_module("functools", create_functools_module());
-    import_system.register_native_module("csv", create_csv_module());
+    // itertools now provided by Python stub in stdlib/itertools.py
+    // import_system.register_native_module("itertools", create_itertools_module());
+    // functools now provided by Python stub in stdlib/functools.py
+    // import_system.register_native_module("functools", create_functools_module());
+    // CSV now provided by Python stub in stdlib/csv.py
+    // import_system.register_native_module("csv", create_csv_module());
     import_system.register_native_module("sqlite3", create_sqlite3_module());
     import_system.register_native_module("hashlib", create_hashlib_module());
     import_system.register_native_module("threading", create_threading_module());

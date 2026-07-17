@@ -11,6 +11,9 @@ def randint(a, b):
     val = _seed % (b - a + 1)
     return a + val
 
+def random():
+    return randint(0, 999999) / 1000000.0
+
 def choice(seq):
     idx = randint(0, len(seq) - 1)
     return seq[idx]

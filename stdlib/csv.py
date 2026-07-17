@@ -1,8 +1,25 @@
-# csv mock
-
 class writer:
     def __init__(self, f):
-        self.f = f
+        self._f = f
+
     def writerow(self, row):
-        line = ",".join(str(x) for x in row) + "\r\n"
-        self.f.write(line)
+        parts = []
+        for v in row:
+            parts.append(str(v))
+        line = ','.join(parts) + '\n'
+        fout = self._f
+        fout.write(line)
+
+
+class reader:
+    def __init__(self, lines):
+        self._lines = lines
+        self._iter = iter(lines)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        itobj = self._iter
+        line = next(itobj)
+        return line.rstrip('\n').split(',')

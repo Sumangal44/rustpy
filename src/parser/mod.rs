@@ -481,11 +481,29 @@ impl<'a> Parser<'a> {
         self.advance()?;
 
         let mut bases = Vec::new();
+        let mut keywords = Vec::new();
         if self.check(&TokenKind::LParen) {
             self.advance()?;
             if !self.check(&TokenKind::RParen) {
                 loop {
-                    bases.push(self.parse_expression(0)?);
+                    // Detect keyword argument: `Identifier =` (peek at next token)
+                    let is_keyword = match &self.current_token.kind {
+                        TokenKind::Identifier(_) => matches!(&self.peek_token.kind, TokenKind::Equal),
+                        _ => false,
+                    };
+
+                    if is_keyword {
+                        if let TokenKind::Identifier(key) = &self.current_token.kind {
+                            let key = key.clone();
+                            self.advance()?;
+                            self.consume(TokenKind::Equal)?;
+                            let value = self.parse_expression(0)?;
+                            keywords.push((key, value));
+                        }
+                    } else {
+                        bases.push(self.parse_expression(0)?);
+                    }
+
                     if self.check(&TokenKind::Comma) {
                         self.advance()?;
                     } else {
@@ -502,6 +520,7 @@ impl<'a> Parser<'a> {
         Ok(Stmt::ClassDef {
             name,
             bases,
+            keywords,
             body,
             decorators,
         })
@@ -992,7 +1011,24 @@ impl<'a> Parser<'a> {
             targets.push(self.parse_expression(0)?);
         }
 
-        if let Some(op) = self.parse_aug_op() {
+        if self.check(&TokenKind::Colon) && targets.len() == 1 {
+            self.advance()?;
+            let annotation = self.parse_expression(0)?;
+            let value = if self.check(&TokenKind::Equal) {
+                self.advance()?;
+                Some(Box::new(self.parse_expression_list()?))
+            } else {
+                None
+            };
+            if self.check(&TokenKind::Newline) {
+                self.advance()?;
+            }
+            Ok(Stmt::AnnAssign {
+                target: Box::new(targets.into_iter().next().unwrap()),
+                annotation: Box::new(annotation),
+                value,
+            })
+        } else if let Some(op) = self.parse_aug_op() {
             self.advance()?;
             let value = self.parse_expression(0)?;
             if self.check(&TokenKind::Newline) {

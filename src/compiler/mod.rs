@@ -244,11 +244,28 @@ impl Compiler {
                 }
             }
             Stmt::AnnAssign {
-                target: _,
+                target,
                 annotation: _,
-                value: _,
+                value,
             } => {
-                return Err("CompilerError: AnnAssign not yet implemented".to_string());
+                if let Some(val) = value {
+                    self.compile_expr(val)?;
+                    match target.as_ref() {
+                        Expr::Identifier(name) => {
+                            let name_idx = self.get_or_add_name(name);
+                            if self.global_names.contains(name) {
+                                self.emit(Opcode::StoreGlobal(name_idx));
+                            } else {
+                                self.emit(Opcode::StoreName(name_idx));
+                            }
+                        }
+                        _ => {
+                            return Err(
+                                "CompilerError: Unsupported AnnAssign target".to_string()
+                            );
+                        }
+                    }
+                }
             }
             Stmt::Break => {
                 if self.loop_stack.is_empty() {
@@ -434,9 +451,102 @@ impl Compiler {
                 body,
                 orelse,
                 is_async,
+            } if *is_async => {
+                let aiter_name = format!("__aiter_{}", self.code.names.len());
+                let aiter_name = self.get_or_add_name(&aiter_name);
+                self.compile_expr(iter)?;
+                self.emit(Opcode::LoadAttr("__aiter__".to_string()));
+                self.emit(Opcode::CallFunction(0));
+                self.emit(Opcode::StoreName(aiter_name));
+
+                let loop_start = self.code.instructions.len();
+                self.loop_stack.push(LoopInfo {
+                    start: loop_start,
+                    break_targets: Vec::new(),
+                    is_for: false,
+                });
+
+                let true_idx = self.add_constant(Rc::new(PyBool::new(true)));
+                self.emit(Opcode::LoadConst(true_idx));
+                let jump_out = self.emit(Opcode::PopJumpIfFalse(0));
+
+                let except_setup = self.emit(Opcode::SetupExcept(0));
+
+                self.emit(Opcode::LoadName(aiter_name));
+                self.emit(Opcode::LoadAttr("__anext__".to_string()));
+                self.emit(Opcode::CallFunction(0));
+                self.emit(Opcode::GetAwaitable);
+                let none_idx = self.add_constant(Rc::new(PyNone::new()));
+                self.emit(Opcode::LoadConst(none_idx));
+                self.emit(Opcode::YieldFrom);
+
+                if let Expr::Identifier(name) = target {
+                    let name_idx = self.get_or_add_name(name);
+                    self.emit(Opcode::StoreName(name_idx));
+                } else if let Expr::Tuple(elements) = target {
+                    self.emit(Opcode::UnpackSequence(elements.len()));
+                    for el in elements.iter() {
+                        if let Expr::Identifier(name) = el {
+                            let name_idx = self.get_or_add_name(name);
+                            self.emit(Opcode::StoreName(name_idx));
+                        } else {
+                            return Err(
+                                "CompilerError: Async for tuple target elements must be identifiers"
+                                    .to_string(),
+                            );
+                        }
+                    }
+                } else {
+                    return Err(format!(
+                        "CompilerError: Expected identifier or tuple for async for target, got {:?}",
+                        target
+                    ));
+                }
+
+                self.emit(Opcode::PopExcept);
+
+                for s in body {
+                    self.compile_stmt(s)?;
+                }
+
+                self.emit(Opcode::JumpAbsolute(loop_start));
+
+                let handler_start = self.code.instructions.len();
+                self.code.instructions[except_setup] = Opcode::SetupExcept(handler_start);
+
+                self.emit(Opcode::DupTop);
+                self.emit(Opcode::ExceptionMatch("StopAsyncIteration".to_string()));
+                let not_stop = self.emit(Opcode::PopJumpIfFalse(0));
+
+                // StopAsyncIteration: normal loop exit, run orelse
+                self.emit(Opcode::PopTop);
+                let normal_exit = self.emit(Opcode::JumpAbsolute(0));
+
+                let re_raise_target = self.code.instructions.len();
+                self.code.instructions[not_stop] = Opcode::PopJumpIfFalse(re_raise_target);
+                self.emit(Opcode::Raise);
+
+                let info = self.loop_stack.pop().unwrap();
+                let after_orelse = self.code.instructions.len();
+                self.code.instructions[jump_out] = Opcode::PopJumpIfFalse(after_orelse);
+                self.code.instructions[normal_exit] = Opcode::JumpAbsolute(after_orelse);
+
+                for s in orelse {
+                    self.compile_stmt(s)?;
+                }
+
+                let after_else = self.code.instructions.len();
+                for idx in &info.break_targets {
+                    self.code.instructions[*idx] = Opcode::JumpAbsolute(after_else);
+                }
+            }
+            Stmt::For {
+                target,
+                iter,
+                body,
+                orelse,
+                is_async: _,
             } => {
-                // TODO: handle async for (async iteration) when is_async is true
-                let _ = is_async;
                 self.compile_expr(iter)?;
                 self.emit(Opcode::GetIter);
                 let loop_start = self.code.instructions.len();
@@ -489,6 +599,7 @@ impl Compiler {
             Stmt::ClassDef {
                 name,
                 bases,
+                keywords,
                 body,
                 decorators,
             } => {
@@ -528,7 +639,22 @@ impl Compiler {
                     self.compile_expr(base)?;
                 }
 
-                self.emit(Opcode::BuildClass(bases.len()));
+                // Compile keyword arguments (metaclass=Meta, etc.)
+                for (key, value) in keywords {
+                    // Push key name as string constant
+                    let key_obj = std::rc::Rc::new(crate::objects::string::PyString {
+                        value: key.clone(),
+                    });
+                    self.code.constants.push(key_obj);
+                    let key_idx = self.code.constants.len() - 1;
+                    self.emit(Opcode::LoadConst(key_idx));
+                    self.compile_expr(value)?;
+                }
+
+                self.emit(Opcode::BuildClass {
+                    bases: bases.len(),
+                    keywords: keywords.len(),
+                });
 
                 // Apply decorators
                 for _ in 0..decorators.len() {

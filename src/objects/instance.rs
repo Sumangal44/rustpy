@@ -2,6 +2,7 @@ use super::PyObject;
 use super::bound_method::PyBoundMethod;
 use super::class::PyClass;
 use super::classmethod::PyClassMethod;
+use super::function::PyFunction;
 use super::int::PyInt;
 use super::native_function::PyNativeFunction;
 use super::property::PyProperty;
@@ -11,6 +12,37 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+
+thread_local! {
+    static VM_PTR: RefCell<Option<*mut ()>> = const { RefCell::new(None) };
+}
+
+pub fn set_vm_ptr(vm_ptr: *mut ()) {
+    VM_PTR.with(|cell| {
+        // Use try_borrow_mut to avoid panicking on re-entrant calls.
+        if let Ok(mut ptr) = cell.try_borrow_mut() {
+            if ptr.is_none() {
+                *ptr = Some(vm_ptr);
+            }
+        }
+    });
+}
+
+fn call_vm_func(
+    func_obj: Rc<dyn PyObject>,
+    args: Vec<Rc<dyn PyObject>>,
+    kwargs: std::collections::HashMap<String, Rc<dyn PyObject>>,
+) -> Result<Rc<dyn PyObject>, String> {
+    VM_PTR.with(|cell| {
+        if let Ok(ptr_cell) = cell.try_borrow() {
+            if let Some(vm_ptr) = *ptr_cell {
+                let vm = unsafe { &mut *(vm_ptr as *mut crate::vm::VirtualMachine) };
+                return vm.invoke(func_obj, args, kwargs);
+            }
+        }
+        Err("RuntimeError: no VM function caller available".to_string())
+    })
+}
 
 #[derive(Clone)]
 pub struct PyInstance {
@@ -70,6 +102,11 @@ impl PyInstance {
                 all_args.extend(args);
                 return (native.func)(all_args, std::collections::HashMap::new());
             }
+            if let Some(_func) = bound.func.as_any().downcast_ref::<PyFunction>() {
+                let mut all_args = vec![Rc::clone(&bound.instance)];
+                all_args.extend(args);
+                return call_vm_func(Rc::clone(&bound.func), all_args, std::collections::HashMap::new());
+            }
             return Err(format!(
                 "NotImplementedError: calling {} on user-defined function not supported",
                 name
@@ -122,6 +159,16 @@ impl PyObject for PyInstance {
         self.repr()
     }
 
+    fn hash(&self) -> Result<i64, String> {
+        if let Ok(result) = self.call_dunder("__hash__", vec![]) {
+            if let Some(i) = result.as_any().downcast_ref::<PyInt>() {
+                return i.as_i64().ok_or_else(|| "TypeError: __hash__ returned non-integer".to_string());
+            }
+            return Err("TypeError: __hash__ returned non-integer".to_string());
+        }
+        Err("TypeError: unhashable type: 'instance'".to_string())
+    }
+
     fn is_truthy(&self) -> bool {
         if let Ok(result) = self.call_dunder("__bool__", vec![]) {
             return result.is_truthy();
@@ -161,6 +208,10 @@ impl PyObject for PyInstance {
                 ));
             }
             return Ok(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs)));
+        }
+
+        if attr == "__class__" {
+            return Ok(Rc::clone(&self.class) as Rc<dyn PyObject>);
         }
 
         let attrs = self.attributes.borrow();
@@ -229,6 +280,62 @@ impl PyObject for PyInstance {
         Ok(())
     }
 
+    fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__eq__", vec![other]).ok()
+    }
+
+    fn ne(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__ne__", vec![other]).ok()
+    }
+
+    fn add(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__add__", vec![other]).ok()
+    }
+
+    fn sub(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__sub__", vec![other]).ok()
+    }
+
+    fn mul(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__mul__", vec![other]).ok()
+    }
+
+    fn truediv(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__truediv__", vec![other]).ok()
+    }
+
+    fn floordiv(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__floordiv__", vec![other]).ok()
+    }
+
+    fn modulo(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__mod__", vec![other]).ok()
+    }
+
+    fn pow(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__pow__", vec![other]).ok()
+    }
+
+    fn neg(&self) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__neg__", vec![]).ok()
+    }
+
+    fn pos(&self) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__pos__", vec![]).ok()
+    }
+
+    fn invert(&self) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__invert__", vec![]).ok()
+    }
+
+    fn abs_op(&self) -> Option<Rc<dyn PyObject>> {
+        self.call_dunder("__abs__", vec![]).ok()
+    }
+
+    fn get_item(&self, key: Rc<dyn PyObject>) -> Result<Rc<dyn PyObject>, String> {
+        self.call_dunder("__getitem__", vec![key])
+    }
+
     fn get_iter(&self) -> Result<Rc<dyn PyObject>, String> {
         if let Ok(iter_method) = self.call_dunder("__iter__", vec![]) {
             return Ok(iter_method);
@@ -237,5 +344,13 @@ impl PyObject for PyInstance {
             "TypeError: '{}' object is not iterable",
             self.class.name
         ))
+    }
+
+    fn get_next(&self) -> Result<Option<Rc<dyn PyObject>>, String> {
+        match self.call_dunder("__next__", vec![]) {
+            Ok(result) => Ok(Some(result)),
+            Err(e) if e.contains("StopIteration") => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }

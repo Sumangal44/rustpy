@@ -1,4 +1,5 @@
 use super::PyObject;
+use crate::objects::bool::PyBool;
 use crate::objects::native_function::PyNativeFunction;
 use std::any::Any;
 use std::cell::RefCell;
@@ -218,6 +219,33 @@ impl PyObject for PyDict {
 
     fn is_truthy(&self) -> bool {
         !self.entries.borrow().is_empty()
+    }
+
+    fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        let other_dict = other.as_any().downcast_ref::<PyDict>()?;
+        let self_ord = self.ordered_keys.borrow();
+        let other_ord = other_dict.ordered_keys.borrow();
+        if self_ord.len() != other_ord.len() {
+            return Some(Rc::new(PyBool::new(false)));
+        }
+        for k in self_ord.iter() {
+            if let Ok(self_v) = self.get_item_value(k) {
+                if let Ok(other_v) = other_dict.get_item_value(k) {
+                    if let Some(eq_result) = self_v.eq(other_v) {
+                        if !eq_result.is_truthy() {
+                            return Some(Rc::new(PyBool::new(false)));
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return Some(Rc::new(PyBool::new(false)));
+                }
+            } else {
+                return Some(Rc::new(PyBool::new(false)));
+            }
+        }
+        Some(Rc::new(PyBool::new(true)))
     }
 
     fn contains(&self, other: Rc<dyn PyObject>) -> Result<bool, String> {

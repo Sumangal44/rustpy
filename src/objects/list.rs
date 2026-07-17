@@ -1,4 +1,5 @@
 use super::PyObject;
+use crate::objects::bool::PyBool;
 use crate::objects::native_function::PyNativeFunction;
 use std::any::Any;
 use std::cell::RefCell;
@@ -44,6 +45,25 @@ impl PyObject for PyList {
         }
         out.push(']');
         out
+    }
+
+    fn eq(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {
+        let other_list = other.as_any().downcast_ref::<PyList>()?;
+        let a = self.elements.borrow();
+        let b = other_list.elements.borrow();
+        if a.len() != b.len() {
+            return Some(Rc::new(PyBool::new(false)));
+        }
+        for (x, y) in a.iter().zip(b.iter()) {
+            if let Some(eq_result) = x.eq(Rc::clone(y)) {
+                if !eq_result.is_truthy() {
+                    return Some(Rc::new(PyBool::new(false)));
+                }
+            } else {
+                return None;
+            }
+        }
+        Some(Rc::new(PyBool::new(true)))
     }
 
     fn add(&self, other: Rc<dyn PyObject>) -> Option<Rc<dyn PyObject>> {

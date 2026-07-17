@@ -150,6 +150,7 @@ pub enum Stmt {
     ClassDef {
         name: String,
         bases: Vec<Expr>,
+        keywords: Vec<(String, Expr)>,
         body: Vec<Stmt>,
         decorators: Vec<Expr>,
     },
@@ -197,7 +198,6 @@ pub enum Stmt {
         op: BinOpKind,
         value: Expr,
     },
-    #[allow(dead_code)]
     AnnAssign {
         target: Box<Expr>,
         annotation: Box<Expr>,

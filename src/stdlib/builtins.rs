@@ -2,6 +2,8 @@ use crate::compiler::Compiler;
 use crate::lexer::Lexer;
 use crate::objects::PyObject;
 use crate::objects::bytes::PyBytes;
+use crate::objects::class::PyClass;
+use crate::objects::dict::PyDict;
 use crate::objects::int::PyInt;
 use crate::objects::module::PyModule;
 use crate::objects::native_function::PyNativeFunction;
@@ -13,6 +15,7 @@ use crate::stdlib::import::ImportSystem;
 use crate::vm::VirtualMachine;
 use crate::vm::frame::Frame;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -33,31 +36,159 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         Rc::new(crate::objects::constants::PyEllipsis),
     );
 
-    // Inject exceptions
+    // Inject exceptions (full CPython hierarchy)
     let exceptions = vec![
+        // Base
+        "BaseException",
+        "GeneratorExit",
+        "KeyboardInterrupt",
+        "SystemExit",
         "Exception",
-        "TypeError",
-        "ValueError",
-        "NameError",
-        "IndexError",
-        "KeyError",
+        // Arithmetic
+        "ArithmeticError",
+        "FloatingPointError",
+        "OverflowError",
+        "ZeroDivisionError",
+        // Common
+        "AssertionError",
+        "AttributeError",
+        "BufferError",
+        "EOFError",
+        // Import
         "ImportError",
         "ModuleNotFoundError",
-        "RuntimeError",
-        "AttributeError",
-        "SyntaxError",
-        "IndentationError",
-        "ZeroDivisionError",
+        // Lookup
+        "LookupError",
+        "IndexError",
+        "KeyError",
+        // Memory
+        "MemoryError",
+        // Name
+        "NameError",
+        "UnboundLocalError",
+        // OS
+        "OSError",
+        "BlockingIOError",
+        "ChildProcessError",
+        "ConnectionError",
+        "BrokenPipeError",
+        "ConnectionAbortedError",
+        "ConnectionRefusedError",
+        "ConnectionResetError",
+        "FileExistsError",
         "FileNotFoundError",
+        "InterruptedError",
+        "IsADirectoryError",
+        "NotADirectoryError",
         "PermissionError",
-        "KeyboardInterrupt",
+        "ProcessLookupError",
+        "TimeoutError",
+        // Reference
+        "ReferenceError",
+        // Runtime
+        "RuntimeError",
+        "NotImplementedError",
+        "RecursionError",
+        // Stop
         "StopIteration",
         "StopAsyncIteration",
-        "AssertionError",
-        "MemoryError",
-        "OverflowError",
-        "RecursionError",
+        // Syntax
+        "SyntaxError",
+        "IndentationError",
+        "TabError",
+        // System
+        "SystemError",
+        // Type
+        "TypeError",
+        // Value
+        "ValueError",
+        "UnicodeError",
+        "UnicodeDecodeError",
+        "UnicodeEncodeError",
+        "UnicodeTranslateError",
+        // Warnings
+        "Warning",
+        "BytesWarning",
+        "DeprecationWarning",
+        "EncodingWarning",
+        "FutureWarning",
+        "ImportWarning",
+        "PendingDeprecationWarning",
+        "ResourceWarning",
+        "RuntimeWarning",
+        "SyntaxWarning",
+        "UnicodeWarning",
+        "UserWarning",
     ];
+
+    // Build exception MRO lookup (used for parent registration)
+    let _exc_mro: std::collections::HashMap<&str, &str> = [
+        ("BaseException", ""),
+        ("GeneratorExit", "BaseException"),
+        ("KeyboardInterrupt", "BaseException"),
+        ("SystemExit", "BaseException"),
+        ("Exception", "BaseException"),
+        ("ArithmeticError", "Exception"),
+        ("FloatingPointError", "ArithmeticError"),
+        ("OverflowError", "ArithmeticError"),
+        ("ZeroDivisionError", "ArithmeticError"),
+        ("AssertionError", "Exception"),
+        ("AttributeError", "Exception"),
+        ("BufferError", "Exception"),
+        ("EOFError", "Exception"),
+        ("ImportError", "Exception"),
+        ("ModuleNotFoundError", "ImportError"),
+        ("LookupError", "Exception"),
+        ("IndexError", "LookupError"),
+        ("KeyError", "LookupError"),
+        ("MemoryError", "Exception"),
+        ("NameError", "Exception"),
+        ("UnboundLocalError", "NameError"),
+        ("OSError", "Exception"),
+        ("BlockingIOError", "OSError"),
+        ("ChildProcessError", "OSError"),
+        ("ConnectionError", "OSError"),
+        ("BrokenPipeError", "ConnectionError"),
+        ("ConnectionAbortedError", "ConnectionError"),
+        ("ConnectionRefusedError", "ConnectionError"),
+        ("ConnectionResetError", "ConnectionError"),
+        ("FileExistsError", "OSError"),
+        ("FileNotFoundError", "OSError"),
+        ("InterruptedError", "OSError"),
+        ("IsADirectoryError", "OSError"),
+        ("NotADirectoryError", "OSError"),
+        ("PermissionError", "OSError"),
+        ("ProcessLookupError", "OSError"),
+        ("TimeoutError", "OSError"),
+        ("ReferenceError", "Exception"),
+        ("RuntimeError", "Exception"),
+        ("NotImplementedError", "RuntimeError"),
+        ("RecursionError", "RuntimeError"),
+        ("StopIteration", "Exception"),
+        ("StopAsyncIteration", "Exception"),
+        ("SyntaxError", "Exception"),
+        ("IndentationError", "SyntaxError"),
+        ("TabError", "IndentationError"),
+        ("SystemError", "Exception"),
+        ("TypeError", "Exception"),
+        ("ValueError", "Exception"),
+        ("UnicodeError", "ValueError"),
+        ("UnicodeDecodeError", "UnicodeError"),
+        ("UnicodeEncodeError", "UnicodeError"),
+        ("UnicodeTranslateError", "UnicodeError"),
+        ("Warning", "Exception"),
+        ("BytesWarning", "Warning"),
+        ("DeprecationWarning", "Warning"),
+        ("EncodingWarning", "Warning"),
+        ("FutureWarning", "Warning"),
+        ("ImportWarning", "Warning"),
+        ("PendingDeprecationWarning", "Warning"),
+        ("ResourceWarning", "Warning"),
+        ("RuntimeWarning", "Warning"),
+        ("SyntaxWarning", "Warning"),
+        ("UnicodeWarning", "Warning"),
+        ("UserWarning", "Warning"),
+    ].iter().cloned().collect();
 
     for exc in exceptions {
         let exc_name = exc.to_string();
@@ -66,15 +197,18 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             Rc::new(PyNativeFunction::new_pos_only(
                 exc_name.clone(),
                 move |args| {
+                    let exc_args = args.to_vec();
                     let msg = if !args.is_empty() {
                         Some(args[0].str())
                     } else {
                         None
                     };
-                    Ok(Rc::new(crate::objects::exception::PyException::new(
+                    let mut py_exc = crate::objects::exception::PyException::with_args(
                         exc_name.clone(),
-                        msg,
-                    )))
+                        exc_args,
+                    );
+                    py_exc.message = msg;
+                    Ok(Rc::new(py_exc) as Rc<dyn PyObject>)
                 },
             )),
         );
@@ -254,22 +388,45 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     env_mut.set(
         "type".to_string(),
         Rc::new(PyNativeFunction::new_pos_only("type".to_string(), |args| {
-            if args.len() != 1 {
+            if args.len() == 1 {
+                let obj = &args[0];
+                let type_name = if let Some(inst) = obj
+                    .as_any()
+                    .downcast_ref::<crate::objects::instance::PyInstance>()
+                {
+                    inst.class.name.clone()
+                } else {
+                    obj.get_type().to_string()
+                };
+                Ok(Rc::new(crate::objects::typeobj::PyType::new(&type_name)))
+            } else if args.len() == 3 {
+                let name = &args[0];
+                let _bases = &args[1];
+                let dict = &args[2];
+                let name_str = if let Some(s) = name.as_any().downcast_ref::<PyString>() {
+                    s.value.clone()
+                } else {
+                    return Err("TypeError: type() argument 1 must be str, not ".
+                        to_string() + &name.get_type());
+                };
+                let cls = PyClass::new(name_str, HashMap::new(), vec![])
+                    .map_err(|e| format!("TypeError: {}", e))?;
+                let cls = Rc::new(cls);
+                if let Some(dict_obj) = dict.as_any().downcast_ref::<PyDict>() {
+                    for k_obj in dict_obj.ordered_keys.borrow().iter() {
+                        if let Some(k_str) = k_obj.as_any().downcast_ref::<PyString>() {
+                            let v = dict_obj.get_item_value(k_obj).unwrap();
+                            cls.attributes.borrow_mut().insert(k_str.value.clone(), v);
+                        }
+                    }
+                }
+                Ok(cls as Rc<dyn PyObject>)
+            } else {
                 return Err(format!(
-                    "TypeError: type() takes exactly one argument ({} given)",
+                    "TypeError: type() takes 1 or 3 arguments ({} given)",
                     args.len()
                 ));
             }
-            let obj = &args[0];
-            let type_name = if let Some(inst) = obj
-                .as_any()
-                .downcast_ref::<crate::objects::instance::PyInstance>()
-            {
-                inst.class.name.clone()
-            } else {
-                obj.get_type().to_string()
-            };
-            Ok(Rc::new(crate::objects::typeobj::PyType::new(&type_name)))
         })),
     );
 
@@ -2076,13 +2233,10 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     // Register native standard library modules implemented in Rust
     crate::stdlib::native_modules::register_all_native_modules(&import_system);
 
-    // Register mock modules for remaining standard library modules so they can be imported
+    // Register mock modules for standard library modules without Python stubs
     let mock_modules = vec![
         "calendar",
         "shutil",
-        "decimal",
-        "fractions",
-        "string",
         "secrets",
         "logging",
         "multiprocessing",
@@ -2093,8 +2247,6 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         "gzip",
         "tarfile",
         "unittest",
-        "typing",
-        "dataclasses",
     ];
     for name in mock_modules {
         let mock_module = Rc::new(PyModule::new(name.to_string()));
@@ -2198,6 +2350,21 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                             s.value
                         )
                     })?
+                } else if let Some(inst) = args[0].as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                    if let Ok(float_val) = inst.call_dunder("__float__", vec![]) {
+                        if let Some(f) = float_val.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                            f.value
+                        } else if let Some(i) = float_val.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                            i.as_i64().unwrap_or(0) as f64
+                        } else {
+                            return Err("TypeError: __float__ returned non-float".to_string());
+                        }
+                    } else {
+                        return Err(format!(
+                            "TypeError: float() argument must be a string or a number, not '{}'",
+                            args[0].get_type()
+                        ));
+                    }
                 } else {
                     return Err(format!(
                         "TypeError: float() argument must be a string or a number, not '{}'",
@@ -3051,4 +3218,103 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             },
         )),
     );
+
+    // exit() / quit() - raise SystemExit
+    let exit_func = Rc::new(PyNativeFunction::new_pos_only(
+        "exit".to_string(),
+        |args| {
+            let code = if args.is_empty() {
+                0
+            } else {
+                args[0].str().parse::<i32>().unwrap_or(0)
+            };
+            Err(format!("SystemExit: {}", code))
+        },
+    ));
+    env_mut2.set("exit".to_string(), Rc::clone(&exit_func) as Rc<dyn PyObject>);
+    env_mut2.set("quit".to_string(), exit_func as Rc<dyn PyObject>);
+
+    // breakpoint(*args, **kwargs) -> None
+    env_mut2.set(
+        "breakpoint".to_string(),
+        Rc::new(PyNativeFunction::new(
+            "breakpoint".to_string(),
+            |args, _kwargs| {
+                eprintln!("--> breakpoint at frame depth {}", args.len());
+                // Simple interactive debug REPL
+                let mut input = String::new();
+                loop {
+                    print!("(pdb) ");
+                    std::io::stdout().flush().ok();
+                    input.clear();
+                    if std::io::stdin().read_line(&mut input).is_err() {
+                        break;
+                    }
+                    let cmd = input.trim();
+                    match cmd {
+                        "c" | "continue" => break,
+                        "q" | "quit" => std::process::exit(0),
+                        "h" | "help" => eprintln!("Commands: c(ontinue), q(uit), h(elp), <expr>"),
+                        "" => {}
+                        _ => eprintln!("RustPy breakpoint: type 'c' to continue"),
+                    }
+                }
+                Ok(Rc::new(PyNone::new()))
+            },
+        )),
+    );
+
+    // copyright() -> None
+    env_mut2.set(
+        "copyright".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only(
+            "copyright".to_string(),
+            |_args| {
+                println!("Copyright (c) 2024 RustPy.  All rights reserved.");
+                println!();
+                println!("RustPy is a Python interpreter written in Rust.");
+                println!("Licensed under the MIT License.");
+                Ok(Rc::new(PyNone::new()))
+            },
+        )),
+    );
+
+    // credits() -> None
+    env_mut2.set(
+        "credits".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only(
+            "credits".to_string(),
+            |_args| {
+                println!("RustPy - A Python interpreter written in Rust");
+                println!("    Thanks to all contributors and the CPython team");
+                println!("    for their invaluable work on the Python language.");
+                Ok(Rc::new(PyNone::new()))
+            },
+        )),
+    );
+
+    // license() -> None
+    env_mut2.set(
+        "license".to_string(),
+        Rc::new(PyNativeFunction::new_pos_only(
+            "license".to_string(),
+            |_args| {
+                println!("RustPy is released under the MIT License.");
+                println!();
+                println!("Permission is hereby granted, free of charge, to any person");
+                println!("obtaining a copy of this software and associated documentation");
+                println!("files (the 'Software'), to deal in the Software without");
+                println!("restriction, including without limitation the rights to use,");
+                println!("copy, modify, merge, publish, distribute, sublicense, and/or");
+                println!("sell copies of the Software, and to permit persons to whom the");
+                println!("Software is furnished to do so, subject to the following");
+                println!("conditions:");
+                println!();
+                println!("The above copyright notice and this permission notice shall be");
+                println!("included in all copies or substantial portions of the Software.");
+                Ok(Rc::new(PyNone::new()))
+            },
+        )),
+    );
+
 }

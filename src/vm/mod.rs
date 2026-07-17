@@ -4,6 +4,7 @@ use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
 use crate::objects::PyObject;
 use crate::objects::function::PyFunction;
+use crate::objects::instance::PyInstance;
 use crate::objects::int::PyInt;
 use crate::objects::string::PyString;
 use crate::runtime::Environment;
@@ -27,6 +28,7 @@ fn extract_exception_type(e: &str) -> String {
         "ImportError",
         "ModuleNotFoundError",
         "RuntimeError",
+        "StopAsyncIteration",
         "StopIteration",
         "ZeroDivisionError",
         "OverflowError",
@@ -55,44 +57,6 @@ fn extract_exception_type(e: &str) -> String {
         }
     }
     "RuntimeError".to_string()
-}
-
-fn is_exception_subclass(sub: &str, parent: &str) -> bool {
-    if sub == parent {
-        return true;
-    }
-    if parent == "BaseException" {
-        return true;
-    }
-    if parent == "Exception" {
-        return sub != "BaseException"
-            && sub != "KeyboardInterrupt"
-            && sub != "SystemExit"
-            && sub != "GeneratorExit";
-    }
-
-    let mut current = sub;
-    while current != "BaseException" && current != "Exception" && !current.is_empty() {
-        if current == parent {
-            return true;
-        }
-        current = match current {
-            "TypeError" | "ValueError" | "NameError" | "AttributeError" | "AssertionError"
-            | "MemoryError" | "StopIteration" | "StopAsyncIteration" | "RuntimeError"
-            | "LookupError" | "ImportError" | "OSError" | "IOError" | "ArithmeticError" => {
-                "Exception"
-            }
-            "UnicodeError" => "ValueError",
-            "UnicodeDecodeError" | "UnicodeEncodeError" => "UnicodeError",
-            "RecursionError" | "NotImplementedError" => "RuntimeError",
-            "IndexError" | "KeyError" => "LookupError",
-            "ModuleNotFoundError" => "ImportError",
-            "FileNotFoundError" | "PermissionError" => "OSError",
-            "ZeroDivisionError" | "OverflowError" => "ArithmeticError",
-            _ => "",
-        };
-    }
-    current == parent
 }
 
 pub struct VirtualMachine {
@@ -1164,7 +1128,17 @@ impl VirtualMachine {
                     frame.ip = *target;
                 }
             }
-            Opcode::BuildClass(num_bases) => {
+            Opcode::BuildClass { bases: num_bases, keywords: num_keywords } => {
+                // Pop keywords (key, value pairs)
+                let mut keywords = std::collections::HashMap::new();
+                for _ in 0..*num_keywords {
+                    let value = frame.pop()?;
+                    let key_obj = frame.pop()?;
+                    if let Some(s) = key_obj.as_any().downcast_ref::<crate::objects::string::PyString>() {
+                        keywords.insert(s.value.clone(), value);
+                    }
+                }
+
                 let mut bases = Vec::new();
                 for _ in 0..*num_bases {
                     bases.push(frame.pop()?);
@@ -1190,14 +1164,18 @@ impl VirtualMachine {
                 let class_env = Environment::new_enclosed(Rc::clone(&frame.env));
                 let mut class_frame = Frame::new(code.clone(), class_env.clone());
 
-                // We need a way to run this frame without returning the final result (or just discard it)
-                // The methods are now stored in class_env
                 self.run(&mut class_frame)?;
 
                 // Extract methods from class_env
                 let attributes = class_env.borrow().get_all_locals();
 
                 let class = crate::objects::class::PyClass::new(name, attributes, bases)?;
+
+                // Handle metaclass keyword - store on class attributes
+                if let Some(metaclass) = keywords.remove("metaclass") {
+                    class.attributes.borrow_mut().insert("__metaclass__".to_string(), metaclass);
+                }
+
                 let class_obj = Rc::new(class);
                 frame.push(class_obj);
             }
@@ -1358,16 +1336,43 @@ impl VirtualMachine {
             Opcode::BinaryMatMul => {
                 let right = frame.pop()?;
                 let left = frame.pop()?;
-                if let Some(result) = left.matmul(Rc::clone(&right)) {
-                    frame.push(result);
-                } else if let Some(result) = right.rmatmul(Rc::clone(&left)) {
+                // Try __matmul__ on user-defined classes
+                let matmul_result = {
+                    let is_instance = left.as_any().downcast_ref::<PyInstance>().is_some();
+                    if is_instance {
+                        if let Some(inst) = left.as_any().downcast_ref::<PyInstance>() {
+                            if let Ok(method) = inst.get_attr("__matmul__") {
+                                self.invoke(method, vec![Rc::clone(&right)], std::collections::HashMap::new()).ok()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        left.matmul(Rc::clone(&right))
+                    }
+                };
+                if let Some(result) = matmul_result {
                     frame.push(result);
                 } else {
-                    return Err(format!(
-                        "TypeError: unsupported operand type(s) for @: '{}' and '{}'",
-                        left.get_type(),
-                        right.get_type()
-                    ));
+                    // Try __rmatmul__ on the right operand
+                    let rmatmul_result = if let Some(inst) = right.as_any().downcast_ref::<PyInstance>() {
+                        if let Ok(method) = inst.get_attr("__rmatmul__") {
+                            self.invoke(method, vec![Rc::clone(&left)], std::collections::HashMap::new()).ok()
+                        } else { None }
+                    } else {
+                        right.rmatmul(Rc::clone(&left))
+                    };
+                    if let Some(result) = rmatmul_result {
+                        frame.push(result);
+                    } else {
+                        return Err(format!(
+                            "TypeError: unsupported operand type(s) for @: '{}' and '{}'",
+                            left.get_type(),
+                            right.get_type()
+                        ));
+                    }
                 }
             }
             Opcode::BinaryBitAnd => {
@@ -1783,9 +1788,9 @@ impl VirtualMachine {
                 let exc_obj = frame.pop()?;
                 let is_match = if let Some(py_exc) = exc_obj
                     .as_any()
-                    .downcast_ref::<crate::objects::exception::PyException>(
-                ) {
-                    is_exception_subclass(&py_exc.exc_type, target_type_name)
+                    .downcast_ref::<crate::objects::exception::PyException>()
+                {
+                    crate::objects::exception::is_exception_subclass(&py_exc.exc_type, target_type_name)
                 } else if let Some(inst) = exc_obj
                     .as_any()
                     .downcast_ref::<crate::objects::instance::PyInstance>()
@@ -2231,6 +2236,10 @@ impl VirtualMachine {
         args: Vec<Rc<dyn PyObject>>,
         kwargs: std::collections::HashMap<String, Rc<dyn PyObject>>,
     ) -> Result<Rc<dyn PyObject>, String> {
+        // Set up the thread-local VM pointer once so PyInstance::call_dunder
+        // can invoke Python functions (PyFunction).
+        let vm_ptr: *mut VirtualMachine = self;
+        crate::objects::instance::set_vm_ptr(vm_ptr as *mut ());
         self.invoke_inner(func_obj, args, kwargs)
     }
 
@@ -2428,6 +2437,12 @@ impl VirtualMachine {
                 }
             }
             Ok(instance)
+        } else if let Some(inst) = func_obj
+            .as_any()
+            .downcast_ref::<crate::objects::instance::PyInstance>()
+        {
+            let call_method = inst.get_attr("__call__")?;
+            self.invoke(call_method, args, kwargs)
         } else if let Some(bound_method) = func_obj
             .as_any()
             .downcast_ref::<crate::objects::bound_method::PyBoundMethod>(
