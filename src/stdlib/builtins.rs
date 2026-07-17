@@ -188,7 +188,10 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
         ("SyntaxWarning", "Warning"),
         ("UnicodeWarning", "Warning"),
         ("UserWarning", "Warning"),
-    ].iter().cloned().collect();
+    ]
+    .iter()
+    .cloned()
+    .collect();
 
     for exc in exceptions {
         let exc_name = exc.to_string();
@@ -406,8 +409,8 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                 let name_str = if let Some(s) = name.as_any().downcast_ref::<PyString>() {
                     s.value.clone()
                 } else {
-                    return Err("TypeError: type() argument 1 must be str, not ".
-                        to_string() + &name.get_type());
+                    return Err("TypeError: type() argument 1 must be str, not ".to_string()
+                        + &name.get_type());
                 };
                 let cls = PyClass::new(name_str, HashMap::new(), vec![])
                     .map_err(|e| format!("TypeError: {}", e))?;
@@ -2350,11 +2353,20 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
                             s.value
                         )
                     })?
-                } else if let Some(inst) = args[0].as_any().downcast_ref::<crate::objects::instance::PyInstance>() {
+                } else if let Some(inst) = args[0]
+                    .as_any()
+                    .downcast_ref::<crate::objects::instance::PyInstance>()
+                {
                     if let Ok(float_val) = inst.call_dunder("__float__", vec![]) {
-                        if let Some(f) = float_val.as_any().downcast_ref::<crate::objects::float::PyFloat>() {
+                        if let Some(f) = float_val
+                            .as_any()
+                            .downcast_ref::<crate::objects::float::PyFloat>()
+                        {
                             f.value
-                        } else if let Some(i) = float_val.as_any().downcast_ref::<crate::objects::int::PyInt>() {
+                        } else if let Some(i) = float_val
+                            .as_any()
+                            .downcast_ref::<crate::objects::int::PyInt>()
+                        {
                             i.as_i64().unwrap_or(0) as f64
                         } else {
                             return Err("TypeError: __float__ returned non-float".to_string());
@@ -3220,18 +3232,18 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
     );
 
     // exit() / quit() - raise SystemExit
-    let exit_func = Rc::new(PyNativeFunction::new_pos_only(
+    let exit_func = Rc::new(PyNativeFunction::new_pos_only("exit".to_string(), |args| {
+        let code = if args.is_empty() {
+            0
+        } else {
+            args[0].str().parse::<i32>().unwrap_or(0)
+        };
+        Err(format!("SystemExit: {}", code))
+    }));
+    env_mut2.set(
         "exit".to_string(),
-        |args| {
-            let code = if args.is_empty() {
-                0
-            } else {
-                args[0].str().parse::<i32>().unwrap_or(0)
-            };
-            Err(format!("SystemExit: {}", code))
-        },
-    ));
-    env_mut2.set("exit".to_string(), Rc::clone(&exit_func) as Rc<dyn PyObject>);
+        Rc::clone(&exit_func) as Rc<dyn PyObject>,
+    );
     env_mut2.set("quit".to_string(), exit_func as Rc<dyn PyObject>);
 
     // breakpoint(*args, **kwargs) -> None
@@ -3316,5 +3328,4 @@ pub fn inject_builtins(env: &Rc<RefCell<Environment>>) {
             },
         )),
     );
-
 }

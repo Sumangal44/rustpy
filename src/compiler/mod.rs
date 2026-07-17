@@ -260,9 +260,7 @@ impl Compiler {
                             }
                         }
                         _ => {
-                            return Err(
-                                "CompilerError: Unsupported AnnAssign target".to_string()
-                            );
+                            return Err("CompilerError: Unsupported AnnAssign target".to_string());
                         }
                     }
                 }
@@ -642,9 +640,8 @@ impl Compiler {
                 // Compile keyword arguments (metaclass=Meta, etc.)
                 for (key, value) in keywords {
                     // Push key name as string constant
-                    let key_obj = std::rc::Rc::new(crate::objects::string::PyString {
-                        value: key.clone(),
-                    });
+                    let key_obj =
+                        std::rc::Rc::new(crate::objects::string::PyString { value: key.clone() });
                     self.code.constants.push(key_obj);
                     let key_idx = self.code.constants.len() - 1;
                     self.emit(Opcode::LoadConst(key_idx));

@@ -1128,13 +1128,19 @@ impl VirtualMachine {
                     frame.ip = *target;
                 }
             }
-            Opcode::BuildClass { bases: num_bases, keywords: num_keywords } => {
+            Opcode::BuildClass {
+                bases: num_bases,
+                keywords: num_keywords,
+            } => {
                 // Pop keywords (key, value pairs)
                 let mut keywords = std::collections::HashMap::new();
                 for _ in 0..*num_keywords {
                     let value = frame.pop()?;
                     let key_obj = frame.pop()?;
-                    if let Some(s) = key_obj.as_any().downcast_ref::<crate::objects::string::PyString>() {
+                    if let Some(s) = key_obj
+                        .as_any()
+                        .downcast_ref::<crate::objects::string::PyString>()
+                    {
                         keywords.insert(s.value.clone(), value);
                     }
                 }
@@ -1173,7 +1179,10 @@ impl VirtualMachine {
 
                 // Handle metaclass keyword - store on class attributes
                 if let Some(metaclass) = keywords.remove("metaclass") {
-                    class.attributes.borrow_mut().insert("__metaclass__".to_string(), metaclass);
+                    class
+                        .attributes
+                        .borrow_mut()
+                        .insert("__metaclass__".to_string(), metaclass);
                 }
 
                 let class_obj = Rc::new(class);
@@ -1342,7 +1351,12 @@ impl VirtualMachine {
                     if is_instance {
                         if let Some(inst) = left.as_any().downcast_ref::<PyInstance>() {
                             if let Ok(method) = inst.get_attr("__matmul__") {
-                                self.invoke(method, vec![Rc::clone(&right)], std::collections::HashMap::new()).ok()
+                                self.invoke(
+                                    method,
+                                    vec![Rc::clone(&right)],
+                                    std::collections::HashMap::new(),
+                                )
+                                .ok()
                             } else {
                                 None
                             }
@@ -1357,13 +1371,21 @@ impl VirtualMachine {
                     frame.push(result);
                 } else {
                     // Try __rmatmul__ on the right operand
-                    let rmatmul_result = if let Some(inst) = right.as_any().downcast_ref::<PyInstance>() {
-                        if let Ok(method) = inst.get_attr("__rmatmul__") {
-                            self.invoke(method, vec![Rc::clone(&left)], std::collections::HashMap::new()).ok()
-                        } else { None }
-                    } else {
-                        right.rmatmul(Rc::clone(&left))
-                    };
+                    let rmatmul_result =
+                        if let Some(inst) = right.as_any().downcast_ref::<PyInstance>() {
+                            if let Ok(method) = inst.get_attr("__rmatmul__") {
+                                self.invoke(
+                                    method,
+                                    vec![Rc::clone(&left)],
+                                    std::collections::HashMap::new(),
+                                )
+                                .ok()
+                            } else {
+                                None
+                            }
+                        } else {
+                            right.rmatmul(Rc::clone(&left))
+                        };
                     if let Some(result) = rmatmul_result {
                         frame.push(result);
                     } else {
@@ -1788,9 +1810,12 @@ impl VirtualMachine {
                 let exc_obj = frame.pop()?;
                 let is_match = if let Some(py_exc) = exc_obj
                     .as_any()
-                    .downcast_ref::<crate::objects::exception::PyException>()
-                {
-                    crate::objects::exception::is_exception_subclass(&py_exc.exc_type, target_type_name)
+                    .downcast_ref::<crate::objects::exception::PyException>(
+                ) {
+                    crate::objects::exception::is_exception_subclass(
+                        &py_exc.exc_type,
+                        target_type_name,
+                    )
                 } else if let Some(inst) = exc_obj
                     .as_any()
                     .downcast_ref::<crate::objects::instance::PyInstance>()

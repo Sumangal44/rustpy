@@ -89,23 +89,40 @@ impl PyObject for PyNativeFunction {
                     Ok(Rc::new(crate::objects::dict::PyDict::from_pairs(pairs)))
                 },
             )) as Rc<dyn PyObject>),
-            ("int", "from_bytes") => Ok(Rc::new(PyNativeFunction::new("from_bytes".to_string(), |args, _kwargs| {
-                let bytes = args.get(0).ok_or("TypeError: from_bytes() missing 1 required positional argument: 'bytes'".to_string())?;
-                let byteorder = args.get(1).map(|a| a.str()).unwrap_or_else(|| "big".to_string());
-                let raw: Vec<u8> = if let Some(b) = bytes.as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                    b.value.clone()
-                } else if let Some(ba) = bytes.as_any().downcast_ref::<crate::objects::bytearray::PyByteArray>() {
-                    ba.value.borrow().clone()
-                } else {
-                    return Err("TypeError: from_bytes() argument must be a bytes-like object".to_string());
-                };
-                let big_val = if byteorder == "big" {
-                    num_bigint::BigInt::from_bytes_be(num_bigint::Sign::Plus, &raw)
-                } else {
-                    num_bigint::BigInt::from_bytes_le(num_bigint::Sign::Plus, &raw)
-                };
-                Ok(Rc::new(crate::objects::int::PyInt::new(big_val)) as Rc<dyn PyObject>)
-            })) as Rc<dyn PyObject>),
+            ("int", "from_bytes") => {
+                Ok(Rc::new(PyNativeFunction::new(
+                    "from_bytes".to_string(),
+                    |args, _kwargs| {
+                        let bytes = args.get(0).ok_or("TypeError: from_bytes() missing 1 required positional argument: 'bytes'".to_string())?;
+                        let byteorder = args
+                            .get(1)
+                            .map(|a| a.str())
+                            .unwrap_or_else(|| "big".to_string());
+                        let raw: Vec<u8> = if let Some(b) = bytes
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>(
+                        ) {
+                            b.value.clone()
+                        } else if let Some(ba) = bytes
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytearray::PyByteArray>(
+                        ) {
+                            ba.value.borrow().clone()
+                        } else {
+                            return Err(
+                                "TypeError: from_bytes() argument must be a bytes-like object"
+                                    .to_string(),
+                            );
+                        };
+                        let big_val = if byteorder == "big" {
+                            num_bigint::BigInt::from_bytes_be(num_bigint::Sign::Plus, &raw)
+                        } else {
+                            num_bigint::BigInt::from_bytes_le(num_bigint::Sign::Plus, &raw)
+                        };
+                        Ok(Rc::new(crate::objects::int::PyInt::new(big_val)) as Rc<dyn PyObject>)
+                    },
+                )) as Rc<dyn PyObject>)
+            }
             _ => Err(format!(
                 "AttributeError: 'builtin_function_or_method' object has no attribute '{}'",
                 attr

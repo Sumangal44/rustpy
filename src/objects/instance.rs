@@ -105,7 +105,11 @@ impl PyInstance {
             if let Some(_func) = bound.func.as_any().downcast_ref::<PyFunction>() {
                 let mut all_args = vec![Rc::clone(&bound.instance)];
                 all_args.extend(args);
-                return call_vm_func(Rc::clone(&bound.func), all_args, std::collections::HashMap::new());
+                return call_vm_func(
+                    Rc::clone(&bound.func),
+                    all_args,
+                    std::collections::HashMap::new(),
+                );
             }
             return Err(format!(
                 "NotImplementedError: calling {} on user-defined function not supported",
@@ -162,7 +166,9 @@ impl PyObject for PyInstance {
     fn hash(&self) -> Result<i64, String> {
         if let Ok(result) = self.call_dunder("__hash__", vec![]) {
             if let Some(i) = result.as_any().downcast_ref::<PyInt>() {
-                return i.as_i64().ok_or_else(|| "TypeError: __hash__ returned non-integer".to_string());
+                return i
+                    .as_i64()
+                    .ok_or_else(|| "TypeError: __hash__ returned non-integer".to_string());
             }
             return Err("TypeError: __hash__ returned non-integer".to_string());
         }

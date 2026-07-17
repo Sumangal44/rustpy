@@ -488,7 +488,9 @@ impl<'a> Parser<'a> {
                 loop {
                     // Detect keyword argument: `Identifier =` (peek at next token)
                     let is_keyword = match &self.current_token.kind {
-                        TokenKind::Identifier(_) => matches!(&self.peek_token.kind, TokenKind::Equal),
+                        TokenKind::Identifier(_) => {
+                            matches!(&self.peek_token.kind, TokenKind::Equal)
+                        }
                         _ => false,
                     };
 

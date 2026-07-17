@@ -484,52 +484,81 @@ impl PyObject for PyInt {
     fn get_attr(&self, attr: &str) -> Result<Rc<dyn PyObject>, String> {
         let val = self.value.clone();
         match attr {
-            "from_bytes" => Ok(Rc::new(PyNativeFunction::new_pos_only(
-                "from_bytes".to_string(),
-                move |args| {
-                    let bytes = args.get(0).ok_or("TypeError: from_bytes() missing 1 required positional argument: 'bytes'".to_string())?;
-                    let byteorder = args.get(1).map(|a| a.str()).unwrap_or_else(|| "big".to_string());
-                    let raw: Vec<u8> = if let Some(b) = bytes.as_any().downcast_ref::<crate::objects::bytes::PyBytes>() {
-                        b.value.clone()
-                    } else if let Some(ba) = bytes.as_any().downcast_ref::<crate::objects::bytearray::PyByteArray>() {
-                        ba.value.borrow().clone()
+            "from_bytes" => {
+                Ok(Rc::new(PyNativeFunction::new_pos_only(
+                    "from_bytes".to_string(),
+                    move |args| {
+                        let bytes = args.get(0).ok_or("TypeError: from_bytes() missing 1 required positional argument: 'bytes'".to_string())?;
+                        let byteorder = args
+                            .get(1)
+                            .map(|a| a.str())
+                            .unwrap_or_else(|| "big".to_string());
+                        let raw: Vec<u8> = if let Some(b) = bytes
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytes::PyBytes>(
+                        ) {
+                            b.value.clone()
+                        } else if let Some(ba) = bytes
+                            .as_any()
+                            .downcast_ref::<crate::objects::bytearray::PyByteArray>(
+                        ) {
+                            ba.value.borrow().clone()
+                        } else {
+                            return Err(
+                                "TypeError: from_bytes() argument must be a bytes-like object"
+                                    .to_string(),
+                            );
+                        };
+                        let big_val = if byteorder == "big" {
+                            num_bigint::BigInt::from_bytes_be(num_bigint::Sign::Plus, &raw)
+                        } else {
+                            num_bigint::BigInt::from_bytes_le(num_bigint::Sign::Plus, &raw)
+                        };
+                        Ok(Rc::new(PyInt::new(big_val)) as Rc<dyn PyObject>)
+                    },
+                )))
+            }
+            "to_bytes" => Ok(Rc::new(PyNativeFunction::new(
+                "to_bytes".to_string(),
+                move |args, _kwargs| {
+                    let length = if let Some(l) =
+                        args.get(0).and_then(|a| a.as_any().downcast_ref::<PyInt>())
+                    {
+                        l.as_i64().unwrap_or(1) as usize
                     } else {
-                        return Err("TypeError: from_bytes() argument must be a bytes-like object".to_string());
+                        1
                     };
-                    let big_val = if byteorder == "big" {
-                        num_bigint::BigInt::from_bytes_be(num_bigint::Sign::Plus, &raw)
-                    } else {
-                        num_bigint::BigInt::from_bytes_le(num_bigint::Sign::Plus, &raw)
-                    };
-                    Ok(Rc::new(PyInt::new(big_val)) as Rc<dyn PyObject>)
+                    let byteorder = args
+                        .get(1)
+                        .map(|a| a.str())
+                        .unwrap_or_else(|| "big".to_string());
+                    let _signed = args
+                        .get(2)
+                        .and_then(|a| {
+                            if let Some(b) =
+                                a.as_any().downcast_ref::<crate::objects::bool::PyBool>()
+                            {
+                                Some(b.value)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(false);
+                    let (sign, mut raw) = val.clone().to_bytes_be();
+                    if raw.len() < length {
+                        let mut padded = vec![0u8; length - raw.len()];
+                        padded.extend(raw);
+                        raw = padded;
+                    }
+                    if raw.len() > length {
+                        raw = raw[raw.len() - length..].to_vec();
+                    }
+                    if byteorder == "little" {
+                        raw.reverse();
+                    }
+                    Ok(Rc::new(crate::objects::bytes::PyBytes::new(raw)) as Rc<dyn PyObject>)
                 },
             ))),
-            "to_bytes" => Ok(Rc::new(PyNativeFunction::new("to_bytes".to_string(), move |args, _kwargs| {
-                let length = if let Some(l) = args.get(0).and_then(|a| a.as_any().downcast_ref::<PyInt>()) {
-                    l.as_i64().unwrap_or(1) as usize
-                } else {
-                    1
-                };
-                let byteorder = args.get(1).map(|a| a.str()).unwrap_or_else(|| "big".to_string());
-                let _signed = args.get(2).and_then(|a| {
-                    if let Some(b) = a.as_any().downcast_ref::<crate::objects::bool::PyBool>() {
-                        Some(b.value)
-                    } else { None }
-                }).unwrap_or(false);
-                let (sign, mut raw) = val.clone().to_bytes_be();
-                if raw.len() < length {
-                    let mut padded = vec![0u8; length - raw.len()];
-                    padded.extend(raw);
-                    raw = padded;
-                }
-                if raw.len() > length {
-                    raw = raw[raw.len()-length..].to_vec();
-                }
-                if byteorder == "little" {
-                    raw.reverse();
-                }
-                Ok(Rc::new(crate::objects::bytes::PyBytes::new(raw)) as Rc<dyn PyObject>)
-            }))),
             "bit_length" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "bit_length".to_string(),
                 move |_args| {
@@ -550,14 +579,13 @@ impl PyObject for PyInt {
                 move |_args| {
                     let num = Rc::new(PyInt::new(val.clone())) as Rc<dyn PyObject>;
                     let den = Rc::new(PyInt::from_i64(1)) as Rc<dyn PyObject>;
-                    Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![num, den])) as Rc<dyn PyObject>)
+                    Ok(Rc::new(crate::objects::tuple::PyTuple::new(vec![num, den]))
+                        as Rc<dyn PyObject>)
                 },
             ))),
             "conjugate" => Ok(Rc::new(PyNativeFunction::new_pos_only(
                 "conjugate".to_string(),
-                move |_args| {
-                    Ok(Rc::new(PyInt::new(val.clone())) as Rc<dyn PyObject>)
-                },
+                move |_args| Ok(Rc::new(PyInt::new(val.clone())) as Rc<dyn PyObject>),
             ))),
             "real" => Ok(Rc::new(PyInt::new(val.clone())) as Rc<dyn PyObject>),
             "imag" => Ok(Rc::new(PyInt::from_i64(0)) as Rc<dyn PyObject>),
