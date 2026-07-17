@@ -544,7 +544,7 @@ impl PyObject for PyInt {
                             }
                         })
                         .unwrap_or(false);
-                    let (sign, mut raw) = val.clone().to_bytes_be();
+                    let (_sign, mut raw) = val.clone().to_bytes_be();
                     if raw.len() < length {
                         let mut padded = vec![0u8; length - raw.len()];
                         padded.extend(raw);

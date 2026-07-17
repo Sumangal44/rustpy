@@ -17,9 +17,11 @@ use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[allow(dead_code)]
 static SEED: Mutex<u64> = Mutex::new(42);
 
 // Utility helpers for arg conversion
+#[allow(dead_code)]
 fn to_i64(obj: &Rc<dyn PyObject>) -> Result<i64, String> {
     if let Some(i) = obj.as_any().downcast_ref::<PyInt>() {
         i.as_i64()
@@ -38,6 +40,7 @@ fn to_string(obj: &Rc<dyn PyObject>) -> Result<String, String> {
 }
 
 // 1. RANDOM MODULE
+#[allow(dead_code)]
 pub fn create_random_module() -> Rc<PyModule> {
     let module = Rc::new(PyModule::new("random".to_string()));
 
@@ -116,6 +119,7 @@ pub fn create_random_module() -> Rc<PyModule> {
 }
 
 // 2. DATETIME MODULE
+#[allow(dead_code)]
 pub fn create_datetime_module() -> Rc<PyModule> {
     let module = Rc::new(PyModule::new("datetime".to_string()));
 
@@ -810,6 +814,7 @@ pub fn create_statistics_module() -> Rc<PyModule> {
 }
 
 // 9. ITERTOOLS MODULE
+#[allow(dead_code)]
 pub fn create_itertools_module() -> Rc<PyModule> {
     let module = Rc::new(PyModule::new("itertools".to_string()));
 

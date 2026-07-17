@@ -416,10 +416,12 @@ impl PyException {
         }
     }
 
+    #[allow(dead_code)]
     pub fn mro(&self) -> Vec<&'static str> {
         exception_mro(&self.exc_type)
     }
 
+    #[allow(dead_code)]
     pub fn is_subclass_of(&self, parent: &str) -> bool {
         is_exception_subclass(&self.exc_type, parent)
     }
