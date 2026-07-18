@@ -11,6 +11,8 @@ mod vm;
 
 use compiler::Compiler;
 use lexer::Lexer;
+use objects::string::PyString;
+use objects::PyObject;
 use parser::Parser;
 use runtime::Environment;
 use std::cell::RefCell;
@@ -45,6 +47,10 @@ fn run_file(path: &str) {
 
     let env = Environment::new();
     stdlib::builtins::inject_builtins(&env);
+    env.borrow_mut().set(
+        "__name__".to_string(),
+        Rc::new(PyString::new("__main__".to_string())) as Rc<dyn PyObject>,
+    );
 
     execute(&source, env, path);
 }
