@@ -1,9 +1,9 @@
-use super::PyObject;
 use super::function::PyFunction;
 use super::native_function::PyNativeFunction;
+use super::PyObject;
 use crate::runtime::Environment;
-use crate::vm::VirtualMachine;
 use crate::vm::frame::Frame;
+use crate::vm::VirtualMachine;
 use std::any::Any;
 use std::rc::Rc;
 

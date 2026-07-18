@@ -1,4 +1,3 @@
-use crate::objects::PyObject;
 use crate::objects::bool::PyBool;
 use crate::objects::class::PyClass;
 use crate::objects::dict::PyDict;
@@ -12,6 +11,7 @@ use crate::objects::none::PyNone;
 use crate::objects::staticmethod::PyStaticMethod;
 use crate::objects::string::PyString;
 use crate::objects::tuple::PyTuple;
+use crate::objects::PyObject;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Mutex;

@@ -1,4 +1,3 @@
-use super::PyObject;
 use super::bound_method::PyBoundMethod;
 use super::class::PyClass;
 use super::classmethod::PyClassMethod;
@@ -8,6 +7,7 @@ use super::native_function::PyNativeFunction;
 use super::property::PyProperty;
 use super::staticmethod::PyStaticMethod;
 use super::string::PyString;
+use super::PyObject;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;

@@ -1,7 +1,21 @@
 [package]
 name = "rustpy"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "A lightweight Python 3.10+ interpreter written in Rust from scratch"
+license = "MIT"
+repository = "https://github.com/sumu/rustpy"
+readme = "README.md"
+keywords = ["python", "interpreter", "language", "vm"]
+categories = ["development-tools", "parsing", "compilers"]
+
+[[bin]]
+name = "rustpy"
+path = "src/main.rs"
+
+[[bin]]
+name = "ppmm"
+path = "src/bin/ppmm.rs"
 
 [dependencies]
 num-bigint = "0.4"

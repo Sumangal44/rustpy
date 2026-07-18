@@ -1,5 +1,5 @@
-use super::PyObject;
 use super::native_function::PyNativeFunction;
+use super::PyObject;
 use std::any::Any;
 use std::rc::Rc;
 

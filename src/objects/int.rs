@@ -1,5 +1,5 @@
-use super::PyObject;
 use super::native_function::PyNativeFunction;
+use super::PyObject;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::any::Any;

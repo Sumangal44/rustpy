@@ -1,7 +1,7 @@
-use crate::objects::PyObject;
 use crate::objects::dict::PyDict;
 use crate::objects::module::PyModule;
 use crate::objects::string::PyString;
+use crate::objects::PyObject;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

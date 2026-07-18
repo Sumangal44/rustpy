@@ -1,4 +1,3 @@
-use crate::objects::PyObject;
 use crate::objects::int::PyInt;
 use crate::objects::list::PyList;
 use crate::objects::module::PyModule;
@@ -6,6 +5,7 @@ use crate::objects::native_function::PyNativeFunction;
 use crate::objects::none::PyNone;
 use crate::objects::string::PyString;
 use crate::objects::tuple::PyTuple;
+use crate::objects::PyObject;
 use std::fs;
 use std::rc::Rc;
 

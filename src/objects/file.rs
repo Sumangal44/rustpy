@@ -477,7 +477,11 @@ impl PyObject for PyFile {
                     let size = if args.len() >= 1 {
                         if let Some(i) = args[0].as_any().downcast_ref::<PyInt>() {
                             let n = i.as_i64().unwrap_or(-1);
-                            if n < 0 { None } else { Some(n as usize) }
+                            if n < 0 {
+                                None
+                            } else {
+                                Some(n as usize)
+                            }
                         } else {
                             return Err(format!(
                                 "TypeError: argument must be int, not '{}'",

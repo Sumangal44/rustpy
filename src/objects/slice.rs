@@ -19,7 +19,11 @@ impl PySlice {
             Some(s) => {
                 if s < 0 {
                     let adjusted = length as i64 + s;
-                    if adjusted < 0 { 0 } else { adjusted as usize }
+                    if adjusted < 0 {
+                        0
+                    } else {
+                        adjusted as usize
+                    }
                 } else {
                     (s as usize).min(length)
                 }

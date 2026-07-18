@@ -18,8 +18,8 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::rc::Rc;
-use vm::VirtualMachine;
 use vm::frame::Frame;
+use vm::VirtualMachine;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -152,10 +152,12 @@ mod tests {
         stdlib::builtins::inject_builtins(&env);
         let wrapped = format!("__result__ = {}\n", source);
         execute(&wrapped, Rc::clone(&env), "<test>");
-        env.borrow()
+        let result = env
+            .borrow()
             .get("__result__")
             .map(|r| r.repr())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        result
     }
 
     fn execute_source(source: &str) -> Rc<RefCell<Environment>> {

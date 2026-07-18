@@ -1,8 +1,8 @@
-use crate::objects::PyObject;
 use crate::objects::dict::PyDict;
 use crate::objects::list::PyList;
 use crate::objects::module::PyModule;
 use crate::objects::string::PyString;
+use crate::objects::PyObject;
 use std::rc::Rc;
 
 pub fn create_sys_module(sys_modules: Rc<PyDict>, argv: Vec<String>) -> Rc<PyModule> {

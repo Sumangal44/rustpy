@@ -1,5 +1,5 @@
-use crate::objects::PyObject;
 use crate::objects::none::PyNone;
+use crate::objects::PyObject;
 use crate::vm::frame::Frame;
 use std::any::Any;
 use std::cell::RefCell;

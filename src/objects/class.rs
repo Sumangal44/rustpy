@@ -126,7 +126,11 @@ impl PyClass {
                         Err(_) => break,
                     }
                 }
-                if names.is_empty() { None } else { Some(names) }
+                if names.is_empty() {
+                    None
+                } else {
+                    Some(names)
+                }
             }
         });
 

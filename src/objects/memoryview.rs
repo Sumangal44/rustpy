@@ -1,7 +1,7 @@
-use crate::objects::PyObject;
 use crate::objects::int::PyInt;
 use crate::objects::native_function::PyNativeFunction;
 use crate::objects::string::PyString;
+use crate::objects::PyObject;
 use std::any::Any;
 use std::rc::Rc;
 

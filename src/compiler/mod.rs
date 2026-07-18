@@ -4,7 +4,7 @@ pub mod opcodes;
 use crate::ast::{BinOpKind, CompKind, Expr, FStringSegment, Module, Pattern, Stmt, UnaryOpKind};
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
-use crate::objects::{PyObject, bool::PyBool, int::PyInt, none::PyNone, string::PyString};
+use crate::objects::{bool::PyBool, int::PyInt, none::PyNone, string::PyString, PyObject};
 use std::rc::Rc;
 
 struct LoopInfo {

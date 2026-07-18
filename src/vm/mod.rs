@@ -2,11 +2,11 @@ pub mod frame;
 
 use crate::compiler::code::CodeObject;
 use crate::compiler::opcodes::Opcode;
-use crate::objects::PyObject;
 use crate::objects::function::PyFunction;
 use crate::objects::instance::PyInstance;
 use crate::objects::int::PyInt;
 use crate::objects::string::PyString;
+use crate::objects::PyObject;
 use crate::runtime::Environment;
 use frame::Frame;
 use std::rc::Rc;

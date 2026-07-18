@@ -1,10 +1,10 @@
-use crate::objects::PyObject;
 use crate::objects::bool::PyBool;
 use crate::objects::float::PyFloat;
 use crate::objects::int::PyInt;
 use crate::objects::module::PyModule;
 use crate::objects::native_function::PyNativeFunction;
 use crate::objects::tuple::PyTuple;
+use crate::objects::PyObject;
 use std::rc::Rc;
 
 fn to_f64(obj: &Rc<dyn PyObject>) -> Result<f64, String> {
@@ -32,7 +32,11 @@ fn to_i64(obj: &Rc<dyn PyObject>) -> Result<i64, String> {
 }
 
 fn gcd_i64(a: i64, b: i64) -> i64 {
-    if b == 0 { a.abs() } else { gcd_i64(b, a % b) }
+    if b == 0 {
+        a.abs()
+    } else {
+        gcd_i64(b, a % b)
+    }
 }
 
 pub fn create_math_module() -> Rc<PyModule> {

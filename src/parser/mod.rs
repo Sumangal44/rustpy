@@ -2,8 +2,8 @@ use crate::ast::{
     BinOpKind, CompKind, Expr, MatchCase, Module, Pattern, Stmt, UnaryOpKind, WithItem,
 };
 use crate::diagnostics::{LexerError, ParseError, ParseErrorKind};
-use crate::lexer::Lexer;
 use crate::lexer::tokens::{Token, TokenKind};
+use crate::lexer::Lexer;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
